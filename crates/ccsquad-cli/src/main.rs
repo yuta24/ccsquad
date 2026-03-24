@@ -5,6 +5,8 @@ use clap::{Parser, Subcommand};
 mod cmd_hook;
 mod cmd_job;
 mod cmd_memory;
+mod cmd_setup;
+mod embedded;
 
 #[derive(Parser)]
 #[command(name = "ccsquad", about = "ジョブ管理 + ワークフローエンジン + メモリ管理 CLI")]
@@ -30,6 +32,8 @@ enum Commands {
         #[command(subcommand)]
         action: cmd_hook::HookAction,
     },
+    /// プロジェクトに ccsquad をセットアップ
+    Setup(cmd_setup::SetupArgs),
 }
 
 fn main() {
@@ -46,6 +50,11 @@ fn main() {
 fn run() -> ccsquad_core::Result<()> {
     let cli = Cli::parse();
 
+    // Setup は config 不要
+    if let Commands::Setup(args) = cli.command {
+        return cmd_setup::run(args);
+    }
+
     let config_path = find_config()?;
     let config = ccsquad_jobs::config::SquadConfig::load(&config_path)?;
     let project_root = config_path.parent().unwrap();
@@ -59,6 +68,7 @@ fn run() -> ccsquad_core::Result<()> {
         Commands::Job { action } => cmd_job::run(action, &config, &jobs_dir, &squad_dir)?,
         Commands::Memory { action } => cmd_memory::run(action, &memory_dir)?,
         Commands::Hook { action } => cmd_hook::run(action, &config, &jobs_dir, &squad_dir)?,
+        Commands::Setup(_) => unreachable!("Setup は早期リターンで処理済み"),
     }
 
     Ok(())
