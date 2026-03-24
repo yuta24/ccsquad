@@ -1,13 +1,5 @@
 workflows:
   dev:
-    description: 開発ワークフロー
-    phases:
-      plan:
-        description: 実装計画を策定する
-        agent: planner
-        on:
-          completed: code
-          failed: ABORT
       code:
         description: コードを実装する
         agent: coder
