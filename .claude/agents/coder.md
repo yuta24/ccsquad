@@ -4,6 +4,8 @@ description: |
   コーディングエージェント。ジョブの code フェーズや fix フェーズで、
   実装計画に基づいてコードを書く。テストの作成・実行も行う。
 tools: Read, Write, Edit, Glob, Grep, Bash, Agent
+skills:
+  - memory
 model: sonnet
 ---
 

@@ -4,6 +4,8 @@ description: |
   コードレビューエージェント。ジョブの review フェーズや verify フェーズで、
   変更内容をレビューし、承認または却下を行う。
 tools: Read, Glob, Grep, Bash
+skills:
+  - memory
 model: sonnet
 ---
 
