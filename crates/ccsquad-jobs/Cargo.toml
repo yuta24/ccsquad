@@ -1,0 +1,16 @@
+[package]
+name = "ccsquad-jobs"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+ccsquad-core = { path = "../ccsquad-core" }
+serde.workspace = true
+serde_yaml.workspace = true
+indexmap.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

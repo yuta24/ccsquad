@@ -1,0 +1,44 @@
+workflows:
+  dev:
+    description: 開発ワークフロー
+    phases:
+      plan:
+        description: 実装計画を策定する
+        agent: planner
+        on:
+          completed: code
+          failed: ABORT
+      code:
+        description: コードを実装する
+        agent: coder
+        on:
+          completed: review
+          failed: plan
+      review:
+        description: コードレビューを行う
+        agent: reviewer
+        reviewer: human
+        on:
+          approved: COMPLETE
+          rejected: code
+  bugfix:
+    description: バグ修正ワークフロー
+    phases:
+      investigate:
+        description: 原因を調査する
+        agent: coder
+        on:
+          completed: fix
+          failed: ABORT
+      fix:
+        description: 修正を実施する
+        agent: coder
+        on:
+          completed: verify
+          failed: investigate
+      verify:
+        description: 修正を検証する
+        agent: reviewer
+        on:
+          completed: COMPLETE
+          failed: fix
