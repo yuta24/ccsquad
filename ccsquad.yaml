@@ -15,6 +15,30 @@ workflows:
         on:
           approved: COMPLETE
           rejected: code
+  plan:
+    description: タスクを調査・分解し、ジョブを作成するワークフロー
+    max_iterations: 5
+    phases:
+      analyze:
+        description: タスクの要件を調査し、コードベースを探索して影響範囲を把握する
+        agent: coder
+        pause: true
+        on:
+          completed: decompose
+          failed: ABORT
+      decompose:
+        description: 調査結果をもとにタスクを分解し、個別のジョブを作成する
+        agent: coder
+        on:
+          completed: review
+          failed: analyze
+      review:
+        description: 分解されたジョブの妥当性をレビューする
+        agent: reviewer
+        reviewer: human
+        on:
+          approved: COMPLETE
+          rejected: decompose
   bugfix:
     description: バグ修正ワークフロー
     max_iterations: 10
