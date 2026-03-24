@@ -44,7 +44,33 @@ claude skill add --url https://github.com/yuta24/ccsquad/blob/main/skills/job/SK
 
 ### セットアップ
 
-インストール後、プロジェクトルートに `ccsquad.yaml` を配置してワークフローを定義してください。
+`ccsquad setup` コマンドで、プロジェクトに必要なファイルを一括生成できます。
+
+```bash
+cd /path/to/your-project
+ccsquad setup
+```
+
+以下のファイルが自動的に作成されます:
+
+- `ccsquad.yaml` — ワークフロー定義
+- `.claude/skills/` — スキル定義 (job, job-run, job-approve, job-reject, memory)
+- `.claude/agents/` — エージェント定義 (coder, reviewer)
+- `.claude/settings.local.json` — SubagentStop フック設定
+
+既存ファイルはスキップされます。`--force` で上書きできます。
+
+```bash
+# 既存ファイルを上書き
+ccsquad setup --force
+
+# 特定のステップをスキップ
+ccsquad setup --skip-hooks --skip-agents
+```
+
+#### 手動セットアップ
+
+`ccsquad setup` を使わずに手動で設定する場合は、プロジェクトルートに `ccsquad.yaml` を配置してワークフローを定義してください。
 
 ```yaml
 workflows:
