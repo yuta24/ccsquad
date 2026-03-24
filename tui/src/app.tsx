@@ -122,7 +122,7 @@ function WorkflowMode() {
     >
       <text bold color="cyan">Workflow Mode</text>
       <box height={1} />
-      <text color="gray">Press Ctrl+W to return to Normal Mode</text>
+      <text color="gray">Press Ctrl+S to return to Normal Mode</text>
       <text color="gray">Press Ctrl+Q to quit</text>
     </box>
   );
@@ -187,8 +187,8 @@ function App() {
       return;
     }
 
-    // Ctrl+W: toggle mode
-    if (event.ctrl && event.name === "w") {
+    // Ctrl+S: toggle mode
+    if (event.ctrl && event.name === "s") {
       const currentMode = modeRef.current;
       if (currentMode === "normal") {
         // Switch to workflow: kill PTY
