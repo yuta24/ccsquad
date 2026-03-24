@@ -239,7 +239,9 @@ function App() {
       width="100%"
       height="100%"
       borderStyle="single"
-      borderColor="green"
+      borderColor="#66ff66"
+      title=" SQUAD | Ctrl+S: Workflow  Ctrl+Q: Quit "
+      titleColor="cyan"
       renderAfter={renderTerminal}
     />
   );
