@@ -110,6 +110,7 @@ version = "0.1.0"
 dependencies = [
  "ccsquad-core",
  "ccsquad-jobs",
+ "ccsquad-memory",
  "chrono",
  "clap",
  "serde",
@@ -133,6 +134,18 @@ dependencies = [
  "ccsquad-core",
  "chrono",
  "indexmap",
+ "serde",
+ "serde_yaml",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "ccsquad-memory"
+version = "0.1.0"
+dependencies = [
+ "ccsquad-core",
+ "chrono",
  "serde",
  "serde_yaml",
  "tempfile",

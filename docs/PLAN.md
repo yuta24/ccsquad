@@ -2,9 +2,9 @@
 
 ## Context
 
-ccguild の設計を見直した結果、TUI・PTY管理・Hook システム・オーケストレーターは Claude Code の標準機能（サブエージェント、skill、worktree）で代替可能と判断。ccguild 固有の価値である**ジョブ管理 + ステートマシン型ワークフローエンジン**と、新たに追加する**メモリ管理 + 全文検索**を独立した CLI ツールとして再設計する。
+ccguild の設計を見直した結果、TUI・PTY管理・Hook システム・オーケストレーターは Claude Code の標準機能（サブエージェント、skill、worktree）で代替可能と判断。ccguild 固有の価値である**ジョブ管理 + ステートマシン型ワークフローエンジン**と、新たに追加する**メモリ管理**を独立した CLI ツールとして再設計する。
 
-**言語選定**: Rust。日本語全文検索の品質（tantivy + lindera）と言語の堅牢性を重視。ccguild のコード流用はせず、ゼロから実装する。ccguild の設計は参考にするが、コードはコピーしない。
+**言語選定**: Rust。言語の堅牢性を重視。ccguild のコード流用はせず、ゼロから実装する。ccguild の設計は参考にするが、コードはコピーしない。
 
 ## Workspace 構成
 
@@ -27,9 +27,7 @@ ccsquad/
 │   ├── ccsquad-memory/            # メモリ管理ライブラリ
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── entry.rs           # MemoryEntry, EntryStore
-│   │       ├── index.rs           # tantivy インデックス
-│   │       └── tokenizer.rs       # lindera 日本語トークナイザ
+│   │       └── entry.rs           # MemoryEntry, EntryStore
 │   └── ccsquad-cli/               # 統合 CLI バイナリ
 │       └── src/
 │           ├── main.rs            # エントリポイント + clap 定義
@@ -63,7 +61,7 @@ chrono = { version = "0.4", features = ["serde"] }
 ```
 
 ### 1-2. ccsquad-core/src/error.rs
-- `Error` enum: `Io`, `Serialization`, `Config(String)`, `Job(String)`, `Workflow(String)`, `Memory(String)`, `Index(String)`
+- `Error` enum: `Io`, `Serialization`, `Config(String)`, `Job(String)`, `Workflow(String)`, `Memory(String)`
 - `pub type Result<T> = std::result::Result<T, Error>`
 
 ### 1-3. ccsquad-core/src/frontmatter.rs
@@ -210,41 +208,58 @@ chrono = { version = "0.4", features = ["serde"] }
 
 ## Phase 3: ccsquad-memory (ライブラリ)
 
-### 3-1. entry.rs
-- `MemoryEntry` 構造体: `id`, `title`, `tags: Vec<String>`, `body`, `created_at`, `updated_at`
-- `EntryStore`: JobStore と同じパターン
-  - 保存先: `.ccsquad/memory/entries/`
-  - ID 形式: `M000001`, `M000002`, ...
-  - CRUD: `save`, `load`, `list_all`, `delete`, `next_id`
-- frontmatter 形式:
+検索は grep ベース（`list_all()` + 部分文字列マッチ）で実装する。プロジェクトスコープ（数百エントリ）では十分な性能が得られ、tantivy/lindera の依存・インデックス管理の複雑さを回避できる。
+
+### 3-0. 既存コードの修正
+- `ccsquad-core/src/error.rs` から `Index(String)` バリアントを削除（tantivy 廃止に伴い不要）
+
+### 3-1. Cargo.toml
+- `crates/ccsquad-memory/Cargo.toml` を作成
+- 依存: ccsquad-core, serde, serde_yaml, chrono, tracing
+- dev 依存: tempfile
+
+### 3-2. entry.rs
+- `MemoryFrontmatter` 構造体: `entry_type: Option<String>`（YAML キーは `type`）, `created_at`, `updated_at`
+  - title は frontmatter に含めない — ファイル名がタイトル（`.md` を除いた部分）
+- `MemoryEntry` 構造体: `title`（ファイル名由来）+ `frontmatter` + `body`
+  - body は空文字列を許可（タイトルだけのエントリも可）
+- `EntryStore`: ファイルベース永続化
+  - 保存先: type あり → `.ccsquad/memory/entries/{type}/{title}.md`、type なし → `.ccsquad/memory/entries/{title}.md`
+  - 一意キー: type あり → `{type}/{title}`、type なし → `{title}`
+  - ファイル名サニタイズ: title/type に `/`, `\0` 等の禁止文字が含まれる場合はエラー
+  - 同一スコープ内でタイトルが重複した場合は上書きエラー（新規作成時）
+  - CRUD: `save`, `load`, `list_all`, `delete`, `ensure_dir`
+  - `list_all` はルート直下の `.md` ファイル + 1階層サブディレクトリ内の `.md` ファイルを走査。`created_at` 降順でソート
+  - delete 後に type ディレクトリが空になった場合は自動削除
+  - 検索: `search(query, entry_type)` — `list_all()` → title/body の部分文字列マッチ + type フィルタ
+  - ディレクトリ構造例:
+    ```
+    .ccsquad/memory/entries/
+    ├── 認証方式.md              # type なし
+    ├── decision/
+    │   └── JWT採用理由.md       # type: decision
+    └── note/
+        └── ミーティングメモ.md   # type: note
+    ```
+- frontmatter 形式（type あり）:
   ```yaml
   ---
-  id: M000001
-  title: 認証方式
-  tags: [auth, security]
+  type: decision
   created_at: 2026-03-23T12:00:00Z
   updated_at: 2026-03-23T12:00:00Z
   ---
   JWTを採用。セッショントークンは...
   ```
-
-### 3-2. tokenizer.rs
-- lindera の外部辞書ロード
-- `pub fn load_japanese_tokenizer(dict_path: &Path) -> Result<impl tantivy::tokenizer::Tokenizer>`
-- 辞書がなければデフォルトトークナイザにフォールバック（警告表示）
-- `pub fn download_dictionary(target_dir: &Path) -> Result<()>` — 辞書のダウンロード
-
-### 3-3. index.rs
-- `MemoryIndex` 構造体（tantivy ラッパー）
-- スキーマ: `id` (STORED), `title` (TEXT+STORED), `body` (TEXT+STORED), `tags` (STRING+STORED)
-- メソッド:
-  - `open_or_create(index_dir, tokenizer)` — インデックス作成/オープン
-  - `add_entry(entry)` — エントリをインデックスに追加
-  - `remove_entry(id)` — インデックスから削除
-  - `search(query, limit) -> Vec<SearchResult>` — 全文検索
-  - `search_by_tags(tags, limit)` — タグフィルタ検索
-  - `rebuild(store)` — 全エントリ再インデックス
-- `SearchResult`: `id`, `title`, `snippet`, `score`, `tags`
+- frontmatter 形式（type なし）:
+  ```yaml
+  ---
+  created_at: 2026-03-23T12:00:00Z
+  updated_at: 2026-03-23T12:00:00Z
+  ---
+  JWTを採用。セッショントークンは...
+  ```
+- body 入力: 位置引数、stdin（パイプ）、`--file` オプションの3通りをサポート
+- テスト: CRUD、list_all の created_at 降順ソート、重複タイトルエラー、ファイル名サニタイズ、type なしエントリ、body 空エントリ、空ディレクトリ自動削除、search（title マッチ、body マッチ、type フィルタ、該当なし）
 
 ### 検証
 - `cargo build -p ccsquad-memory`
@@ -253,6 +268,9 @@ chrono = { version = "0.4", features = ["serde"] }
 ---
 
 ## Phase 4: ccsquad-cli (統合バイナリ)
+
+### 4-0. ccsquad-cli/Cargo.toml
+- `ccsquad-memory` 依存を追加
 
 ### 4-1. main.rs
 - clap でトップレベルサブコマンドを定義: `job`, `memory`
@@ -272,8 +290,29 @@ chrono = { version = "0.4", features = ["serde"] }
 
 ### 4-3. cmd_memory.rs
 - `ccsquad memory` サブコマンド群（出力メッセージ日本語）
-- `MemoryAction` enum: Init, Add, List, Show, Edit, Delete, Search, Rebuild
-- ハンドラ: `cmd_init`, `cmd_add`, `cmd_list`, `cmd_show`, `cmd_edit`, `cmd_delete`, `cmd_search`, `cmd_rebuild`
+- `MemoryAction` enum: Add, List, Show, Edit, Delete, Search
+- `memory add`: body 入力は位置引数、stdin（パイプ）、`--file` の3通り
+- `memory list`: type, title, created_at, updated_at の4列テーブル。`--type` でフィルタ可能。`--format json` で JSON 配列出力
+- `memory show`: エントリの全情報を表示。`--format json` で以下の構造を出力:
+  ```json
+  {
+    "key": "decision/JWT採用理由",
+    "title": "JWT採用理由",
+    "type": "decision",
+    "body": "JWTを採用...",
+    "created_at": "2026-03-23T12:00:00Z",
+    "updated_at": "2026-03-23T12:00:00Z"
+  }
+  ```
+  - type なしの場合: `"key": "認証方式"`, `"type": null`
+- `memory search`: マッチしたエントリを list と同じフォーマットで出力。`--format json` で JSON 配列出力
+- `memory edit`: 変更可能なフィールド: `--title`, `--type`, `--no-type`。body は位置引数、stdin、`--file` で全置換
+  - `--type` 変更時はファイルを新しいディレクトリに移動（type 追加・変更対応）
+  - `--no-type` で type を削除（サブディレクトリからルートに移動）
+  - `--title` 変更時はファイル名を変更
+  - 移動先に同名ファイルが存在する場合はエラー
+- `memory delete`: エントリを削除
+- ハンドラ: `cmd_add`, `cmd_list`, `cmd_show`, `cmd_edit`, `cmd_delete`, `cmd_search`
 
 ### 検証
 - `cargo build -p ccsquad-cli`
@@ -288,12 +327,17 @@ chrono = { version = "0.4", features = ["serde"] }
   ccsquad job approve J000001
   ccsquad job show J000001 --format json
 
-  ccsquad memory init --lang ja
-  ccsquad memory add "認証方式" --tags auth,security "JWTを採用..."
+  ccsquad memory add "認証方式" "JWTを採用..."
+  ccsquad memory add "JWT採用理由" --type decision "JWTを採用..."
+  ccsquad memory list
+  ccsquad memory list --type decision
+  ccsquad memory show "認証方式"
+  ccsquad memory show "decision/JWT採用理由"
+  ccsquad memory show "decision/JWT採用理由" --format json
+  ccsquad memory edit "decision/JWT採用理由" --title "新タイトル"
   ccsquad memory search "認証"
-  ccsquad memory list --tag auth
-  ccsquad memory show M000001
-  ccsquad memory delete M000001
+  ccsquad memory search "認証" --type decision
+  ccsquad memory delete "decision/JWT採用理由"
   ```
 
 ---
@@ -323,5 +367,3 @@ Phase 1-4 の CLI 実装が完了した後に着手。
 | `indexmap` | 順序付き HashMap | jobs (phases) |
 | `tracing` | ログ | 全体 |
 | `chrono` | タイムスタンプ | memory |
-| `tantivy` | 全文検索 | memory |
-| `lindera-tantivy` | 日本語トークナイザ | memory |

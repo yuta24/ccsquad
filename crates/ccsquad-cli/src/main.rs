@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 mod cmd_job;
+mod cmd_memory;
 
 #[derive(Parser)]
-#[command(name = "ccsquad", about = "ジョブ管理 + ワークフローエンジン CLI")]
+#[command(name = "ccsquad", about = "ジョブ管理 + ワークフローエンジン + メモリ管理 CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -17,6 +18,11 @@ enum Commands {
     Job {
         #[command(subcommand)]
         action: cmd_job::JobAction,
+    },
+    /// メモリ管理
+    Memory {
+        #[command(subcommand)]
+        action: cmd_memory::MemoryAction,
     },
 }
 
@@ -39,10 +45,13 @@ fn run() -> ccsquad_core::Result<()> {
     let project_root = config_path.parent().unwrap();
     let squad_dir = project_root.join(".ccsquad");
     let jobs_dir = squad_dir.join("jobs");
+    let memory_dir = squad_dir.join("memory").join("entries");
     std::fs::create_dir_all(&jobs_dir)?;
+    std::fs::create_dir_all(&memory_dir)?;
 
     match cli.command {
         Commands::Job { action } => cmd_job::run(action, &config, &jobs_dir)?,
+        Commands::Memory { action } => cmd_memory::run(action, &memory_dir)?,
     }
 
     Ok(())

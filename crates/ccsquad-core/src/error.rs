@@ -19,9 +19,6 @@ pub enum Error {
 
     #[error("Memory error: {0}")]
     Memory(String),
-
-    #[error("Index error: {0}")]
-    Index(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
