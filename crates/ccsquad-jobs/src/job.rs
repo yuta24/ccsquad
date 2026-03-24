@@ -13,6 +13,7 @@ pub enum JobStatus {
     Completed,
     Failed,
     Aborted,
+    Closed,
 }
 
 impl std::fmt::Display for JobStatus {
@@ -23,6 +24,7 @@ impl std::fmt::Display for JobStatus {
             Self::Completed => write!(f, "completed"),
             Self::Failed => write!(f, "failed"),
             Self::Aborted => write!(f, "aborted"),
+            Self::Closed => write!(f, "closed"),
         }
     }
 }

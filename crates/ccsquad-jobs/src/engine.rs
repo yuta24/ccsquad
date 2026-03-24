@@ -134,6 +134,31 @@ impl<'a> WorkflowEngine<'a> {
         Ok(job)
     }
 
+    /// ジョブを手動クローズする。
+    pub fn close_job(&self, job_id: &str) -> Result<Job> {
+        let mut job = self.store.load(job_id)?;
+
+        if job.frontmatter.status == JobStatus::Closed {
+            return Err(Error::Job(format!(
+                "ジョブ '{job_id}' は既にクローズされています (status: {})",
+                job.frontmatter.status
+            )));
+        }
+
+        if job.frontmatter.status == JobStatus::Running {
+            if let Some(phase) = &job.frontmatter.current_phase {
+                let phase = phase.clone();
+                job.append_phase_log(&phase, "closed", "CLOSE", "手動クローズ");
+            }
+        }
+
+        job.frontmatter.status = JobStatus::Closed;
+        job.frontmatter.current_phase = None;
+        job.frontmatter.updated_at = chrono::Utc::now();
+        self.store.save(&job)?;
+        Ok(job)
+    }
+
     /// 現在のフェーズとステータスを取得する。
     pub fn get_status(&self, job_id: &str) -> Result<(JobStatus, Option<String>)> {
         let job = self.store.load(job_id)?;
@@ -488,6 +513,82 @@ workflows:
 
         let job = engine.abort_job("J000001").unwrap();
         assert_eq!(job.frontmatter.status, JobStatus::Aborted);
+    }
+
+    #[test]
+    fn test_close_running_job() {
+        let (_tmp, config, store) = setup();
+        let wf = config.get_workflow("dev").unwrap();
+        let engine = WorkflowEngine::new(wf, &store);
+
+        store.save(&make_job("J000001", JobStatus::Pending)).unwrap();
+        engine.start_job("J000001").unwrap();
+
+        let job = engine.close_job("J000001").unwrap();
+        assert_eq!(job.frontmatter.status, JobStatus::Closed);
+        assert_eq!(job.frontmatter.current_phase, None);
+        assert!(job.body.contains("手動クローズ"));
+    }
+
+    #[test]
+    fn test_close_pending_job() {
+        let (_tmp, config, store) = setup();
+        let wf = config.get_workflow("dev").unwrap();
+        let engine = WorkflowEngine::new(wf, &store);
+
+        store.save(&make_job("J000001", JobStatus::Pending)).unwrap();
+
+        let job = engine.close_job("J000001").unwrap();
+        assert_eq!(job.frontmatter.status, JobStatus::Closed);
+    }
+
+    #[test]
+    fn test_close_failed_job() {
+        let (_tmp, config, store) = setup();
+        let wf = config.get_workflow("dev").unwrap();
+        let engine = WorkflowEngine::new(wf, &store);
+
+        store.save(&make_job("J000001", JobStatus::Failed)).unwrap();
+
+        let job = engine.close_job("J000001").unwrap();
+        assert_eq!(job.frontmatter.status, JobStatus::Closed);
+    }
+
+    #[test]
+    fn test_close_aborted_job() {
+        let (_tmp, config, store) = setup();
+        let wf = config.get_workflow("dev").unwrap();
+        let engine = WorkflowEngine::new(wf, &store);
+
+        store.save(&make_job("J000001", JobStatus::Aborted)).unwrap();
+
+        let job = engine.close_job("J000001").unwrap();
+        assert_eq!(job.frontmatter.status, JobStatus::Closed);
+    }
+
+    #[test]
+    fn test_close_completed_job() {
+        let (_tmp, config, store) = setup();
+        let wf = config.get_workflow("dev").unwrap();
+        let engine = WorkflowEngine::new(wf, &store);
+
+        store.save(&make_job("J000001", JobStatus::Completed)).unwrap();
+
+        let job = engine.close_job("J000001").unwrap();
+        assert_eq!(job.frontmatter.status, JobStatus::Closed);
+    }
+
+    #[test]
+    fn test_close_already_closed_job_returns_error() {
+        let (_tmp, config, store) = setup();
+        let wf = config.get_workflow("dev").unwrap();
+        let engine = WorkflowEngine::new(wf, &store);
+
+        store.save(&make_job("J000001", JobStatus::Closed)).unwrap();
+
+        let result = engine.close_job("J000001");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("既にクローズ"));
     }
 
     #[test]

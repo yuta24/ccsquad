@@ -77,6 +77,10 @@ pub enum JobAction {
     Abort {
         id: String,
     },
+    /// ジョブをクローズ
+    Close {
+        id: String,
+    },
     /// サブエージェント完了後の次アクション判定
     NextAction {
         id: String,
@@ -119,6 +123,7 @@ pub fn run(action: JobAction, config: &SquadConfig, jobs_dir: &Path, squad_dir: 
         JobAction::Approve { id, message } => cmd_approve(&store, config, &id, &message),
         JobAction::Reject { id, message } => cmd_reject(&store, config, &id, &message),
         JobAction::Abort { id } => cmd_abort(&store, config, &id),
+        JobAction::Close { id } => cmd_close(&store, config, &iteration_store, &id),
         JobAction::NextAction {
             id,
             result,
@@ -374,6 +379,17 @@ fn cmd_abort(store: &JobStore, config: &SquadConfig, id: &str) -> Result<()> {
     Ok(())
 }
 
+fn cmd_close(store: &JobStore, config: &SquadConfig, iteration_store: &IterationStore, id: &str) -> Result<()> {
+    let job = store.load(id)?;
+    let wf = get_workflow(config, &job)?;
+    let engine = WorkflowEngine::new(wf, store);
+
+    engine.close_job(id)?;
+    iteration_store.remove(id)?;
+    println!("ジョブをクローズしました: {id}");
+    Ok(())
+}
+
 // --- helpers ---
 
 fn get_workflow<'a>(
@@ -405,6 +421,9 @@ fn print_transition_result(job: &Job) {
                 "フェーズを遷移しました: {} → {phase}",
                 fm.id
             );
+        }
+        JobStatus::Closed => {
+            println!("ジョブがクローズされました: {}", fm.id);
         }
         _ => {}
     }
