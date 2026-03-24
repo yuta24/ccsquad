@@ -135,6 +135,7 @@ dependencies = [
  "chrono",
  "indexmap",
  "serde",
+ "serde_json",
  "serde_yaml",
  "tempfile",
  "tracing",

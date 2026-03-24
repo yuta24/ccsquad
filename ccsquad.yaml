@@ -1,5 +1,7 @@
 workflows:
   dev:
+    max_iterations: 10
+    phases:
       code:
         description: コードを実装する
         agent: coder
@@ -15,10 +17,12 @@ workflows:
           rejected: code
   bugfix:
     description: バグ修正ワークフロー
+    max_iterations: 10
     phases:
       investigate:
         description: 原因を調査する
         agent: coder
+        pause: true
         on:
           completed: fix
           failed: ABORT

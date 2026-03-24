@@ -7,6 +7,7 @@ use serde::Serialize;
 use ccsquad_core::Result;
 use ccsquad_jobs::config::{SquadConfig, TransitionCondition};
 use ccsquad_jobs::engine::{WorkflowEngine, check_circular_dependency};
+use ccsquad_jobs::iteration::IterationStore;
 use ccsquad_jobs::job::{Job, JobFrontmatter, JobStatus, JobStore};
 
 #[derive(Clone, clap::ValueEnum)]
@@ -76,10 +77,21 @@ pub enum JobAction {
     Abort {
         id: String,
     },
+    /// サブエージェント完了後の次アクション判定
+    NextAction {
+        id: String,
+        #[arg(long)]
+        result: String,
+        #[arg(long, default_value = "")]
+        message: String,
+        #[arg(long)]
+        reset_iteration: bool,
+    },
 }
 
-pub fn run(action: JobAction, config: &SquadConfig, jobs_dir: &Path) -> Result<()> {
+pub fn run(action: JobAction, config: &SquadConfig, jobs_dir: &Path, squad_dir: &Path) -> Result<()> {
     let store = JobStore::new(jobs_dir.to_path_buf());
+    let iteration_store = IterationStore::new(squad_dir);
 
     match action {
         JobAction::List => cmd_list(&store),
@@ -107,6 +119,12 @@ pub fn run(action: JobAction, config: &SquadConfig, jobs_dir: &Path) -> Result<(
         JobAction::Approve { id, message } => cmd_approve(&store, config, &id, &message),
         JobAction::Reject { id, message } => cmd_reject(&store, config, &id, &message),
         JobAction::Abort { id } => cmd_abort(&store, config, &id),
+        JobAction::NextAction {
+            id,
+            result,
+            message,
+            reset_iteration,
+        } => cmd_next_action(&store, config, &iteration_store, &id, &result, &message, reset_iteration),
     }
 }
 
@@ -436,4 +454,169 @@ struct JobShowJson<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     phase_config: Option<&'a PhaseInfo>,
     body: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NextActionOutput {
+    pub action: String,
+    pub job_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase_description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reviewer: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+fn cmd_next_action(
+    store: &JobStore,
+    config: &SquadConfig,
+    iteration_store: &IterationStore,
+    id: &str,
+    result: &str,
+    message: &str,
+    reset_iteration: bool,
+) -> Result<()> {
+    if reset_iteration {
+        iteration_store.reset(id)?;
+    }
+
+    let job = store.load(id)?;
+    let wf = get_workflow(config, &job)?;
+    let phase_name = job
+        .frontmatter
+        .current_phase
+        .as_deref()
+        .ok_or_else(|| ccsquad_core::Error::Workflow("現在のフェーズが設定されていません".to_string()))?;
+    let phase_config = wf.phases.get(phase_name).ok_or_else(|| {
+        ccsquad_core::Error::Workflow(format!(
+            "フェーズ '{phase_name}' がワークフローに定義されていません"
+        ))
+    })?;
+
+    // result をパースして遷移先を解決
+    let condition: TransitionCondition = result.parse()?;
+
+    // reviewer フェーズのバリデーション
+    if phase_config.reviewer.is_some() {
+        if condition != TransitionCondition::Approved && condition != TransitionCondition::Rejected {
+            return Err(ccsquad_core::Error::Workflow(
+                "レビューフェーズでは approved/rejected を使用してください".to_string(),
+            ));
+        }
+    } else if condition == TransitionCondition::Approved || condition == TransitionCondition::Rejected {
+        return Err(ccsquad_core::Error::Workflow(
+            "通常フェーズでは completed/failed を使用してください".to_string(),
+        ));
+    }
+
+    let next = wf.resolve_transition(phase_name, &condition)?;
+
+    let output = match next.as_str() {
+        "COMPLETE" | "ABORT" => {
+            // 終了: 遷移を実行
+            let engine = WorkflowEngine::new(wf, store);
+            if phase_config.reviewer.is_some() {
+                if condition == TransitionCondition::Approved {
+                    engine.approve(id, message)?;
+                } else {
+                    engine.reject(id, message)?;
+                }
+            } else {
+                engine.transition(id, condition, message)?;
+            }
+            let job = store.load(id)?;
+            iteration_store.remove(id)?;
+            NextActionOutput {
+                action: "done".to_string(),
+                job_id: id.to_string(),
+                status: Some(job.frontmatter.status.to_string()),
+                phase: None,
+                phase_description: None,
+                agent: None,
+                reviewer: None,
+                reason: None,
+            }
+        }
+        _ => {
+            let next_phase = wf.phases.get(&next).ok_or_else(|| {
+                ccsquad_core::Error::Workflow(format!(
+                    "遷移先フェーズ '{next}' がワークフローに定義されていません"
+                ))
+            })?;
+
+            // pause チェック
+            if next_phase.pause {
+                // 遷移しない。フェーズログだけ記録
+                let mut job = store.load(id)?;
+                job.append_phase_log(phase_name, &condition.to_string(), &next, message);
+                job.frontmatter.updated_at = Utc::now();
+                store.save(&job)?;
+                NextActionOutput {
+                    action: "pause".to_string(),
+                    job_id: id.to_string(),
+                    status: None,
+                    phase: Some(next.clone()),
+                    phase_description: next_phase.description.clone(),
+                    agent: next_phase.agent.clone(),
+                    reviewer: next_phase.reviewer.clone(),
+                    reason: Some("pause".to_string()),
+                }
+            } else {
+                // iteration チェック
+                let current_iteration = iteration_store.get(id)?;
+                if current_iteration >= wf.max_iterations() {
+                    // 遷移しない。フェーズログだけ記録
+                    let mut job = store.load(id)?;
+                    job.append_phase_log(phase_name, &condition.to_string(), &next, message);
+                    job.frontmatter.updated_at = Utc::now();
+                    store.save(&job)?;
+                    NextActionOutput {
+                        action: "pause".to_string(),
+                        job_id: id.to_string(),
+                        status: None,
+                        phase: Some(next.clone()),
+                        phase_description: next_phase.description.clone(),
+                        agent: next_phase.agent.clone(),
+                        reviewer: next_phase.reviewer.clone(),
+                        reason: Some("max_iterations".to_string()),
+                    }
+                } else {
+                    // 遷移実行
+                    let engine = WorkflowEngine::new(wf, store);
+                    if phase_config.reviewer.is_some() {
+                        if condition == TransitionCondition::Approved {
+                            engine.approve(id, message)?;
+                        } else {
+                            engine.reject(id, message)?;
+                        }
+                    } else {
+                        engine.transition(id, condition, message)?;
+                    }
+                    iteration_store.increment(id)?;
+                    NextActionOutput {
+                        action: "continue".to_string(),
+                        job_id: id.to_string(),
+                        status: None,
+                        phase: Some(next.clone()),
+                        phase_description: next_phase.description.clone(),
+                        agent: next_phase.agent.clone(),
+                        reviewer: next_phase.reviewer.clone(),
+                        reason: None,
+                    }
+                }
+            }
+        }
+    };
+
+    let json = serde_json::to_string_pretty(&output)
+        .map_err(|e| ccsquad_core::Error::Serialization(e.to_string()))?;
+    println!("{json}");
+    Ok(())
 }

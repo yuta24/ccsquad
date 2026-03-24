@@ -25,7 +25,17 @@ ccsquad job show <ID> --format json
 - `status` が `running` の場合 → ステップ 2 に進む
 - `status` が `completed` / `failed` / `aborted` の場合 → 終了状態をユーザーに報告して終了する
 
-### 2. サブエージェントの起動
+### 2. current-job の設定
+
+サブエージェント起動前に、ジョブ ID を書き込む:
+
+```bash
+echo "<ID>" > .ccsquad/.current-job
+```
+
+これにより SubagentStop hook がサブエージェント完了時にジョブ ID を参照できる。
+
+### 3. サブエージェントの起動
 
 JSON 出力の `phase_config` から以下を読み取る:
 
@@ -35,7 +45,10 @@ JSON 出力の `phase_config` から以下を読み取る:
 
 Agent ツールで `subagent_type` に `phase_config.agent` の値を指定してサブエージェントを起動する。
 
-プロンプトには以下のタスク情報を注入する:
+プロンプトには以下のタスク情報を注入する。
+`## 出力規約` セクションは必ず含めること（エージェント定義に依存せず、スキル側で出力フォーマットを統一するため）。
+
+reviewer フェーズの場合は result の選択肢を `approved / rejected` に変更する。
 
 ```
 以下のタスクを実行してください。
@@ -49,9 +62,14 @@ Agent ツールで `subagent_type` に `phase_config.agent` の値を指定し�
 
 ## フェーズログ
 {ジョブファイルのフェーズログセクション（あれば）}
+
+## 出力規約
+作業完了後、必ず最後のメッセージの末尾に以下の JSON 行を1行で出力すること:
+{"result": "completed", "message": "作業内容の要約"}
+result は completed / failed のいずれか。
 ```
 
-### 3. フェーズ遷移
+### 4. フェーズ遷移
 
 サブエージェントの返却値（result と message）に基づいてフェーズを遷移する。
 
@@ -65,7 +83,7 @@ Agent ツールで `subagent_type` に `phase_config.agent` の値を指定し�
 - `result: approved` → `ccsquad job approve <ID> --message "<message>"`
 - `result: rejected` → `ccsquad job reject <ID> --message "<message>"`
 
-### 4. 結果の報告
+### 5. 結果の報告
 
 フェーズ遷移後、`ccsquad job show <ID> --format json` でジョブの最新状態を取得し、ユーザーに以下を報告する:
 

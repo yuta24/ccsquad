@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+mod cmd_hook;
 mod cmd_job;
 mod cmd_memory;
 
@@ -23,6 +24,11 @@ enum Commands {
     Memory {
         #[command(subcommand)]
         action: cmd_memory::MemoryAction,
+    },
+    /// フック処理
+    Hook {
+        #[command(subcommand)]
+        action: cmd_hook::HookAction,
     },
 }
 
@@ -50,8 +56,9 @@ fn run() -> ccsquad_core::Result<()> {
     std::fs::create_dir_all(&memory_dir)?;
 
     match cli.command {
-        Commands::Job { action } => cmd_job::run(action, &config, &jobs_dir)?,
+        Commands::Job { action } => cmd_job::run(action, &config, &jobs_dir, &squad_dir)?,
         Commands::Memory { action } => cmd_memory::run(action, &memory_dir)?,
+        Commands::Hook { action } => cmd_hook::run(action, &config, &jobs_dir, &squad_dir)?,
     }
 
     Ok(())

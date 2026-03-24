@@ -15,6 +15,8 @@ pub struct SquadConfig {
 pub struct WorkflowConfig {
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub max_iterations: Option<u32>,
     pub phases: IndexMap<String, PhaseConfig>,
 }
 
@@ -26,6 +28,8 @@ pub struct PhaseConfig {
     pub agent: Option<String>,
     #[serde(default)]
     pub reviewer: Option<String>,
+    #[serde(default)]
+    pub pause: bool,
     #[serde(default)]
     pub on: IndexMap<TransitionCondition, String>,
 }
@@ -88,6 +92,11 @@ impl SquadConfig {
 }
 
 impl WorkflowConfig {
+    /// 最大イテレーション数を返す。未設定なら 10。
+    pub fn max_iterations(&self) -> u32 {
+        self.max_iterations.unwrap_or(10)
+    }
+
     /// 開始フェーズ名を返す（phases の最初のキー）。
     pub fn initial_phase(&self) -> Result<&str> {
         self.phases
@@ -360,5 +369,61 @@ workflows:
             TransitionCondition::Completed
         );
         assert!("invalid".parse::<TransitionCondition>().is_err());
+    }
+
+    #[test]
+    fn test_pause_defaults_to_false() {
+        let config: SquadConfig = serde_yaml::from_str(dev_workflow_yaml()).unwrap();
+        let dev = config.get_workflow("dev").unwrap();
+        assert!(!dev.phases["plan"].pause);
+        assert!(!dev.phases["code"].pause);
+        assert!(!dev.phases["review"].pause);
+    }
+
+    #[test]
+    fn test_pause_true() {
+        let yaml = r#"
+workflows:
+  dev:
+    phases:
+      plan:
+        agent: planner
+        pause: true
+        on:
+          completed: code
+      code:
+        agent: coder
+        on:
+          completed: COMPLETE
+"#;
+        let config: SquadConfig = serde_yaml::from_str(yaml).unwrap();
+        let dev = config.get_workflow("dev").unwrap();
+        assert!(dev.phases["plan"].pause);
+        assert!(!dev.phases["code"].pause);
+    }
+
+    #[test]
+    fn test_max_iterations_default() {
+        let config: SquadConfig = serde_yaml::from_str(dev_workflow_yaml()).unwrap();
+        let dev = config.get_workflow("dev").unwrap();
+        assert_eq!(dev.max_iterations.as_ref(), None);
+        assert_eq!(dev.max_iterations(), 10);
+    }
+
+    #[test]
+    fn test_max_iterations_custom() {
+        let yaml = r#"
+workflows:
+  dev:
+    max_iterations: 5
+    phases:
+      plan:
+        agent: planner
+        on:
+          completed: COMPLETE
+"#;
+        let config: SquadConfig = serde_yaml::from_str(yaml).unwrap();
+        let dev = config.get_workflow("dev").unwrap();
+        assert_eq!(dev.max_iterations(), 5);
     }
 }
