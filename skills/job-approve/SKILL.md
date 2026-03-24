@@ -49,15 +49,15 @@ ccsquad job next-action <ID> --result completed --message "" --reset-iteration
 ただし、ステップ 2 で既に遷移を実行済みなので、ここでは遷移を行わない。
 代わりに、以下のコマンドでリセットのみ行う:
 
-実際の運用では、ステップ 2 の遷移後に `.ccsquad/.current-job` を書き込み、
+実際の運用では、ステップ 2 の遷移後にアクティブジョブとして登録し、
 サブエージェントを起動する。
 
-### 4. current-job の設定
+### 4. アクティブジョブの登録
 
-サブエージェント起動前に、ジョブ ID を書き込む:
+サブエージェント起動前に、ジョブをアクティブとして登録する:
 
 ```bash
-echo "<ID>" > .ccsquad/.current-job
+ccsquad job activate <ID>
 ```
 
 ### 5. サブエージェントの起動
@@ -89,7 +89,8 @@ reviewer フェーズの場合は result の選択肢を `approved / rejected` �
 
 ## 出力規約
 作業完了後、必ず最後のメッセージの末尾に以下の JSON 行を1行で出力すること:
-{"result": "completed", "message": "作業内容の要約"}
+{"job_id": "<ID>", "result": "completed", "message": "作業内容の要約"}
+job_id には実行中のジョブ ID を必ず含めること。
 result は completed / failed のいずれか。
 ```
 

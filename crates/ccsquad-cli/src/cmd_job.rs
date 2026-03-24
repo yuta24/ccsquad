@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use ccsquad_core::Result;
 use ccsquad_jobs::config::{SquadConfig, TransitionCondition};
+use ccsquad_jobs::current_jobs::CurrentJobsStore;
 use ccsquad_jobs::engine::{WorkflowEngine, check_circular_dependency};
 use ccsquad_jobs::iteration::IterationStore;
 use ccsquad_jobs::job::{Job, JobFrontmatter, JobStatus, JobStore};
@@ -81,6 +82,14 @@ pub enum JobAction {
     Close {
         id: String,
     },
+    /// 実行中ジョブをアクティブとして登録
+    Activate {
+        id: String,
+    },
+    /// アクティブジョブの登録を解除
+    Deactivate {
+        id: String,
+    },
     /// サブエージェント完了後の次アクション判定
     NextAction {
         id: String,
@@ -124,6 +133,8 @@ pub fn run(action: JobAction, config: &SquadConfig, jobs_dir: &Path, squad_dir: 
         JobAction::Reject { id, message } => cmd_reject(&store, config, &id, &message),
         JobAction::Abort { id } => cmd_abort(&store, config, &id),
         JobAction::Close { id } => cmd_close(&store, config, &iteration_store, &id),
+        JobAction::Activate { id } => cmd_activate(squad_dir, &id),
+        JobAction::Deactivate { id } => cmd_deactivate(squad_dir, &id),
         JobAction::NextAction {
             id,
             result,
@@ -390,6 +401,20 @@ fn cmd_close(store: &JobStore, config: &SquadConfig, iteration_store: &Iteration
     Ok(())
 }
 
+fn cmd_activate(squad_dir: &Path, id: &str) -> Result<()> {
+    let current_jobs = CurrentJobsStore::new(squad_dir);
+    current_jobs.add(id)?;
+    println!("ジョブをアクティブに登録しました: {id}");
+    Ok(())
+}
+
+fn cmd_deactivate(squad_dir: &Path, id: &str) -> Result<()> {
+    let current_jobs = CurrentJobsStore::new(squad_dir);
+    current_jobs.remove(id)?;
+    println!("ジョブのアクティブ登録を解除しました: {id}");
+    Ok(())
+}
+
 // --- helpers ---
 
 fn get_workflow<'a>(
@@ -638,4 +663,41 @@ fn cmd_next_action(
         .map_err(|e| ccsquad_core::Error::Serialization(e.to_string()))?;
     println!("{json}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_activate_adds_to_store() {
+        let tmp = tempfile::tempdir().unwrap();
+        cmd_activate(tmp.path(), "J000001").unwrap();
+        let store = CurrentJobsStore::new(tmp.path());
+        assert!(store.contains("J000001").unwrap());
+    }
+
+    #[test]
+    fn test_activate_duplicate_is_ok() {
+        let tmp = tempfile::tempdir().unwrap();
+        cmd_activate(tmp.path(), "J000001").unwrap();
+        cmd_activate(tmp.path(), "J000001").unwrap();
+        let store = CurrentJobsStore::new(tmp.path());
+        assert_eq!(store.list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_deactivate_removes_from_store() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = CurrentJobsStore::new(tmp.path());
+        store.add("J000001").unwrap();
+        cmd_deactivate(tmp.path(), "J000001").unwrap();
+        assert!(!store.contains("J000001").unwrap());
+    }
+
+    #[test]
+    fn test_deactivate_nonexistent_is_ok() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(cmd_deactivate(tmp.path(), "J999999").is_ok());
+    }
 }

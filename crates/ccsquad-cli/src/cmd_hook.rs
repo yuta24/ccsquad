@@ -6,6 +6,7 @@ use serde::Deserialize;
 
 use ccsquad_core::Result;
 use ccsquad_jobs::config::SquadConfig;
+use ccsquad_jobs::current_jobs::CurrentJobsStore;
 use ccsquad_jobs::iteration::IterationStore;
 use ccsquad_jobs::job::JobStore;
 
@@ -23,6 +24,7 @@ struct SubagentStopInput {
 
 #[derive(Deserialize)]
 struct AgentResult {
+    job_id: String,
     result: String,
     #[serde(default)]
     message: String,
@@ -35,13 +37,10 @@ pub fn run(action: HookAction, config: &SquadConfig, jobs_dir: &Path, squad_dir:
 }
 
 fn cmd_on_agent_complete(config: &SquadConfig, jobs_dir: &Path, squad_dir: &Path) -> Result<()> {
-    // .ccsquad/.current-job を確認
-    let current_job_path = squad_dir.join(".current-job");
-    if !current_job_path.exists() {
-        return Ok(());
-    }
-    let job_id = std::fs::read_to_string(&current_job_path)?.trim().to_string();
-    if job_id.is_empty() {
+    let current_jobs = CurrentJobsStore::new(squad_dir);
+
+    // アクティブジョブが存在しなければ何もしない
+    if current_jobs.list()?.is_empty() {
         return Ok(());
     }
 
@@ -56,21 +55,27 @@ fn cmd_on_agent_complete(config: &SquadConfig, jobs_dir: &Path, squad_dir: &Path
         Some(msg) if !msg.is_empty() => msg,
         _ => {
             println!("[CCSQUAD] エージェント出力を取得できませんでした。");
-            println!("手動で ccsquad job transition {job_id} <result> --message '<msg>' を実行してください。");
+            println!("手動で ccsquad job transition <ID> <result> --message '<msg>' を実行してください。");
             return Ok(());
         }
     };
 
-    // last_assistant_message から結果 JSON 行を抽出
+    // last_assistant_message から結果 JSON 行を抽出（job_id を含む）
     let agent_result = extract_result(&last_msg);
-    let (result, message) = match agent_result {
-        Some(r) => (r.result, r.message),
+    let (job_id, result, message) = match agent_result {
+        Some(r) => (r.job_id, r.result, r.message),
         None => {
             println!("[CCSQUAD] エージェント出力から結果を取得できませんでした。");
-            println!("手動で ccsquad job transition {job_id} <result> --message '<msg>' を実行してください。");
+            println!("手動で ccsquad job transition <ID> <result> --message '<msg>' を実行してください。");
             return Ok(());
         }
     };
+
+    // アクティブジョブに含まれているか検証
+    if !current_jobs.contains(&job_id)? {
+        println!("[CCSQUAD] ジョブ {job_id} はアクティブジョブに登録されていません。スキップします。");
+        return Ok(());
+    }
 
     // next-action の内部ロジックを直接呼び出す
     let store = JobStore::new(jobs_dir.to_path_buf());
@@ -116,7 +121,7 @@ fn cmd_on_agent_complete(config: &SquadConfig, jobs_dir: &Path, squad_dir: &Path
             }
             let job = store.load(&job_id)?;
             iteration_store.remove(&job_id)?;
-            let _ = std::fs::remove_file(&current_job_path);
+            current_jobs.remove(&job_id)?;
             println!("[CCSQUAD] ジョブ {job_id} が{}しました。", job.frontmatter.status);
         }
         _ => {
@@ -132,7 +137,7 @@ fn cmd_on_agent_complete(config: &SquadConfig, jobs_dir: &Path, squad_dir: &Path
                 job.append_phase_log(phase_name, &condition.to_string(), &next, &message);
                 job.frontmatter.updated_at = chrono::Utc::now();
                 store.save(&job)?;
-                let _ = std::fs::remove_file(&current_job_path);
+                current_jobs.remove(&job_id)?;
                 let desc = next_phase.description.as_deref().unwrap_or("");
                 println!("[CCSQUAD] フェーズ遷移完了。一時停止しました。");
                 println!("ジョブ ID: {job_id} | 次フェーズ: {next} | 説明: {desc}");
@@ -145,12 +150,12 @@ fn cmd_on_agent_complete(config: &SquadConfig, jobs_dir: &Path, squad_dir: &Path
                     job.append_phase_log(phase_name, &condition.to_string(), &next, &message);
                     job.frontmatter.updated_at = chrono::Utc::now();
                     store.save(&job)?;
-                    let _ = std::fs::remove_file(&current_job_path);
+                    current_jobs.remove(&job_id)?;
                     println!("[CCSQUAD] フェーズ遷移完了。イテレーション上限に達しました。");
                     println!("ジョブ ID: {job_id} | 次フェーズ: {next}");
                     println!("確認後 /job-approve {job_id} で続行できます。");
                 } else {
-                    // 遷移実行
+                    // 遷移実行（アクティブ登録は維持）
                     let engine = ccsquad_jobs::engine::WorkflowEngine::new(wf, &store);
                     if phase_config.reviewer.is_some() {
                         if condition == ccsquad_jobs::config::TransitionCondition::Approved {
@@ -176,7 +181,7 @@ fn cmd_on_agent_complete(config: &SquadConfig, jobs_dir: &Path, squad_dir: &Path
     Ok(())
 }
 
-/// last_assistant_message から {"result": "...", "message": "..."} 形式の JSON 行を抽出
+/// last_assistant_message から {"job_id": "...", "result": "...", "message": "..."} 形式の JSON 行を抽出
 fn extract_result(message: &str) -> Option<AgentResult> {
     // 末尾から探す（最後の JSON 行を優先）
     for line in message.lines().rev() {
@@ -197,8 +202,9 @@ mod tests {
     #[test]
     fn test_extract_result_completed() {
         let msg = r#"実装が完了しました。テストも通過しています。
-{"result": "completed", "message": "認証機能を実装しました"}"#;
+{"job_id": "J000001", "result": "completed", "message": "認証機能を実装しました"}"#;
         let result = extract_result(msg).unwrap();
+        assert_eq!(result.job_id, "J000001");
         assert_eq!(result.result, "completed");
         assert_eq!(result.message, "認証機能を実装しました");
     }
@@ -206,8 +212,9 @@ mod tests {
     #[test]
     fn test_extract_result_approved() {
         let msg = r#"コードレビューを完了しました。問題ありません。
-{"result": "approved", "message": "LGTM"}"#;
+{"job_id": "J000002", "result": "approved", "message": "LGTM"}"#;
         let result = extract_result(msg).unwrap();
+        assert_eq!(result.job_id, "J000002");
         assert_eq!(result.result, "approved");
         assert_eq!(result.message, "LGTM");
     }
@@ -215,8 +222,9 @@ mod tests {
     #[test]
     fn test_extract_result_rejected() {
         let msg = r#"いくつかの問題が見つかりました。
-{"result": "rejected", "message": "テストカバレッジが不足しています"}"#;
+{"job_id": "J000001", "result": "rejected", "message": "テストカバレッジが不足しています"}"#;
         let result = extract_result(msg).unwrap();
+        assert_eq!(result.job_id, "J000001");
         assert_eq!(result.result, "rejected");
     }
 
@@ -229,10 +237,17 @@ mod tests {
     #[test]
     fn test_extract_result_last_json_wins() {
         let msg = r#"途中経過:
-{"result": "failed", "message": "ビルドエラー"}
+{"job_id": "J000001", "result": "failed", "message": "ビルドエラー"}
 修正しました:
-{"result": "completed", "message": "修正完了"}"#;
+{"job_id": "J000001", "result": "completed", "message": "修正完了"}"#;
         let result = extract_result(msg).unwrap();
         assert_eq!(result.result, "completed");
+    }
+
+    #[test]
+    fn test_extract_result_missing_job_id_returns_none() {
+        let msg = r#"旧フォーマット:
+{"result": "completed", "message": "完了しました"}"#;
+        assert!(extract_result(msg).is_none());
     }
 }

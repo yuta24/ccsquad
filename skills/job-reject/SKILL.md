@@ -46,7 +46,7 @@ ccsquad job show <ID> --format json
 
 ### 4. サブエージェントの起動（差し戻し先が auto の場合）
 
-`.ccsquad/.current-job` にジョブ ID を書き込み、差し戻し先フェーズのサブエージェントを起動する。
+`ccsquad job activate <ID>` でアクティブジョブとして登録し、差し戻し先フェーズのサブエージェントを起動する。
 以降は SubagentStop hook が自動制御する。
 
 プロンプトには job-approve スキルと同じ形式でタスク情報を注入する。

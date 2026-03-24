@@ -25,15 +25,16 @@ ccsquad job show <ID> --format json
 - `status` が `running` の場合 → ステップ 2 に進む
 - `status` が `completed` / `failed` / `aborted` の場合 → 終了状態をユーザーに報告して終了する
 
-### 2. current-job の設定
+### 2. アクティブジョブの登録
 
-サブエージェント起動前に、ジョブ ID を書き込む:
+サブエージェント起動前に、ジョブをアクティブとして登録する:
 
 ```bash
-echo "<ID>" > .ccsquad/.current-job
+ccsquad job activate <ID>
 ```
 
-これにより SubagentStop hook がサブエージェント完了時にジョブ ID を参照できる。
+これにより SubagentStop hook がサブエージェント完了時にジョブを識別できる。
+複数ジョブの並列実行に対応しており、既に登録済みの場合は重複しない。
 
 ### 3. サブエージェントの起動
 
@@ -65,7 +66,8 @@ reviewer フェーズの場合は result の選択肢を `approved / rejected` �
 
 ## 出力規約
 作業完了後、必ず最後のメッセージの末尾に以下の JSON 行を1行で出力すること:
-{"result": "completed", "message": "作業内容の要約"}
+{"job_id": "<ID>", "result": "completed", "message": "作業内容の要約"}
+job_id には実行中のジョブ ID を必ず含めること。
 result は completed / failed のいずれか。
 ```
 
