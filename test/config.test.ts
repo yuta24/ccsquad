@@ -345,4 +345,83 @@ workflows:
     const dev = config.getWorkflow("dev")!;
     expect(dev.maxIterations()).toBe(5);
   });
+
+  it("promptフィールドがパースされる", () => {
+    const yaml = `
+workflows:
+  dev:
+    phases:
+      - name: code
+        type: task
+        agent: coder
+        prompt: |
+          テストも必ず書くこと
+        on:
+          completed: COMPLETE
+`;
+    const config = SquadConfigImpl.parse(yaml);
+    const dev = config.getWorkflow("dev")!;
+    const code = dev.getPhase("code");
+    expect(code?.prompt).toContain("テストも必ず書くこと");
+  });
+
+  it("context.include_outputsがパースされる", () => {
+    const yaml = `
+workflows:
+  dev:
+    phases:
+      - name: code
+        type: task
+        agent: coder
+        on:
+          completed: review
+      - name: review
+        type: review
+        reviewer: human
+        context:
+          include_outputs:
+            - code
+        on:
+          approved: COMPLETE
+          rejected: code
+`;
+    const config = SquadConfigImpl.parse(yaml);
+    const dev = config.getWorkflow("dev")!;
+    const review = dev.getPhase("review");
+    expect(review?.context?.include_outputs).toEqual(["code"]);
+  });
+
+  it("context.include_outputsに存在しないフェーズでバリデーションエラー", () => {
+    const yaml = `
+workflows:
+  dev:
+    phases:
+      - name: code
+        type: task
+        agent: coder
+        context:
+          include_outputs:
+            - nonexistent
+        on:
+          completed: COMPLETE
+`;
+    const config = SquadConfigImpl.parse(yaml);
+    let error: CcsquadError | undefined;
+    try {
+      config.validate();
+    } catch (e) {
+      error = e as CcsquadError;
+    }
+    expect(error).toBeInstanceOf(CcsquadError);
+    expect(error!.message).toContain("include_outputs");
+    expect(error!.message).toContain("nonexistent");
+  });
+
+  it("promptとcontextが未設定でも正常にパースされる", () => {
+    const config = SquadConfigImpl.parse(devWorkflowYaml());
+    const dev = config.getWorkflow("dev")!;
+    const plan = dev.getPhase("plan");
+    expect(plan?.prompt).toBeUndefined();
+    expect(plan?.context).toBeUndefined();
+  });
 });

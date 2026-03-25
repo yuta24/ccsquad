@@ -151,7 +151,7 @@ export function PhaseRunningView({
         feedback = lastTaskOutput?.content ?? "";
       }
 
-      prompt = buildResumePrompt({ phase: phaseName, phaseType, iteration, feedback });
+      prompt = buildResumePrompt({ phase: phaseName, phaseType, phasePrompt: phaseConfig.prompt, iteration, feedback });
       args = ["claude", "-p", "--resume", sessionId, "--output-format", "json", prompt];
     } else {
       const previousOutputs = outputStore.loadForJob(jobId);
@@ -169,9 +169,12 @@ export function PhaseRunningView({
           title: jobData.frontmatter.title,
           phase: phaseName,
           phaseDescription: phaseConfig.description,
+          phasePrompt: phaseConfig.prompt,
           iteration,
           jobBody: jobData.body,
           taskOutput,
+          previousOutputs,
+          includeOutputPhases: phaseConfig.context?.include_outputs,
         });
         args = ["claude", "-p", "--agent", agentName, "--output-format", "json", prompt];
       } else {
@@ -180,9 +183,11 @@ export function PhaseRunningView({
           title: jobData.frontmatter.title,
           phase: phaseName,
           phaseDescription: phaseConfig.description,
+          phasePrompt: phaseConfig.prompt,
           iteration,
           jobBody: jobData.body,
           previousOutputs,
+          includeOutputPhases: phaseConfig.context?.include_outputs,
         });
         args = ["claude", "-p", "--agent", agentName, "--output-format", "json", prompt];
       }

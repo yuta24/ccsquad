@@ -22,11 +22,13 @@ export function buildTaskPrompt(params: {
   title: string;
   phase: string;
   phaseDescription?: string;
+  phasePrompt?: string;
   iteration: number;
   jobBody: string;
   previousOutputs: NodeOutput[];
+  includeOutputPhases?: string[];
 }): string {
-  const { jobId, title, phase, phaseDescription, iteration, jobBody, previousOutputs } = params;
+  const { jobId, title, phase, phaseDescription, phasePrompt, iteration, jobBody, previousOutputs, includeOutputPhases } = params;
 
   const parts: string[] = [
     `ジョブID: ${jobId}`,
@@ -42,14 +44,26 @@ export function buildTaskPrompt(params: {
   parts.push("");
   parts.push(jobBody);
 
-  if (previousOutputs.length > 0) {
-    const lastOutput = previousOutputs[previousOutputs.length - 1];
-    const truncated = truncateOutput(lastOutput.content);
+  if (phasePrompt) {
+    parts.push("");
+    parts.push("## フェーズ指示");
+    parts.push(phasePrompt);
+  }
 
+  const outputsToInclude = includeOutputPhases
+    ? previousOutputs.filter((o) => includeOutputPhases.includes(o.phase))
+    : previousOutputs.length > 0
+      ? [previousOutputs[previousOutputs.length - 1]]
+      : [];
+
+  if (outputsToInclude.length > 0) {
     parts.push("");
     parts.push("## 前フェーズの出力");
-    parts.push(`### ${lastOutput.phase} (イテレーション ${lastOutput.iteration})`);
-    parts.push(truncated);
+    for (const output of outputsToInclude) {
+      const truncated = truncateOutput(output.content);
+      parts.push(`### ${output.phase} (イテレーション ${output.iteration})`);
+      parts.push(truncated);
+    }
   }
 
   return parts.join("\n");
@@ -58,10 +72,11 @@ export function buildTaskPrompt(params: {
 export function buildResumePrompt(params: {
   phase: string;
   phaseType: "task" | "review";
+  phasePrompt?: string;
   iteration: number;
   feedback: string;
 }): string {
-  const { phaseType, iteration, feedback } = params;
+  const { phaseType, phasePrompt, iteration, feedback } = params;
 
   if (phaseType === "task") {
     return [
@@ -71,6 +86,7 @@ export function buildResumePrompt(params: {
       "",
       "## reject 理由",
       feedback,
+      ...(phasePrompt ? ["", "## フェーズ指示", phasePrompt] : []),
     ].join("\n");
   }
 
@@ -81,6 +97,7 @@ export function buildResumePrompt(params: {
     "",
     "## 修正後の実行結果",
     feedback,
+    ...(phasePrompt ? ["", "## フェーズ指示", phasePrompt] : []),
   ].join("\n");
 }
 
@@ -89,11 +106,14 @@ export function buildReviewPrompt(params: {
   title: string;
   phase: string;
   phaseDescription?: string;
+  phasePrompt?: string;
   iteration: number;
   jobBody: string;
   taskOutput: string;
+  previousOutputs?: NodeOutput[];
+  includeOutputPhases?: string[];
 }): string {
-  const { jobId, title, phase, phaseDescription, iteration, jobBody, taskOutput } = params;
+  const { jobId, title, phase, phaseDescription, phasePrompt, iteration, jobBody, taskOutput, previousOutputs, includeOutputPhases } = params;
 
   const parts: string[] = [
     `ジョブID: ${jobId}`,
@@ -108,6 +128,28 @@ export function buildReviewPrompt(params: {
   parts.push(`イテレーション: ${iteration}`);
   parts.push("");
   parts.push(jobBody);
+
+  if (phasePrompt) {
+    parts.push("");
+    parts.push("## フェーズ指示");
+    parts.push(phasePrompt);
+  }
+
+  if (includeOutputPhases && previousOutputs) {
+    const relatedOutputs = previousOutputs.filter(
+      (o) => includeOutputPhases.includes(o.phase) && o.content !== taskOutput,
+    );
+    if (relatedOutputs.length > 0) {
+      parts.push("");
+      parts.push("## 参考: 関連フェーズの出力");
+      for (const output of relatedOutputs) {
+        const truncated = truncateOutput(output.content);
+        parts.push(`### ${output.phase} (イテレーション ${output.iteration})`);
+        parts.push(truncated);
+      }
+    }
+  }
+
   parts.push("");
   parts.push("## レビュー対象");
   parts.push(taskOutput);

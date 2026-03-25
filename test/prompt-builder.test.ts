@@ -149,6 +149,81 @@ describe("buildTaskPrompt", () => {
 
     expect(result).toContain("ジョブID:");
   });
+
+  it("phasePromptがフェーズ指示セクションとして含まれる", () => {
+    const result = buildTaskPrompt({
+      jobId: "J000001",
+      title: "テスト",
+      phase: "code",
+      iteration: 1,
+      jobBody: "本文",
+      previousOutputs: [],
+      phasePrompt: "テストも必ず書くこと",
+    });
+
+    expect(result).toContain("## フェーズ指示");
+    expect(result).toContain("テストも必ず書くこと");
+  });
+
+  it("includeOutputPhasesで指定フェーズの出力のみ含まれる", () => {
+    const outputs = [
+      makeNodeOutput("plan", "計画の出力", 1),
+      makeNodeOutput("code", "コードの出力", 1),
+      makeNodeOutput("test", "テストの出力", 1),
+    ];
+
+    const result = buildTaskPrompt({
+      jobId: "J000001",
+      title: "テスト",
+      phase: "review",
+      iteration: 1,
+      jobBody: "本文",
+      previousOutputs: outputs,
+      includeOutputPhases: ["plan", "code"],
+    });
+
+    expect(result).toContain("計画の出力");
+    expect(result).toContain("コードの出力");
+    expect(result).not.toContain("テストの出力");
+  });
+
+  it("includeOutputPhasesが空配列で前フェーズ出力なし", () => {
+    const outputs = [
+      makeNodeOutput("plan", "計画の出力", 1),
+    ];
+
+    const result = buildTaskPrompt({
+      jobId: "J000001",
+      title: "テスト",
+      phase: "code",
+      iteration: 1,
+      jobBody: "本文",
+      previousOutputs: outputs,
+      includeOutputPhases: [],
+    });
+
+    expect(result).not.toContain("前フェーズの出力");
+    expect(result).not.toContain("計画の出力");
+  });
+
+  it("includeOutputPhases未指定は従来通り最後の出力のみ", () => {
+    const outputs = [
+      makeNodeOutput("plan", "計画の出力", 1),
+      makeNodeOutput("code", "コードの出力", 1),
+    ];
+
+    const result = buildTaskPrompt({
+      jobId: "J000001",
+      title: "テスト",
+      phase: "review",
+      iteration: 1,
+      jobBody: "本文",
+      previousOutputs: outputs,
+    });
+
+    expect(result).toContain("コードの出力");
+    expect(result).not.toContain("計画の出力");
+  });
 });
 
 // ─── buildResumePrompt ─────────────────────────────────────────────────────────
@@ -202,6 +277,32 @@ describe("buildResumePrompt", () => {
 
     expect(result).toContain("修正後の実行結果");
     expect(result).toContain("実行結果の内容");
+  });
+
+  it("phasePromptがフェーズ指示セクションとして含まれる (task)", () => {
+    const result = buildResumePrompt({
+      phase: "code",
+      phaseType: "task",
+      iteration: 2,
+      feedback: "修正理由",
+      phasePrompt: "テストも書くこと",
+    });
+
+    expect(result).toContain("## フェーズ指示");
+    expect(result).toContain("テストも書くこと");
+  });
+
+  it("phasePromptがフェーズ指示セクションとして含まれる (review)", () => {
+    const result = buildResumePrompt({
+      phase: "review",
+      phaseType: "review",
+      iteration: 2,
+      feedback: "修正結果",
+      phasePrompt: "セキュリティに注意",
+    });
+
+    expect(result).toContain("## フェーズ指示");
+    expect(result).toContain("セキュリティに注意");
   });
 });
 
@@ -278,5 +379,42 @@ describe("buildReviewPrompt", () => {
     });
 
     expect(result).toContain("ジョブID:");
+  });
+
+  it("phasePromptがフェーズ指示セクションとして含まれる", () => {
+    const result = buildReviewPrompt({
+      jobId: "J000001",
+      title: "テスト",
+      phase: "review",
+      iteration: 1,
+      jobBody: "本文",
+      taskOutput: "出力",
+      phasePrompt: "セキュリティ観点でレビュー",
+    });
+
+    expect(result).toContain("## フェーズ指示");
+    expect(result).toContain("セキュリティ観点でレビュー");
+  });
+
+  it("includeOutputPhasesで関連フェーズの出力が含まれる", () => {
+    const outputs = [
+      makeNodeOutput("plan", "計画の出力", 1),
+      makeNodeOutput("code", "コードの出力", 1),
+    ];
+
+    const result = buildReviewPrompt({
+      jobId: "J000001",
+      title: "テスト",
+      phase: "review",
+      iteration: 1,
+      jobBody: "本文",
+      taskOutput: "コードの出力",
+      previousOutputs: outputs,
+      includeOutputPhases: ["plan", "code"],
+    });
+
+    expect(result).toContain("## 参考: 関連フェーズの出力");
+    expect(result).toContain("計画の出力");
+    expect(result).toContain("## レビュー対象");
   });
 });
