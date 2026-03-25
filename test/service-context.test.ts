@@ -47,8 +47,7 @@ describe("createContext", () => {
     expect(ctx.config).toBeDefined();
     expect(ctx.store).toBeDefined();
     expect(ctx.iterationStore).toBeDefined();
-    expect(ctx.currentJobsStore).toBeDefined();
-    expect(ctx.entryStore).toBeDefined();
+expect(ctx.entryStore).toBeDefined();
     expect(ctx.squadDir).toBeDefined();
     expect(ctx.jobsDir).toBeDefined();
     expect(ctx.memoryDir).toBeDefined();

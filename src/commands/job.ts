@@ -1,4 +1,3 @@
-import { CurrentJobsStore } from "../current-jobs.js";
 import type { SquadConfig, WorkflowConfig } from "../config.js";
 import { parseTransitionCondition } from "../config.js";
 import type { Job } from "../job.js";
@@ -313,18 +312,6 @@ export function cmdClose(
   engine.closeJob(id);
   iterationStore.remove(id);
   console.log(`ジョブをクローズしました: ${id}`);
-}
-
-export function cmdActivate(squadDir: string, id: string): void {
-  const currentJobs = new CurrentJobsStore(squadDir);
-  currentJobs.add(id);
-  console.log(`ジョブをアクティブに登録しました: ${id}`);
-}
-
-export function cmdDeactivate(squadDir: string, id: string): void {
-  const currentJobs = new CurrentJobsStore(squadDir);
-  currentJobs.remove(id);
-  console.log(`ジョブのアクティブ登録を解除しました: ${id}`);
 }
 
 export interface NextActionOutput {

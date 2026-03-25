@@ -49,7 +49,6 @@ ccsquad setup
 - `ccsquad.yaml` — ワークフロー定義
 - `.claude/skills/` — スキル定義 (job, job-run, job-approve, job-reject, memory)
 - `.claude/agents/` — エージェント定義 (coder, reviewer)
-- `.claude/settings.local.json` — SubagentStop フック設定
 
 既存ファイルはスキップされます。`--force` で上書きできます。
 
@@ -58,7 +57,7 @@ ccsquad setup
 ccsquad setup --force
 
 # 特定のステップをスキップ
-ccsquad setup --skip-hooks --skip-agents
+ccsquad setup --skip-agents
 ```
 
 #### 手動セットアップ

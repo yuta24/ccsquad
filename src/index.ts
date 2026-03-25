@@ -1,23 +1,19 @@
 #!/usr/bin/env bun
-import { dirname } from "node:path";
 import { Command } from "commander";
 
-import { createContext, findConfigOrThrow } from "./service/context.js";
-import { SquadConfigImpl } from "./config.js";
+import { createContext } from "./service/context.js";
 import { CcsquadError } from "./error.js";
 import {
   cmdList, cmdShow, cmdAdd, cmdEdit, cmdRun, cmdTransition,
   cmdApprove, cmdReject, cmdAbort, cmdClose,
-  cmdActivate, cmdDeactivate, cmdNextAction,
+  cmdNextAction,
 } from "./commands/job.js";
 import {
   cmdAdd as memoryCmdAdd, cmdList as memoryCmdList,
   cmdShow as memoryCmdShow, cmdEdit as memoryCmdEdit,
   cmdDelete as memoryCmdDelete, cmdSearch as memoryCmdSearch,
 } from "./commands/memory.js";
-import { cmdOnAgentComplete } from "./commands/hook.js";
 import { cmdSetup } from "./commands/setup.js";
-import { join } from "node:path";
 
 const program = new Command();
 program.name("ccsquad").description("ジョブ管理 + ワークフローエンジン + メモリ管理 CLI");
@@ -94,14 +90,6 @@ jobCmd.command("close <id>").description("ジョブをクローズ").action((id:
   cmdClose(ctx.store, ctx.config, ctx.iterationStore, id);
 });
 
-jobCmd.command("activate <id>").description("実行中ジョブをアクティブとして登録").action((id: string) => {
-  cmdActivate(createContext().squadDir, id);
-});
-
-jobCmd.command("deactivate <id>").description("アクティブジョブの登録を解除").action((id: string) => {
-  cmdDeactivate(createContext().squadDir, id);
-});
-
 jobCmd.command("next-action <id>").description("サブエージェント完了後の次アクション判定")
   .requiredOption("--result <result>", "遷移条件")
   .option("--message <message>", "メッセージ", "")
@@ -154,27 +142,13 @@ memCmd.command("search <query>").description("エントリを検索")
     memoryCmdSearch(createContext().entryStore, query, opts.type, opts.format === "json" ? "json" : "text");
   });
 
-// ===== hook commands =====
-const hookCmd = program.command("hook").description("フック処理");
-
-hookCmd.command("on-agent-complete").description("SubagentStop hook: サブエージェント完了時の処理")
-  .action(() => {
-    const configPath = findConfigOrThrow();
-    const config = SquadConfigImpl.load(configPath);
-    const projectRoot = dirname(configPath);
-    const squadDir = join(projectRoot, ".ccsquad");
-    const jobsDir = join(squadDir, "jobs");
-    cmdOnAgentComplete(config, jobsDir, squadDir);
-  });
-
 // ===== setup command =====
 program.command("setup").description("プロジェクトに ccsquad をセットアップ")
   .option("--force", "既存ファイルを上書き", false)
   .option("--skip-skills", "スキルのインストールをスキップ", false)
-  .option("--skip-hooks", "フックの設定をスキップ", false)
   .option("--skip-agents", "エージェント定義のコピーをスキップ", false)
   .option("--skip-config", "ccsquad.yaml の作成をスキップ", false)
-  .action((opts: { force: boolean; skipSkills: boolean; skipHooks: boolean; skipAgents: boolean; skipConfig: boolean }) => {
+  .action((opts: { force: boolean; skipSkills: boolean; skipAgents: boolean; skipConfig: boolean }) => {
     cmdSetup(opts);
   });
 

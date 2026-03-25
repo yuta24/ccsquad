@@ -1,10 +1,7 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   SKILL_JOB,
-  SKILL_JOB_RUN,
-  SKILL_JOB_APPROVE,
-  SKILL_JOB_REJECT,
   SKILL_MEMORY,
   AGENT_CODER,
   AGENT_REVIEWER,
@@ -14,7 +11,6 @@ import {
 export interface SetupArgs {
   force: boolean;
   skipSkills: boolean;
-  skipHooks: boolean;
   skipAgents: boolean;
   skipConfig: boolean;
 }
@@ -36,10 +32,6 @@ export function cmdSetup(args: SetupArgs): void {
     setupAgents(projectRoot, args.force);
   }
 
-  if (!args.skipHooks) {
-    setupHooks(projectRoot);
-  }
-
   console.log("セットアップが完了しました。");
 }
 
@@ -58,9 +50,6 @@ function setupConfig(projectRoot: string, force: boolean): void {
 function setupSkills(projectRoot: string, force: boolean): void {
   const skills: Array<[string, string]> = [
     ["job", SKILL_JOB],
-    ["job-run", SKILL_JOB_RUN],
-    ["job-approve", SKILL_JOB_APPROVE],
-    ["job-reject", SKILL_JOB_REJECT],
     ["memory", SKILL_MEMORY],
   ];
 
@@ -101,80 +90,3 @@ function setupAgents(projectRoot: string, force: boolean): void {
   }
 }
 
-function setupHooks(projectRoot: string): void {
-  const settingsPath = join(projectRoot, ".claude", "settings.local.json");
-
-  let json: Record<string, unknown>;
-  if (existsSync(settingsPath)) {
-    const content = readFileSync(settingsPath, "utf-8");
-    try {
-      const parsed = JSON.parse(content) as unknown;
-      json =
-        parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-          ? (parsed as Record<string, unknown>)
-          : {};
-    } catch {
-      json = {};
-    }
-  } else {
-    json = {};
-  }
-
-  // hooks.SubagentStop 配列内に既存のエントリがあるか確認
-  const hookCommand = "ccsquad hook on-agent-complete";
-  const hooks = json["hooks"];
-  let alreadySet = false;
-
-  if (hooks !== null && typeof hooks === "object" && !Array.isArray(hooks)) {
-    const hooksObj = hooks as Record<string, unknown>;
-    const subagentStop = hooksObj["SubagentStop"];
-    if (Array.isArray(subagentStop)) {
-      alreadySet = subagentStop.some((entry: unknown) => {
-        if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return false;
-        const entryObj = entry as Record<string, unknown>;
-        const entryHooks = entryObj["hooks"];
-        if (!Array.isArray(entryHooks)) return false;
-        return entryHooks.some((h: unknown) => {
-          if (h === null || typeof h !== "object" || Array.isArray(h)) return false;
-          const hObj = h as Record<string, unknown>;
-          return typeof hObj["command"] === "string" && (hObj["command"] as string).includes(hookCommand);
-        });
-      });
-    }
-  }
-
-  if (alreadySet) {
-    console.log("  フック: SubagentStop フック (既に存在、スキップ)");
-    return;
-  }
-
-  const hookEntry = {
-    matcher: "coder|reviewer",
-    hooks: [
-      {
-        type: "command",
-        command: hookCommand,
-        timeout: 30000,
-      },
-    ],
-  };
-
-  // Ensure hooks object exists
-  if (json["hooks"] === undefined || json["hooks"] === null || typeof json["hooks"] !== "object" || Array.isArray(json["hooks"])) {
-    json["hooks"] = {};
-  }
-  const hooksObj = json["hooks"] as Record<string, unknown>;
-
-  // Ensure SubagentStop array exists
-  if (!Array.isArray(hooksObj["SubagentStop"])) {
-    hooksObj["SubagentStop"] = [];
-  }
-  (hooksObj["SubagentStop"] as unknown[]).push(hookEntry);
-
-  const claudeDir = join(projectRoot, ".claude");
-  mkdirSync(claudeDir, { recursive: true });
-
-  const output = JSON.stringify(json, null, 2) + "\n";
-  writeFileSync(settingsPath, output, "utf-8");
-  console.log("  フック: SubagentStop フックを追加しました");
-}

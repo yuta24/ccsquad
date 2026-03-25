@@ -4,7 +4,6 @@ import { SquadConfigImpl } from "../config.js";
 import type { SquadConfig } from "../config.js";
 import { JobStore } from "../job.js";
 import { IterationStore } from "../iteration.js";
-import { CurrentJobsStore } from "../current-jobs.js";
 import { EntryStore } from "../entry.js";
 import { CcsquadError } from "../error.js";
 
@@ -12,7 +11,6 @@ export interface ProjectContext {
   config: SquadConfig;
   store: JobStore;
   iterationStore: IterationStore;
-  currentJobsStore: CurrentJobsStore;
   entryStore: EntryStore;
   squadDir: string;
   jobsDir: string;
@@ -56,7 +54,6 @@ export function createContext(configPath?: string): ProjectContext {
     config,
     store: new JobStore(jobsDir),
     iterationStore: new IterationStore(squadDir),
-    currentJobsStore: new CurrentJobsStore(squadDir),
     entryStore: new EntryStore(memoryDir),
     squadDir,
     jobsDir,

@@ -9,7 +9,7 @@ import type { Job } from "../../job.js";
 import { JobStore } from "../../job.js";
 import type { IterationStore } from "../../iteration.js";
 import { resolveAndExecuteTransition } from "../../service/transition.js";
-import { extractResult } from "../../commands/hook.js";
+import { extractResult } from "../../result.js";
 import { renderTerminalToBuffer } from "../terminal-render.js";
 import { useSyncedState } from "../hooks/use-synced-state.js";
 import { PhaseHeader } from "../components/phase-header.js";
