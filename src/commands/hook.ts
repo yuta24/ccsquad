@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
 import type { SquadConfig } from "../config.js";
 import { parseTransitionCondition } from "../config.js";
-import { JobStore, appendPhaseLog } from "../job.js";
+import { JobStore } from "../job.js";
 import { IterationStore } from "../iteration.js";
 import { CurrentJobsStore } from "../current-jobs.js";
-import { WorkflowEngine } from "../engine.js";
 import { CcsquadError } from "../error.js";
+import { resolveAndExecuteTransition } from "../service/transition.js";
 
 export interface AgentResult {
   job_id: string;
@@ -42,12 +42,10 @@ interface SubagentStopInput {
 export function cmdOnAgentComplete(config: SquadConfig, jobsDir: string, squadDir: string): void {
   const currentJobs = new CurrentJobsStore(squadDir);
 
-  // アクティブジョブが存在しなければ何もしない
   if (currentJobs.list().length === 0) {
     return;
   }
 
-  // stdin から SubagentStop の JSON を読み取る
   let input: string;
   try {
     input = readFileSync(0, "utf-8");
@@ -69,7 +67,6 @@ export function cmdOnAgentComplete(config: SquadConfig, jobsDir: string, squadDi
     return;
   }
 
-  // last_assistant_message から結果 JSON 行を抽出
   const agentResult = extractResult(lastMsg);
   if (!agentResult) {
     console.log("[CCSQUAD] エージェント出力から結果を取得できませんでした。");
@@ -79,7 +76,6 @@ export function cmdOnAgentComplete(config: SquadConfig, jobsDir: string, squadDi
 
   const { job_id: jobId, result, message } = agentResult;
 
-  // アクティブジョブに含まれているか検証
   if (!currentJobs.contains(jobId)) {
     console.log(`[CCSQUAD] ジョブ ${jobId} はアクティブジョブに登録されていません。スキップします。`);
     return;
@@ -91,93 +87,41 @@ export function cmdOnAgentComplete(config: SquadConfig, jobsDir: string, squadDi
   const job = store.load(jobId);
   const wf = config.getWorkflow(job.frontmatter.workflow);
   if (!wf) {
-    throw new CcsquadError(
-      "config",
-      `ワークフロー '${job.frontmatter.workflow}' が ccsquad.yaml に定義されていません`,
-    );
+    throw new CcsquadError("config", `ワークフロー '${job.frontmatter.workflow}' が ccsquad.yaml に定義されていません`);
   }
 
-  const phaseName = job.frontmatter.current_phase;
-  if (!phaseName) {
-    throw new CcsquadError("workflow", "現在のフェーズが設定されていません");
-  }
-
-  const phaseConfig = wf.getPhase(phaseName);
-  if (!phaseConfig) {
-    throw new CcsquadError("workflow", `フェーズ '${phaseName}' がワークフローに定義されていません`);
-  }
-
-  // 遷移先を解決
   const condition = parseTransitionCondition(result);
-  const next = wf.resolveTransition(phaseName, condition);
+  const txResult = resolveAndExecuteTransition(wf, store, iterationStore, jobId, condition, message);
 
-  if (next === "COMPLETE" || next === "ABORT") {
-    // 遷移実行
-    const engine = new WorkflowEngine(wf, store);
-    if (phaseConfig.reviewer !== undefined) {
-      if (condition === "approved") {
-        engine.approve(jobId, message);
-      } else {
-        engine.reject(jobId, message);
-      }
-    } else {
-      engine.transition(jobId, condition, message);
-    }
-    const updatedJob = store.load(jobId);
-    iterationStore.remove(jobId);
-    currentJobs.remove(jobId);
-    console.log(`[CCSQUAD] ジョブ ${jobId} が${updatedJob.frontmatter.status}しました。`);
-  } else {
-    const nextPhase = wf.getPhase(next);
-    if (!nextPhase) {
-      throw new CcsquadError("workflow", `遷移先フェーズ '${next}' がワークフローに定義されていません`);
-    }
-
-    if (nextPhase.pause) {
-      // 遷移しない。フェーズログだけ記録
-      const updatedJob = store.load(jobId);
-      appendPhaseLog(updatedJob, phaseName, condition, next, message);
-      updatedJob.frontmatter.updated_at = new Date().toISOString();
-      store.save(updatedJob);
+  switch (txResult.type) {
+    case "done": {
       currentJobs.remove(jobId);
-      const desc = nextPhase.description ?? "";
-      console.log("[CCSQUAD] フェーズ遷移完了。一時停止しました。");
-      console.log(`ジョブ ID: ${jobId} | 次フェーズ: ${next} | 説明: ${desc}`);
-      console.log(`確認後 /job-approve ${jobId} で続行、/job-reject ${jobId} で却下できます。`);
-    } else {
-      const currentIteration = iterationStore.get(jobId);
-      if (currentIteration >= wf.maxIterations()) {
-        // 遷移しない。フェーズログだけ記録
-        const updatedJob = store.load(jobId);
-        appendPhaseLog(updatedJob, phaseName, condition, next, message);
-        updatedJob.frontmatter.updated_at = new Date().toISOString();
-        store.save(updatedJob);
-        currentJobs.remove(jobId);
+      const updated = store.load(jobId);
+      console.log(`[CCSQUAD] ジョブ ${jobId} が${updated.frontmatter.status}しました。`);
+      break;
+    }
+    case "pause": {
+      currentJobs.remove(jobId);
+      const desc = txResult.phaseConfig.description ?? "";
+      if (txResult.reason === "pause") {
+        console.log("[CCSQUAD] フェーズ遷移完了。一時停止しました。");
+      } else if (txResult.reason === "max_iterations") {
         console.log("[CCSQUAD] フェーズ遷移完了。イテレーション上限に達しました。");
-        console.log(`ジョブ ID: ${jobId} | 次フェーズ: ${next}`);
-        console.log(`確認後 /job-approve ${jobId} で続行できます。`);
       } else {
-        // 遷移実行（アクティブ登録は維持）
-        const engine = new WorkflowEngine(wf, store);
-        if (phaseConfig.reviewer !== undefined) {
-          if (condition === "approved") {
-            engine.approve(jobId, message);
-          } else {
-            engine.reject(jobId, message);
-          }
-        } else {
-          engine.transition(jobId, condition, message);
-        }
-        iterationStore.increment(jobId);
-        const agent = nextPhase.agent ?? "unknown";
-        const desc = nextPhase.description ?? "";
-        console.log("[CCSQUAD] フェーズ遷移完了。次のフェーズを自動実行します。");
-        console.log(`Agent ツールで subagent_type="${agent}" のサブエージェントを起動してください。`);
-        console.log(`ジョブ ID: ${jobId} | フェーズ: ${next} | 説明: ${desc}`);
-        console.log(
-          `プロンプトは ccsquad job show ${jobId} --format json で取得し、job-run スキルと同じ形式で注入してください。`,
-        );
+        console.log("[CCSQUAD] フェーズ遷移完了。レビュー待ちです。");
       }
+      console.log(`ジョブ ID: ${jobId} | 次フェーズ: ${txResult.nextPhase} | 説明: ${desc}`);
+      console.log(`確認後 /job-approve ${jobId} で続行、/job-reject ${jobId} で却下できます。`);
+      break;
+    }
+    case "continue": {
+      const agent = txResult.phaseConfig.agent ?? "unknown";
+      const desc = txResult.phaseConfig.description ?? "";
+      console.log("[CCSQUAD] フェーズ遷移完了。次のフェーズを自動実行します。");
+      console.log(`Agent ツールで subagent_type="${agent}" のサブエージェントを起動してください。`);
+      console.log(`ジョブ ID: ${jobId} | フェーズ: ${txResult.nextPhase} | 説明: ${desc}`);
+      console.log(`プロンプトは ccsquad job show ${jobId} --format json で取得し、job-run スキルと同じ形式で注入してください。`);
+      break;
     }
   }
 }

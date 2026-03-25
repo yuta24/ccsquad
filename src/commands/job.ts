@@ -2,10 +2,11 @@ import { CurrentJobsStore } from "../current-jobs.js";
 import type { SquadConfig, WorkflowConfig } from "../config.js";
 import { parseTransitionCondition } from "../config.js";
 import type { Job } from "../job.js";
-import { JobStore, appendPhaseLog } from "../job.js";
+import { JobStore } from "../job.js";
 import { WorkflowEngine, checkCircularDependency } from "../engine.js";
 import type { IterationStore } from "../iteration.js";
 import { CcsquadError } from "../error.js";
+import { resolveAndExecuteTransition, validateConditionForPhase } from "../service/transition.js";
 
 // --- helper functions ---
 
@@ -356,118 +357,43 @@ export function cmdNextAction(
   if (!phaseName) {
     throw new CcsquadError("workflow", "現在のフェーズが設定されていません");
   }
-  const phaseConfig = wf.getPhase(phaseName);
-  if (!phaseConfig) {
-    throw new CcsquadError(
-      "workflow",
-      `フェーズ '${phaseName}' がワークフローに定義されていません`,
-    );
-  }
 
   const condition = parseTransitionCondition(result);
+  validateConditionForPhase(wf, phaseName, condition);
 
-  // reviewer phase validation
-  if (phaseConfig.reviewer !== undefined) {
-    if (condition !== "approved" && condition !== "rejected") {
-      throw new CcsquadError(
-        "workflow",
-        "レビューフェーズでは approved/rejected を使用してください",
-      );
-    }
-  } else if (condition === "approved" || condition === "rejected") {
-    throw new CcsquadError(
-      "workflow",
-      "通常フェーズでは completed/failed を使用してください",
-    );
-  }
-
-  const next = wf.resolveTransition(phaseName, condition);
+  const txResult = resolveAndExecuteTransition(wf, store, iterationStore, id, condition, message);
 
   let output: NextActionOutput;
 
-  if (next === "COMPLETE" || next === "ABORT") {
-    // Terminal transition
-    const engine = new WorkflowEngine(wf, store);
-    if (phaseConfig.reviewer !== undefined) {
-      if (condition === "approved") {
-        engine.approve(id, message);
-      } else {
-        engine.reject(id, message);
-      }
-    } else {
-      engine.transition(id, condition, message);
-    }
-    const updatedJob = store.load(id);
-    iterationStore.remove(id);
-    output = {
-      action: "done",
-      job_id: id,
-      status: updatedJob.frontmatter.status,
-    };
-  } else {
-    const nextPhase = wf.getPhase(next);
-    if (!nextPhase) {
-      throw new CcsquadError(
-        "workflow",
-        `遷移先フェーズ '${next}' がワークフローに定義されていません`,
-      );
-    }
-
-    if (nextPhase.pause) {
-      // Record phase log without transitioning
-      const jobToUpdate = store.load(id);
-      appendPhaseLog(jobToUpdate, phaseName, condition, next, message);
-      jobToUpdate.frontmatter.updated_at = new Date().toISOString();
-      store.save(jobToUpdate);
+  switch (txResult.type) {
+    case "done":
+      output = {
+        action: "done",
+        job_id: id,
+        status: txResult.status,
+      };
+      break;
+    case "pause":
       output = {
         action: "pause",
         job_id: id,
-        phase: next,
-        phase_description: nextPhase.description,
-        agent: nextPhase.agent,
-        reviewer: nextPhase.reviewer,
-        reason: "pause",
+        phase: txResult.nextPhase,
+        phase_description: txResult.phaseConfig.description,
+        agent: txResult.phaseConfig.agent,
+        reviewer: txResult.phaseConfig.reviewer,
+        reason: txResult.reason,
       };
-    } else {
-      const currentIteration = iterationStore.get(id);
-      if (currentIteration >= wf.maxIterations()) {
-        // Record phase log without transitioning
-        const jobToUpdate = store.load(id);
-        appendPhaseLog(jobToUpdate, phaseName, condition, next, message);
-        jobToUpdate.frontmatter.updated_at = new Date().toISOString();
-        store.save(jobToUpdate);
-        output = {
-          action: "pause",
-          job_id: id,
-          phase: next,
-          phase_description: nextPhase.description,
-          agent: nextPhase.agent,
-          reviewer: nextPhase.reviewer,
-          reason: "max_iterations",
-        };
-      } else {
-        // Execute transition
-        const engine = new WorkflowEngine(wf, store);
-        if (phaseConfig.reviewer !== undefined) {
-          if (condition === "approved") {
-            engine.approve(id, message);
-          } else {
-            engine.reject(id, message);
-          }
-        } else {
-          engine.transition(id, condition, message);
-        }
-        iterationStore.increment(id);
-        output = {
-          action: "continue",
-          job_id: id,
-          phase: next,
-          phase_description: nextPhase.description,
-          agent: nextPhase.agent,
-          reviewer: nextPhase.reviewer,
-        };
-      }
-    }
+      break;
+    case "continue":
+      output = {
+        action: "continue",
+        job_id: id,
+        phase: txResult.nextPhase,
+        phase_description: txResult.phaseConfig.description,
+        agent: txResult.phaseConfig.agent,
+        reviewer: txResult.phaseConfig.reviewer,
+      };
+      break;
   }
 
   console.log(JSON.stringify(output, null, 2));

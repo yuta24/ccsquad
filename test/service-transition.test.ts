@@ -1,0 +1,470 @@
+import { describe, it, expect } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { resolveAndExecuteTransition, validateConditionForPhase } from "../src/service/transition.js";
+import { JobStore } from "../src/job.js";
+import type { Job, JobStatus } from "../src/job.js";
+import { IterationStore } from "../src/iteration.js";
+import { SquadConfigImpl } from "../src/config.js";
+import { WorkflowEngine } from "../src/engine.js";
+
+// ─── テスト用設定 ─────────────────────────────────────────────────────────────
+// dev ワークフロー: plan → code → review(human) → COMPLETE
+// with_pause ワークフロー: investigate(pause) → fix → verify → COMPLETE
+
+const CONFIG_YAML = `
+workflows:
+  dev:
+    max_iterations: 3
+    phases:
+      - name: plan
+        description: 計画
+        agent: planner
+        on:
+          completed: code
+          failed: ABORT
+      - name: code
+        description: 実装
+        agent: coder
+        on:
+          completed: review
+          failed: plan
+      - name: review
+        description: レビュー
+        agent: reviewer
+        reviewer: human
+        on:
+          approved: COMPLETE
+          rejected: code
+  with_pause:
+    max_iterations: 3
+    phases:
+      - name: investigate
+        description: 調査
+        agent: coder
+        pause: true
+        on:
+          completed: fix
+          failed: ABORT
+      - name: fix
+        description: 修正
+        agent: coder
+        on:
+          completed: verify
+          failed: investigate
+      - name: verify
+        description: 検証
+        agent: reviewer
+        on:
+          completed: COMPLETE
+          failed: fix
+`;
+
+function makeTmpDir(): string {
+  return mkdtempSync(join(tmpdir(), "ccsquad-svc-transition-"));
+}
+
+function makeJob(id: string, status: JobStatus, workflow = "dev"): Job {
+  const now = new Date().toISOString();
+  return {
+    frontmatter: {
+      id,
+      title: "テスト",
+      workflow,
+      status,
+      priority: 0,
+      depends_on: [],
+      created_at: now,
+      updated_at: now,
+    },
+    body: "",
+  };
+}
+
+function setup(workflow = "dev") {
+  const dir = makeTmpDir();
+  const store = new JobStore(dir);
+  store.ensureDir();
+  const config = SquadConfigImpl.parse(CONFIG_YAML);
+  const iterationStore = new IterationStore(dir);
+  const wf = config.getWorkflow(workflow)!;
+  const engine = new WorkflowEngine(wf, store);
+
+  const job = makeJob("J000001", "pending", workflow);
+  store.save(job);
+  engine.startJob("J000001");
+
+  return { dir, store, config, iterationStore, engine, wf };
+}
+
+// ─── resolveAndExecuteTransition - 終端遷移 ───────────────────────────────────
+
+describe("resolveAndExecuteTransition - 終端遷移 (COMPLETE)", () => {
+  it("test_complete_transition_returns_done_with_completed_status", () => {
+    const { store, wf, iterationStore } = setup();
+    // plan → completed → code → completed → review → approved → COMPLETE
+    const engine = new WorkflowEngine(wf, store);
+    engine.transition("J000001", "completed", "");
+    engine.transition("J000001", "completed", "");
+    // now at review (reviewer phase)
+
+    const result = resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "approved", "LGTM");
+
+    expect(result.type).toBe("done");
+    expect(result.jobId).toBe("J000001");
+    if (result.type === "done") {
+      expect(result.status).toBe("completed");
+    }
+  });
+
+  it("test_abort_transition_returns_done_with_failed_status", () => {
+    const { store, wf, iterationStore } = setup();
+    // plan → failed → ABORT
+
+    const result = resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "failed", "致命的エラー");
+
+    expect(result.type).toBe("done");
+    expect(result.jobId).toBe("J000001");
+    if (result.type === "done") {
+      expect(result.status).toBe("failed");
+    }
+  });
+
+  it("test_terminal_transition_removes_iteration", () => {
+    const { store, wf, iterationStore } = setup();
+    const engine = new WorkflowEngine(wf, store);
+    engine.transition("J000001", "completed", "");
+    engine.transition("J000001", "completed", "");
+    iterationStore.increment("J000001");
+    iterationStore.increment("J000001");
+    expect(iterationStore.get("J000001")).toBe(2);
+
+    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "approved", "");
+
+    expect(iterationStore.get("J000001")).toBe(0);
+  });
+});
+
+// ─── resolveAndExecuteTransition - pause フェーズ ─────────────────────────────
+
+describe("resolveAndExecuteTransition - pause フェーズ", () => {
+  it("test_pause_phase_returns_pause_with_reason_pause", () => {
+    const { store, config, iterationStore } = setup("with_pause");
+    const wf = config.getWorkflow("with_pause")!;
+    // fix → failed → investigate(pause=true)
+    const job = store.load("J000001");
+    job.frontmatter.current_phase = "fix";
+    store.save(job);
+
+    const result = resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "failed", "バグ発見");
+
+    expect(result.type).toBe("pause");
+    if (result.type === "pause") {
+      expect(result.reason).toBe("pause");
+      expect(result.nextPhase).toBe("investigate");
+    }
+  });
+
+  it("test_pause_phase_does_not_execute_engine_transition", () => {
+    const { store, config, iterationStore } = setup("with_pause");
+    const wf = config.getWorkflow("with_pause")!;
+    const job = store.load("J000001");
+    job.frontmatter.current_phase = "fix";
+    store.save(job);
+
+    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "failed", "");
+
+    // current_phase should still be "fix" (no engine transition occurred)
+    const updatedJob = store.load("J000001");
+    expect(updatedJob.frontmatter.current_phase).toBe("fix");
+  });
+
+  it("test_pause_phase_appends_phase_log", () => {
+    const { store, config, iterationStore } = setup("with_pause");
+    const wf = config.getWorkflow("with_pause")!;
+    const job = store.load("J000001");
+    job.frontmatter.current_phase = "fix";
+    store.save(job);
+
+    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "failed", "バグ発見");
+
+    const updatedJob = store.load("J000001");
+    expect(updatedJob.body).toContain("フェーズログ");
+  });
+
+  it("test_pause_phase_does_not_increment_iteration", () => {
+    const { store, config, iterationStore } = setup("with_pause");
+    const wf = config.getWorkflow("with_pause")!;
+    const job = store.load("J000001");
+    job.frontmatter.current_phase = "fix";
+    store.save(job);
+    expect(iterationStore.get("J000001")).toBe(0);
+
+    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "failed", "");
+
+    expect(iterationStore.get("J000001")).toBe(0);
+  });
+});
+
+// ─── resolveAndExecuteTransition - max_iterations ─────────────────────────────
+
+describe("resolveAndExecuteTransition - max_iterations", () => {
+  it("test_max_iterations_reached_returns_pause_with_reason_max_iterations", () => {
+    const { store, wf, iterationStore } = setup();
+    // max_iterations = 3、3回目でブロック
+    iterationStore.increment("J000001"); // 1
+    iterationStore.increment("J000001"); // 2
+    iterationStore.increment("J000001"); // 3 = max
+
+    const result = resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", "計画完了");
+
+    expect(result.type).toBe("pause");
+    if (result.type === "pause") {
+      expect(result.reason).toBe("max_iterations");
+    }
+  });
+
+  it("test_max_iterations_does_not_execute_engine_transition", () => {
+    const { store, wf, iterationStore } = setup();
+    iterationStore.increment("J000001");
+    iterationStore.increment("J000001");
+    iterationStore.increment("J000001");
+
+    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", "");
+
+    const job = store.load("J000001");
+    // current_phase should remain "plan" (no engine transition)
+    expect(job.frontmatter.current_phase).toBe("plan");
+  });
+
+  it("test_max_iterations_does_not_increment_iteration", () => {
+    const { store, wf, iterationStore } = setup();
+    iterationStore.increment("J000001");
+    iterationStore.increment("J000001");
+    iterationStore.increment("J000001");
+    expect(iterationStore.get("J000001")).toBe(3);
+
+    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", "");
+
+    expect(iterationStore.get("J000001")).toBe(3);
+  });
+
+  it("test_max_iterations_appends_phase_log", () => {
+    const { store, wf, iterationStore } = setup();
+    iterationStore.increment("J000001");
+    iterationStore.increment("J000001");
+    iterationStore.increment("J000001");
+
+    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", "計画完了");
+
+    const job = store.load("J000001");
+    expect(job.body).toContain("フェーズログ");
+  });
+});
+
+// ─── resolveAndExecuteTransition - human_review ───────────────────────────────
+
+describe("resolveAndExecuteTransition - human_review", () => {
+  it("test_human_review_phase_returns_pause_with_reason_human_review", () => {
+    const { store, wf, iterationStore } = setup();
+    // plan → completed → code → completed → review(human)
+    const engine = new WorkflowEngine(wf, store);
+    engine.transition("J000001", "completed", "");
+    // now at code
+
+    const result = resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", "実装完了");
+
+    expect(result.type).toBe("pause");
+    if (result.type === "pause") {
+      expect(result.reason).toBe("human_review");
+      expect(result.nextPhase).toBe("review");
+    }
+  });
+
+  it("test_human_review_executes_engine_transition", () => {
+    const { store, wf, iterationStore } = setup();
+    const engine = new WorkflowEngine(wf, store);
+    engine.transition("J000001", "completed", "");
+    // now at code
+
+    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", "");
+
+    const job = store.load("J000001");
+    // engine transition should have moved to review phase
+    expect(job.frontmatter.current_phase).toBe("review");
+  });
+
+  it("test_human_review_increments_iteration", () => {
+    const { store, wf, iterationStore } = setup();
+    const engine = new WorkflowEngine(wf, store);
+    engine.transition("J000001", "completed", "");
+    expect(iterationStore.get("J000001")).toBe(0);
+
+    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", "");
+
+    expect(iterationStore.get("J000001")).toBe(1);
+  });
+});
+
+// ─── resolveAndExecuteTransition - 自動遷移 (continue) ────────────────────────
+
+describe("resolveAndExecuteTransition - 自動遷移 (continue)", () => {
+  it("test_auto_continue_returns_continue_result", () => {
+    const { store, wf, iterationStore } = setup();
+    // plan → completed → code (自動遷移)
+
+    const result = resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", "計画完了");
+
+    expect(result.type).toBe("continue");
+    expect(result.jobId).toBe("J000001");
+    if (result.type === "continue") {
+      expect(result.nextPhase).toBe("code");
+    }
+  });
+
+  it("test_auto_continue_increments_iteration", () => {
+    const { store, wf, iterationStore } = setup();
+    expect(iterationStore.get("J000001")).toBe(0);
+
+    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", "");
+
+    expect(iterationStore.get("J000001")).toBe(1);
+  });
+
+  it("test_auto_continue_executes_engine_transition", () => {
+    const { store, wf, iterationStore } = setup();
+
+    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", "");
+
+    const job = store.load("J000001");
+    expect(job.frontmatter.current_phase).toBe("code");
+  });
+
+  it("test_auto_continue_includes_phase_config", () => {
+    const { store, wf, iterationStore } = setup();
+
+    const result = resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", "");
+
+    if (result.type === "continue") {
+      expect(result.phaseConfig.name).toBe("code");
+      expect(result.phaseConfig.description).toBe("実装");
+      expect(result.phaseConfig.agent).toBe("coder");
+    } else {
+      expect(result.type).toBe("continue");
+    }
+  });
+});
+
+// ─── resolveAndExecuteTransition - reviewer phase approved/rejected ───────────
+
+describe("resolveAndExecuteTransition - reviewer フェーズ", () => {
+  it("test_reviewer_phase_approved_returns_done", () => {
+    const { store, wf, iterationStore } = setup();
+    const engine = new WorkflowEngine(wf, store);
+    engine.transition("J000001", "completed", "");
+    engine.transition("J000001", "completed", "");
+    // now at review
+
+    const result = resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "approved", "LGTM");
+
+    expect(result.type).toBe("done");
+    if (result.type === "done") {
+      expect(result.status).toBe("completed");
+    }
+  });
+
+  it("test_reviewer_phase_rejected_returns_continue_to_code", () => {
+    const { store, wf, iterationStore } = setup();
+    const engine = new WorkflowEngine(wf, store);
+    engine.transition("J000001", "completed", "");
+    engine.transition("J000001", "completed", "");
+    // now at review
+
+    const result = resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "rejected", "テスト不足");
+
+    expect(result.type).toBe("continue");
+    if (result.type === "continue") {
+      expect(result.nextPhase).toBe("code");
+    }
+  });
+
+  it("test_reviewer_phase_rejected_increments_iteration", () => {
+    const { store, wf, iterationStore } = setup();
+    const engine = new WorkflowEngine(wf, store);
+    engine.transition("J000001", "completed", "");
+    engine.transition("J000001", "completed", "");
+    expect(iterationStore.get("J000001")).toBe(0);
+
+    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "rejected", "");
+
+    expect(iterationStore.get("J000001")).toBe(1);
+  });
+});
+
+// ─── validateConditionForPhase ────────────────────────────────────────────────
+
+describe("validateConditionForPhase", () => {
+  it("test_normal_phase_accepts_completed", () => {
+    const config = SquadConfigImpl.parse(CONFIG_YAML);
+    const wf = config.getWorkflow("dev")!;
+
+    expect(() => validateConditionForPhase(wf, "plan", "completed")).not.toThrow();
+  });
+
+  it("test_normal_phase_accepts_failed", () => {
+    const config = SquadConfigImpl.parse(CONFIG_YAML);
+    const wf = config.getWorkflow("dev")!;
+
+    expect(() => validateConditionForPhase(wf, "plan", "failed")).not.toThrow();
+  });
+
+  it("test_normal_phase_rejects_approved", () => {
+    const config = SquadConfigImpl.parse(CONFIG_YAML);
+    const wf = config.getWorkflow("dev")!;
+
+    expect(() => validateConditionForPhase(wf, "plan", "approved")).toThrow("通常フェーズ");
+  });
+
+  it("test_normal_phase_rejects_rejected", () => {
+    const config = SquadConfigImpl.parse(CONFIG_YAML);
+    const wf = config.getWorkflow("dev")!;
+
+    expect(() => validateConditionForPhase(wf, "plan", "rejected")).toThrow("通常フェーズ");
+  });
+
+  it("test_reviewer_phase_accepts_approved", () => {
+    const config = SquadConfigImpl.parse(CONFIG_YAML);
+    const wf = config.getWorkflow("dev")!;
+
+    expect(() => validateConditionForPhase(wf, "review", "approved")).not.toThrow();
+  });
+
+  it("test_reviewer_phase_accepts_rejected", () => {
+    const config = SquadConfigImpl.parse(CONFIG_YAML);
+    const wf = config.getWorkflow("dev")!;
+
+    expect(() => validateConditionForPhase(wf, "review", "rejected")).not.toThrow();
+  });
+
+  it("test_reviewer_phase_rejects_completed", () => {
+    const config = SquadConfigImpl.parse(CONFIG_YAML);
+    const wf = config.getWorkflow("dev")!;
+
+    expect(() => validateConditionForPhase(wf, "review", "completed")).toThrow("レビューフェーズ");
+  });
+
+  it("test_reviewer_phase_rejects_failed", () => {
+    const config = SquadConfigImpl.parse(CONFIG_YAML);
+    const wf = config.getWorkflow("dev")!;
+
+    expect(() => validateConditionForPhase(wf, "review", "failed")).toThrow("レビューフェーズ");
+  });
+
+  it("test_unknown_phase_throws_error", () => {
+    const config = SquadConfigImpl.parse(CONFIG_YAML);
+    const wf = config.getWorkflow("dev")!;
+
+    expect(() => validateConditionForPhase(wf, "nonexistent_phase", "completed")).toThrow();
+  });
+});

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, spyOn } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,9 @@ import {
   cmdActivate,
   cmdDeactivate,
   cmdAdd,
+  cmdList,
+  cmdShow,
+  cmdEdit,
   cmdRun,
   cmdTransition,
   cmdApprove,
@@ -397,5 +400,140 @@ describe("cmdClose", () => {
     const iterationStore = new IterationStore(dir);
     store.save(makeJob("J000001", "closed"));
     expect(() => cmdClose(store, config, iterationStore, "J000001")).toThrow("既にクローズ");
+  });
+});
+
+// ─── cmdList ─────────────────────────────────────────────────────────────────
+
+function captureLog(fn: () => void): string[] {
+  const lines: string[] = [];
+  const spy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+    lines.push(args.join(" "));
+  });
+  try {
+    fn();
+  } finally {
+    spy.mockRestore();
+  }
+  return lines;
+}
+
+describe("cmdList", () => {
+  it("test_list_shows_correct_columns", () => {
+    const { store, config } = setup();
+    cmdAdd(store, config, "テストタスク", "dev");
+    const lines = captureLog(() => cmdList(store));
+    const header = lines[0];
+    expect(header).toContain("ID");
+    expect(header).toContain("タイトル");
+    expect(header).toContain("ワークフロー");
+    expect(header).toContain("ステータス");
+    expect(header).toContain("フェーズ");
+    expect(header).toContain("優先度");
+    const dataLine = lines.find((l) => l.includes("J000001"));
+    expect(dataLine).toBeDefined();
+    expect(dataLine).toContain("テストタスク");
+    expect(dataLine).toContain("dev");
+    expect(dataLine).toContain("pending");
+  });
+
+  it("test_list_shows_empty_message_when_no_jobs", () => {
+    const { store } = setup();
+    const lines = captureLog(() => cmdList(store));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toBe("ジョブはありません。");
+  });
+});
+
+// ─── cmdShow ─────────────────────────────────────────────────────────────────
+
+describe("cmdShow", () => {
+  it("test_show_text_format_displays_job_details", () => {
+    const { store, config } = setup();
+    cmdAdd(store, config, "表示テスト", "dev");
+    const lines = captureLog(() => cmdShow(store, config, "J000001", "text"));
+    expect(lines.some((l) => l.includes("J000001"))).toBe(true);
+    expect(lines.some((l) => l.includes("表示テスト"))).toBe(true);
+    expect(lines.some((l) => l.includes("dev"))).toBe(true);
+    expect(lines.some((l) => l.includes("pending"))).toBe(true);
+  });
+
+  it("test_show_json_format_includes_phase_config_when_running", () => {
+    const { store, config } = setup();
+    store.save(makeJob("J000001", "pending"));
+    cmdRun(store, config, "J000001");
+    const lines: string[] = [];
+    const spy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      lines.push(args.join(" "));
+    });
+    try {
+      cmdShow(store, config, "J000001", "json");
+    } finally {
+      spy.mockRestore();
+    }
+    const json = JSON.parse(lines.join("\n"));
+    expect(json.id).toBe("J000001");
+    expect(json.status).toBe("running");
+    expect(json.current_phase).toBe("plan");
+    expect(json.phase_config).toBeDefined();
+    expect(json.phase_config.agent).toBe("planner");
+  });
+
+  it("test_show_throws_for_nonexistent_job", () => {
+    const { store, config } = setup();
+    expect(() => cmdShow(store, config, "J999999", "text")).toThrow();
+  });
+});
+
+// ─── cmdEdit ─────────────────────────────────────────────────────────────────
+
+describe("cmdEdit", () => {
+  it("test_edit_title_updates_frontmatter", () => {
+    const { store, config } = setup();
+    cmdAdd(store, config, "元のタイトル", "dev");
+    cmdEdit(store, "J000001", "新しいタイトル");
+    const job = store.load("J000001");
+    expect(job.frontmatter.title).toBe("新しいタイトル");
+  });
+
+  it("test_edit_priority_updates_frontmatter", () => {
+    const { store, config } = setup();
+    cmdAdd(store, config, "タスク", "dev");
+    cmdEdit(store, "J000001", undefined, undefined, 10);
+    const job = store.load("J000001");
+    expect(job.frontmatter.priority).toBe(10);
+  });
+
+  it("test_edit_description_creates_section_if_missing", () => {
+    const { store, config } = setup();
+    cmdAdd(store, config, "タスク", "dev");
+    cmdEdit(store, "J000001", undefined, "新しい説明文");
+    const job = store.load("J000001");
+    expect(job.body).toContain("## 説明");
+    expect(job.body).toContain("新しい説明文");
+  });
+
+  it("test_edit_description_replaces_existing_section", () => {
+    const { store, config } = setup();
+    cmdAdd(store, config, "タスク", "dev", "最初の説明");
+    cmdEdit(store, "J000001", undefined, "更新された説明");
+    const job = store.load("J000001");
+    expect(job.body).toContain("更新された説明");
+    expect(job.body).not.toContain("最初の説明");
+  });
+
+  it("test_edit_depends_on_validates_referenced_jobs", () => {
+    const { store, config } = setup();
+    cmdAdd(store, config, "タスク1", "dev");
+    cmdAdd(store, config, "タスク2", "dev");
+    cmdEdit(store, "J000002", undefined, undefined, undefined, ["J000001"]);
+    const job = store.load("J000002");
+    expect(job.frontmatter.depends_on).toEqual(["J000001"]);
+  });
+
+  it("test_edit_depends_on_throws_for_nonexistent_dependency", () => {
+    const { store, config } = setup();
+    cmdAdd(store, config, "タスク", "dev");
+    expect(() => cmdEdit(store, "J000001", undefined, undefined, undefined, ["J999999"])).toThrow();
   });
 });
