@@ -1,0 +1,22 @@
+{
+  "name": "ccsquad",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "ccsquad": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "dev": "bun run src/index.ts",
+    "build": "bun build --compile src/index.ts --outfile ccsquad"
+  },
+  "dependencies": {
+    "yaml": "^2.7.0",
+    "commander": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  }
+}

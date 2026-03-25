@@ -25,19 +25,19 @@ workflows:
   dev:
     description: 開発ワークフロー
     phases:
-      plan:
+      - name: plan
         description: 実装計画を策定する
         agent: planner
         on:
           completed: code
           failed: ABORT
-      code:
+      - name: code
         description: コードを実装する
         agent: coder
         on:
           completed: review
           failed: plan
-      review:
+      - name: review
         description: コードレビューを行う
         agent: reviewer
         reviewer: human
@@ -48,7 +48,7 @@ workflows:
 
 ### ワークフローの規約
 
-- `phases` の最初のキーが開始フェーズになる
+- `phases` 配列の最初の要素が開始フェーズになる
 - 通常フェーズ: `on.completed` が必須
 - reviewer フェーズ: `on.approved` と `on.rejected` が必須
 - 特殊値: `COMPLETE`(成功終了)、`ABORT`(失敗終了)

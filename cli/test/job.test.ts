@@ -1,0 +1,102 @@
+import { describe, it, expect } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { JobStore, appendPhaseLog } from "../src/job.js";
+import type { Job, JobFrontmatter } from "../src/job.js";
+
+function makeTempStore(): JobStore {
+  const dir = mkdtempSync(join(tmpdir(), "ccsquad-job-test-"));
+  const store = new JobStore(dir);
+  store.ensureDir();
+  return store;
+}
+
+function makeJob(id: string, title: string): Job {
+  const now = new Date().toISOString();
+  const frontmatter: JobFrontmatter = {
+    id,
+    title,
+    workflow: "dev",
+    status: "pending",
+    priority: 0,
+    depends_on: [],
+    created_at: now,
+    updated_at: now,
+  };
+  return {
+    frontmatter,
+    body: "## 説明\nテストジョブです。\n",
+  };
+}
+
+describe("JobStore", () => {
+  it("保存と読み込み", () => {
+    const store = makeTempStore();
+    const job = makeJob("J000001", "テスト");
+    store.save(job);
+    const loaded = store.load("J000001");
+    expect(loaded.frontmatter.id).toBe("J000001");
+    expect(loaded.frontmatter.title).toBe("テスト");
+    expect(loaded.frontmatter.status).toBe("pending");
+    expect(loaded.body).toContain("テストジョブです");
+  });
+
+  it("空ディレクトリでJ000001", () => {
+    const store = makeTempStore();
+    expect(store.nextId()).toBe("J000001");
+  });
+
+  it("IDがインクリメントされる", () => {
+    const store = makeTempStore();
+    store.save(makeJob("J000001", "a"));
+    store.save(makeJob("J000003", "b"));
+    expect(store.nextId()).toBe("J000004");
+  });
+
+  it("全ジョブ一覧（ID昇順）", () => {
+    const store = makeTempStore();
+    store.save(makeJob("J000001", "a"));
+    store.save(makeJob("J000002", "b"));
+    const jobs = store.listAll();
+    expect(jobs.length).toBe(2);
+    expect(jobs[0].frontmatter.id).toBe("J000001");
+    expect(jobs[1].frontmatter.id).toBe("J000002");
+  });
+
+  it("削除", () => {
+    const store = makeTempStore();
+    store.save(makeJob("J000001", "a"));
+    store.delete("J000001");
+    expect(() => store.load("J000001")).toThrow();
+  });
+
+  it("存在しないジョブでエラー", () => {
+    const store = makeTempStore();
+    expect(() => store.load("J999999")).toThrow();
+  });
+});
+
+describe("appendPhaseLog", () => {
+  it("フェーズログセクション作成", () => {
+    const job = makeJob("J000001", "test");
+    appendPhaseLog(job, "plan", "completed", "code", "計画完了");
+    expect(job.body).toContain("## フェーズログ");
+    expect(job.body).toContain("### plan (completed → code)");
+    expect(job.body).toContain("計画完了");
+  });
+
+  it("フェーズログ追記", () => {
+    const job = makeJob("J000001", "test");
+    appendPhaseLog(job, "plan", "completed", "code", "計画完了");
+    appendPhaseLog(job, "code", "completed", "review", "実装完了");
+    const logCount = (job.body.match(/###/g) ?? []).length;
+    expect(logCount).toBe(2);
+  });
+
+  it("空メッセージ", () => {
+    const job = makeJob("J000001", "test");
+    appendPhaseLog(job, "plan", "completed", "code", "");
+    expect(job.body).toContain("### plan (completed → code)");
+  });
+});

@@ -2,13 +2,13 @@ workflows:
   dev:
     max_iterations: 10
     phases:
-      code:
+      - name: code
         description: コードを実装する
         agent: coder
         on:
           completed: review
           failed: plan
-      review:
+      - name: review
         description: コードレビューを行う
         agent: reviewer
         reviewer: human
@@ -19,20 +19,20 @@ workflows:
     description: タスクを調査・分解し、ジョブを作成するワークフロー
     max_iterations: 5
     phases:
-      analyze:
+      - name: analyze
         description: タスクの要件を調査し、コードベースを探索して影響範囲を把握する
         agent: coder
         pause: true
         on:
           completed: decompose
           failed: ABORT
-      decompose:
+      - name: decompose
         description: 調査結果をもとにタスクを分解し、個別のジョブを作成する
         agent: coder
         on:
           completed: review
           failed: analyze
-      review:
+      - name: review
         description: 分解されたジョブの妥当性をレビューする
         agent: reviewer
         reviewer: human
@@ -43,20 +43,20 @@ workflows:
     description: バグ修正ワークフロー
     max_iterations: 10
     phases:
-      investigate:
+      - name: investigate
         description: 原因を調査する
         agent: coder
         pause: true
         on:
           completed: fix
           failed: ABORT
-      fix:
+      - name: fix
         description: 修正を実施する
         agent: coder
         on:
           completed: verify
           failed: investigate
-      verify:
+      - name: verify
         description: 修正を検証する
         agent: reviewer
         on:
