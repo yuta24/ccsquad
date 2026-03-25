@@ -14,6 +14,7 @@ import {
   cmdDelete as memoryCmdDelete, cmdSearch as memoryCmdSearch,
 } from "./commands/memory.js";
 import { cmdSetup } from "./commands/setup.js";
+import { cmdSignal } from "./commands/signal.js";
 
 const program = new Command();
 program.name("ccsquad").description("ジョブ管理 + ワークフローエンジン + メモリ管理 CLI");
@@ -142,13 +143,27 @@ memCmd.command("search <query>").description("エントリを検索")
     memoryCmdSearch(createContext().entryStore, query, opts.type, opts.format === "json" ? "json" : "text");
   });
 
+// ===== signal commands =====
+const signalCmd = program.command("signal").description("TUI にシグナルを送信");
+
+signalCmd.command("notification").description("Notification シグナルを送信")
+  .option("--job <id>", "ジョブ ID")
+  .action((opts: { job?: string }) => {
+    cmdSignal("notification", opts.job);
+  });
+
+signalCmd.command("stop").description("Stop シグナルを送信")
+  .option("--job <id>", "ジョブ ID")
+  .action((opts: { job?: string }) => {
+    cmdSignal("stop", opts.job);
+  });
+
 // ===== setup command =====
 program.command("setup").description("プロジェクトに ccsquad をセットアップ")
   .option("--force", "既存ファイルを上書き", false)
   .option("--skip-skills", "スキルのインストールをスキップ", false)
-  .option("--skip-agents", "エージェント定義のコピーをスキップ", false)
   .option("--skip-config", "ccsquad.yaml の作成をスキップ", false)
-  .action((opts: { force: boolean; skipSkills: boolean; skipAgents: boolean; skipConfig: boolean }) => {
+  .action((opts: { force: boolean; skipSkills: boolean; skipConfig: boolean }) => {
     cmdSetup(opts);
   });
 

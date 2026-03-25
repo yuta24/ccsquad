@@ -1,17 +1,14 @@
-import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   SKILL_JOB,
   SKILL_MEMORY,
-  AGENT_CODER,
-  AGENT_REVIEWER,
   DEFAULT_CONFIG,
 } from "../embedded.js";
 
 export interface SetupArgs {
   force: boolean;
   skipSkills: boolean;
-  skipAgents: boolean;
   skipConfig: boolean;
 }
 
@@ -28,9 +25,7 @@ export function cmdSetup(args: SetupArgs): void {
     setupSkills(projectRoot, args.force);
   }
 
-  if (!args.skipAgents) {
-    setupAgents(projectRoot, args.force);
-  }
+  setupHooks(projectRoot);
 
   console.log("セットアップが完了しました。");
 }
@@ -68,25 +63,55 @@ function setupSkills(projectRoot: string, force: boolean): void {
   }
 }
 
-function setupAgents(projectRoot: string, force: boolean): void {
-  const agents: Array<[string, string]> = [
-    ["coder", AGENT_CODER],
-    ["reviewer", AGENT_REVIEWER],
+function setupHooks(projectRoot: string): void {
+  const settingsDir = join(projectRoot, ".claude");
+  mkdirSync(settingsDir, { recursive: true });
+
+  const settingsPath = join(settingsDir, "settings.local.json");
+
+  let settings: Record<string, unknown> = {};
+  if (existsSync(settingsPath)) {
+    try {
+      settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    } catch {
+      // invalid JSON は上書き
+    }
+  }
+
+  const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
+  const hookDefs: Array<{ event: string; command: string }> = [
+    { event: "Stop", command: "ccsquad signal stop --job $JOB_ID" },
+    { event: "Notification", command: "ccsquad signal notification --job $JOB_ID" },
   ];
 
-  const agentsDir = join(projectRoot, ".claude", "agents");
-  mkdirSync(agentsDir, { recursive: true });
+  let changed = false;
+  for (const { event, command } of hookDefs) {
+    const existing = hooks[event];
+    const alreadyExists = Array.isArray(existing) && existing.some((entry: unknown) => {
+      if (typeof entry !== "object" || entry === null) return false;
+      const e = entry as Record<string, unknown>;
+      if (!Array.isArray(e.hooks)) return false;
+      return e.hooks.some((h: unknown) => {
+        if (typeof h !== "object" || h === null) return false;
+        return (h as Record<string, unknown>).command === command;
+      });
+    });
 
-  for (const [name, content] of agents) {
-    const agentPath = join(agentsDir, `${name}.md`);
-
-    if (existsSync(agentPath) && !force) {
-      console.log(`  エージェント: ${name} (既に存在、スキップ)`);
+    if (alreadyExists) {
+      console.log(`  Hooks: ${event} (既に設定済み、スキップ)`);
       continue;
     }
 
-    writeFileSync(agentPath, content, "utf-8");
-    console.log(`  エージェント: ${name} を作成しました`);
+    const arr = Array.isArray(existing) ? existing : [];
+    arr.push({ hooks: [{ type: "command", command }] });
+    hooks[event] = arr;
+    changed = true;
+    console.log(`  Hooks: ${event} hook を追加しました`);
+  }
+
+  if (changed) {
+    settings.hooks = hooks;
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
   }
 }
 

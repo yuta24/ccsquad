@@ -10,6 +10,7 @@ import { JobStore } from "../../job.js";
 import type { IterationStore } from "../../iteration.js";
 import { resolveAndExecuteTransition } from "../../service/transition.js";
 import { extractResult } from "../../result.js";
+import type { SignalMessage } from "../../service/signal-server.js";
 import { renderTerminalToBuffer } from "../terminal-render.js";
 import { useSyncedState } from "../hooks/use-synced-state.js";
 import { PhaseHeader } from "../components/phase-header.js";
@@ -25,6 +26,8 @@ interface PhaseRunningViewProps {
   store: JobStore;
   config: SquadConfig;
   iterationStore: IterationStore;
+  projectRoot: string;
+  signalHandlerRef: React.MutableRefObject<((msg: SignalMessage) => void) | null>;
   onTransition: (info: TransitionInfo) => void;
   onDone: () => void;
   onQuit: () => void;
@@ -32,10 +35,13 @@ interface PhaseRunningViewProps {
 
 export function PhaseRunningView({
   jobId, phase, store, config, iterationStore,
+  projectRoot, signalHandlerRef,
   onTransition, onDone, onQuit,
 }: PhaseRunningViewProps) {
+  const isDebug = process.env.CCSQUAD_DEBUG === "1";
   const [tick, setTick] = useState(0);
   const [statusMsg, setStatusMsg] = useState<string>("エージェントを起動中...");
+  const [lastSignal, setLastSignal] = useState<string | null>(null);
   const [fallbackMode, setFallbackMode, fallbackModeRef] = useSyncedState(false);
   const [fallbackOptions, setFallbackOptions, fallbackOptionsRef] = useSyncedState<string[]>([]);
   const [fallbackCursor, setFallbackCursor, fallbackCursorRef] = useSyncedState(0);
@@ -72,7 +78,7 @@ export function PhaseRunningView({
       name: "xterm-256color",
       cols,
       rows,
-      env: { ...process.env, TERM: "xterm-256color" },
+      env: { ...process.env, TERM: "xterm-256color", CCSQUAD_ROOT: projectRoot, JOB_ID: jobId },
       cwd: process.cwd(),
     });
     ptyRef.current = pty;
@@ -199,6 +205,22 @@ export function PhaseRunningView({
     };
   }, []);
 
+  // Register signal handler for Stop/Notification hooks
+  useEffect(() => {
+    signalHandlerRef.current = (msg: SignalMessage) => {
+      if (isDebug) {
+        const ts = new Date().toLocaleTimeString();
+        setLastSignal(`[${ts}] ${msg.event}${msg.job_id ? ` job=${msg.job_id}` : ""}`);
+      }
+      if ((msg.event === "stop" || msg.event === "notification") && (!msg.job_id || msg.job_id === jobId)) {
+        handleCtrlD();
+      }
+    };
+    return () => {
+      signalHandlerRef.current = null;
+    };
+  }, [jobId, handleCtrlD, isDebug]);
+
   useKeyboard((event: KeyEvent) => {
     if (fallbackModeRef.current) {
       if (event.name === "up" || event.name === "k") {
@@ -296,8 +318,11 @@ export function PhaseRunningView({
     <box width="100%" height="100%" flexDirection="column">
       {job && <PhaseHeader job={job} workflowConfig={wfConfig} iteration={iteration} />}
       <box flexGrow={1} borderStyle="single" borderColor="#66ff66" renderAfter={renderTerminal} />
-      <box height={1} paddingLeft={1} backgroundColor={COLOR_DARK_BG}>
+      <box height={1} paddingLeft={1} backgroundColor={COLOR_DARK_BG} flexDirection="row">
         <text fg={COLOR_GRAY}>{statusMsg}</text>
+        {isDebug && lastSignal && (
+          <text fg={COLOR_YELLOW}>{" │ "}{lastSignal}</text>
+        )}
       </box>
       <StatusBar items={[
         { key: "Ctrl+D", label: "フェーズ完了" }, { key: "Ctrl+C", label: "割り込み" }, { key: "Ctrl+Q", label: "終了" },

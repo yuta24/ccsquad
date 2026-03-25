@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "bun test",
-    "dev": "bun run src/index.ts",
+    "dev": "CCSQUAD_DEBUG=1 bun run src/index.ts",
     "build": "bun build --compile src/index.ts --outfile dist/ccsquad"
   },
   "dependencies": {

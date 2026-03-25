@@ -1,14 +1,17 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
+import type { Server } from "node:net";
 
 import { SquadConfigImpl } from "../config.js";
 import type { SquadConfig } from "../config.js";
 import { JobStore } from "../job.js";
 import { IterationStore } from "../iteration.js";
 import { findConfig } from "../service/context.js";
+import { createSignalServer } from "../service/signal-server.js";
+import type { SignalMessage } from "../service/signal-server.js";
 
 import type { Screen } from "./constants.js";
 import { ATTR_BOLD, COLOR_RED, COLOR_GRAY } from "./constants.js";
@@ -46,7 +49,31 @@ function App() {
     return { configPath, squadConfig, jobStore, iterationStore };
   }, []);
 
+  // Signal server for receiving hooks notifications
+  const signalHandlerRef = useRef<((msg: SignalMessage) => void) | null>(null);
+  const signalServerRef = useRef<Server | null>(null);
+
+  useEffect(() => {
+    if (!configPath) return;
+    const projectRoot = dirname(configPath);
+    const sockPath = join(projectRoot, ".ccsquad", "ccsquad.sock");
+
+    const server = createSignalServer(sockPath, (msg) => {
+      signalHandlerRef.current?.(msg);
+    });
+    signalServerRef.current = server;
+
+    return () => {
+      server.close();
+      try {
+        const { unlinkSync, existsSync } = require("node:fs");
+        if (existsSync(sockPath)) unlinkSync(sockPath);
+      } catch { /* ignore */ }
+    };
+  }, [configPath]);
+
   const handleQuit = useCallback(() => {
+    signalServerRef.current?.close();
     rendererInstance?.destroy();
     process.exit(0);
   }, []);
@@ -102,6 +129,8 @@ function App() {
           key={`${jobId}-${phase}`}
           jobId={jobId} phase={phase}
           store={store} config={cfg} iterationStore={itStore}
+          projectRoot={dirname(configPath)}
+          signalHandlerRef={signalHandlerRef}
           onTransition={(info) => navigateTo({ type: "pause-review", jobId, phase: info.nextPhase, info })}
           onDone={() => navigateTo({ type: "job-list" })}
           onQuit={handleQuit}

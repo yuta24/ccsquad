@@ -18,6 +18,15 @@ export interface ProjectContext {
 }
 
 export function findConfig(): string | null {
+  // CCSQUAD_ROOT が設定されていればそちらを優先
+  const root = process.env.CCSQUAD_ROOT;
+  if (root) {
+    const candidate = join(root, "ccsquad.yaml");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  // 従来の cwd 探索
   let dir = process.cwd();
   while (true) {
     const candidate = join(dir, "ccsquad.yaml");
