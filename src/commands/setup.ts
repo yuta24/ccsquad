@@ -80,8 +80,8 @@ function setupHooks(projectRoot: string): void {
 
   const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
   const hookDefs: Array<{ event: string; command: string }> = [
-    { event: "Stop", command: "ccsquad signal stop --job $JOB_ID" },
-    { event: "Notification", command: "ccsquad signal notification --job $JOB_ID" },
+    { event: "Stop", command: "[ -n \"$JOB_ID\" ] && ccsquad signal stop --job $JOB_ID || true" },
+    { event: "Notification", command: "[ -n \"$JOB_ID\" ] && ccsquad signal notification --job $JOB_ID || true" },
   ];
 
   let changed = false;
