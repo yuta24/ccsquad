@@ -616,9 +616,18 @@ program
     },
   );
 
+// ===== tui command =====
+program
+  .command("tui")
+  .description("TUI を起動 (Claude Code 埋め込み)")
+  .action(async () => {
+    const { launchTui } = await import("./tui/app.js");
+    await launchTui();
+  });
+
 // ===== entry point =====
 try {
-  program.parse();
+  await program.parseAsync();
 } catch (e) {
   if (e instanceof CcsquadError) {
     console.error(`エラー: ${e.message}`);

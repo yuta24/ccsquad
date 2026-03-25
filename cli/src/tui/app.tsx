@@ -53,7 +53,7 @@ function renderTerminalToBuffer(
       // Handle inverse
       if (flags & StyleFlags.INVERSE) {
         const tmp = fg;
-        fg = bg.buffer[3] === 0 ? DEFAULT_BG : bg; // if transparent bg, use default
+        fg = bg.buffer[3] === 0 ? DEFAULT_BG : bg;
         bg = tmp;
       }
 
@@ -85,7 +85,6 @@ function renderTerminalToBuffer(
     const cx = data.cursor[0];
     const cy = Math.max(0, (data.totalLines - data.rows) + data.cursor[1] - data.offset);
     if (cy >= 0 && cy < data.lines.length) {
-      // Invert colors at cursor position for block cursor
       buffer.setCell(
         offsetX + cx,
         offsetY + cy,
@@ -98,67 +97,52 @@ function renderTerminalToBuffer(
   }
 }
 
-// --- Components ---
+// --- Mode types ---
+type Mode = "normal" | "workflow";
 
-function Sidebar({ focused }: { focused: boolean }) {
+// --- Global renderer for cleanup ---
+let rendererInstance: any = null;
+
+function quit(pty: IPty | null, term: PersistentTerminal | null) {
+  pty?.kill();
+  term?.destroy();
+  rendererInstance?.destroy();
+  process.exit(0);
+}
+
+// --- Workflow Mode placeholder ---
+function WorkflowMode() {
   return (
     <box
-      width={30}
+      width="100%"
       height="100%"
       flexDirection="column"
-      borderStyle="single"
-      borderColor={focused ? "green" : "gray"}
-      padding={1}
+      alignItems="center"
+      justifyContent="center"
     >
-      <text bold color="white">ccsquad-tui PoC</text>
-      <text color="gray">{"─".repeat(24)}</text>
+      <text bold color="cyan">Workflow Mode</text>
       <box height={1} />
-      <text color="cyan">Job: J000001</text>
-      <text color="cyan">Workflow: dev</text>
-      <text color="cyan">Phase: code</text>
-      <text color="green">Status: Running</text>
-
-      <box height={1} />
-      <text color="gray">{"─".repeat(24)}</text>
-      <text bold color="white">Phase History</text>
-      <text color="green">  done  plan</text>
-      <text color="yellow">  now   code</text>
-      <text color="gray">  next  review</text>
-
-      <box flexGrow={1} />
-      <text color="gray">{"─".repeat(24)}</text>
-      <text color="gray">[Tab] switch focus</text>
-      <text color="gray">[a]   approve</text>
-      <text color="gray">[r]   reject</text>
-      <text color="gray">[q]   quit</text>
-      {focused && <text color="green" bold>● Sidebar</text>}
+      <text color="gray">Press Ctrl+S to return to Normal Mode</text>
+      <text color="gray">Press Ctrl+Q to quit</text>
     </box>
   );
 }
 
 // --- Main App ---
-
-let rendererInstance: any = null;
-
-function quit() {
-  rendererInstance?.destroy();
-  process.exit(0);
-}
-
 function App() {
-  const [focus, setFocus] = useState<"sidebar" | "terminal">("terminal");
-  const [_, setTick] = useState(0); // force re-render on terminal update
+  const [mode, setMode] = useState<Mode>("normal");
+  const [_, setTick] = useState(0);
   const ptyRef = useRef<IPty | null>(null);
   const termRef = useRef<PersistentTerminal | null>(null);
-  const focusRef = useRef(focus);
+  const modeRef = useRef<Mode>("normal");
 
   useEffect(() => {
-    focusRef.current = focus;
-  }, [focus]);
+    modeRef.current = mode;
+  }, [mode]);
 
-  useEffect(() => {
-    const cols = 80;
-    const rows = 24;
+  const spawnPty = () => {
+    const cols = process.stdout.columns || 80;
+    const rows = process.stdout.rows || 24;
     const term = new PersistentTerminal({ cols, rows });
     termRef.current = term;
 
@@ -178,37 +162,51 @@ function App() {
     pty.onExit(() => {
       setTick((t) => t + 1);
     });
+  };
 
+  const killPty = () => {
+    ptyRef.current?.kill();
+    ptyRef.current = null;
+    termRef.current?.destroy();
+    termRef.current = null;
+  };
+
+  useEffect(() => {
+    // Spawn PTY on initial mount (normal mode)
+    spawnPty();
     return () => {
-      pty.kill();
-      term.destroy();
+      killPty();
     };
   }, []);
 
   useKeyboard((event: KeyEvent) => {
-    const currentFocus = focusRef.current;
-
-    if (event.name === "tab") {
-      setFocus((prev) => {
-        const next = prev === "sidebar" ? "terminal" : "sidebar";
-        focusRef.current = next;
-        return next;
-      });
+    // Ctrl+Q: quit
+    if (event.ctrl && event.name === "q") {
+      quit(ptyRef.current, termRef.current);
       event.preventDefault();
       return;
     }
 
-    if (currentFocus === "sidebar") {
-      if (event.name === "q") {
-        ptyRef.current?.kill();
-        termRef.current?.destroy();
-        quit();
+    // Ctrl+S: toggle mode
+    if (event.ctrl && event.name === "s") {
+      const currentMode = modeRef.current;
+      if (currentMode === "normal") {
+        // Switch to workflow: kill PTY
+        killPty();
+        modeRef.current = "workflow";
+        setMode("workflow");
+      } else {
+        // Switch to normal: spawn new PTY
+        modeRef.current = "normal";
+        setMode("normal");
+        spawnPty();
       }
       event.preventDefault();
       return;
     }
 
-    if (currentFocus === "terminal" && ptyRef.current) {
+    // In normal mode: forward all other keys to PTY
+    if (modeRef.current === "normal" && ptyRef.current) {
       if (event.sequence) {
         ptyRef.current.write(event.sequence);
       } else if (event.name && event.name.length === 1) {
@@ -226,25 +224,30 @@ function App() {
     try {
       const data = term.getJson();
       // offset by 1 for the border
-      renderTerminalToBuffer(buffer, data, 32, 1);
+      renderTerminalToBuffer(buffer, data, 1, 1);
     } catch {
       // terminal might be destroyed
     }
   };
 
+  if (mode === "workflow") {
+    return <WorkflowMode />;
+  }
+
   return (
-    <box width="100%" height="100%" flexDirection="row">
-      <Sidebar focused={focus === "sidebar"} />
-      <box
-        flexGrow={1}
-        height="100%"
-        borderStyle="single"
-        borderColor={focus === "terminal" ? "green" : "gray"}
-        renderAfter={renderTerminal}
-      />
-    </box>
+    <box
+      width="100%"
+      height="100%"
+      borderStyle="single"
+      borderColor="#66ff66"
+      title=" SQUAD | Ctrl+S: Workflow  Ctrl+Q: Quit "
+      titleColor="cyan"
+      renderAfter={renderTerminal}
+    />
   );
 }
 
-rendererInstance = await createCliRenderer({ exitOnCtrlC: false });
-createRoot(rendererInstance).render(<App />);
+export async function launchTui(): Promise<void> {
+  rendererInstance = await createCliRenderer({ exitOnCtrlC: false });
+  createRoot(rendererInstance).render(<App />);
+}

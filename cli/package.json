@@ -13,10 +13,16 @@
   },
   "dependencies": {
     "yaml": "^2.7.0",
-    "commander": "^13.0.0"
+    "commander": "^13.0.0",
+    "@opentui/core": "latest",
+    "@opentui/react": "latest",
+    "react": "^19.0.0",
+    "ghostty-opentui": "latest",
+    "bun-pty": "latest"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/react": "^19.0.0",
     "typescript": "^5.0.0"
   }
 }
