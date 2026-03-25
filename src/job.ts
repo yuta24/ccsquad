@@ -51,7 +51,7 @@ function serializeFrontmatter(fm: JobFrontmatter): string {
     obj.current_phase = fm.current_phase;
   }
   obj.priority = fm.priority;
-  if (fm.depends_on.length > 0) {
+  if ((fm.depends_on ?? []).length > 0) {
     obj.depends_on = fm.depends_on;
   }
   obj.created_at = fm.created_at;
