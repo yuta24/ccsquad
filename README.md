@@ -13,10 +13,10 @@ bun install
 bun run build
 ```
 
-ビルド後、`ccsquad` バイナリが生成されます。必要に応じて PATH の通ったディレクトリにコピーしてください。
+ビルド後、`dist/ccsquad` バイナリが生成されます。必要に応じて PATH の通ったディレクトリにコピーしてください。
 
 ```bash
-cp ccsquad /usr/local/bin/
+cp dist/ccsquad /usr/local/bin/
 ```
 
 ### Agent Skill (Claude Code プラグイン)

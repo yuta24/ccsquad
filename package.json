@@ -9,7 +9,7 @@
   "scripts": {
     "test": "bun test",
     "dev": "bun run src/index.ts",
-    "build": "bun build --compile src/index.ts --outfile ccsquad"
+    "build": "bun build --compile src/index.ts --outfile dist/ccsquad"
   },
   "dependencies": {
     "yaml": "^2.7.0",
