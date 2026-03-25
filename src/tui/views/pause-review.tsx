@@ -1,11 +1,11 @@
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import type { SquadConfig, WorkflowConfig } from "../../config.js";
 import type { Job } from "../../job.js";
 import { JobStore } from "../../job.js";
-import { WorkflowEngine } from "../../engine.js";
 import type { IterationStore } from "../../iteration.js";
+import { resolveAndExecuteTransition } from "../../service/transition.js";
 import { PhaseHeader } from "../components/phase-header.js";
 import { StatusBar } from "../components/status-bar.js";
 import type { TransitionInfo, StatusBarItem } from "../constants.js";
@@ -32,87 +32,61 @@ export function PauseReviewView({
 }: PauseReviewViewProps) {
   const [statusMsg, setStatusMsg] = useState<string>("");
 
-  const executeApprove = useCallback(() => {
+  const handleTransitionResult = useCallback((condition: "approved" | "rejected" | "completed" | "failed") => {
     try {
       const jobData = store.load(jobId);
       const wf = config.getWorkflow(jobData.frontmatter.workflow);
       if (!wf) { setStatusMsg("ワークフローが見つかりません"); return; }
 
-      const currentPhase = jobData.frontmatter.current_phase ?? phase;
-      const phaseConfig = wf.getPhase(currentPhase);
-      if (!phaseConfig) { setStatusMsg(`フェーズ '${currentPhase}' が見つかりません`); return; }
+      const txResult = resolveAndExecuteTransition(wf, store, iterationStore, jobId, condition, "");
 
-      const engine = new WorkflowEngine(wf, store);
-      if (phaseConfig.reviewer !== undefined) {
-        engine.approve(jobId, "");
-      } else {
-        engine.transition(jobId, "completed", "");
-      }
-
-      const updatedJob = store.load(jobId);
-      if (updatedJob.frontmatter.status === "completed" || updatedJob.frontmatter.status === "failed") {
-        iterationStore.remove(jobId);
-        onDone();
-        return;
-      }
-
-      const nextPhaseName = updatedJob.frontmatter.current_phase;
-      if (nextPhaseName) {
-        const nextPhaseConfig = wf.getPhase(nextPhaseName);
-        if (nextPhaseConfig?.reviewer === "human") {
-          setStatusMsg(`次フェーズ '${nextPhaseName}' はレビュー待ちです`);
-        } else {
-          iterationStore.increment(jobId);
-          onRunAgent(jobId, nextPhaseName);
-        }
-      } else {
-        onDone();
+      switch (txResult.type) {
+        case "done":
+          onDone();
+          break;
+        case "continue":
+          onRunAgent(jobId, txResult.nextPhase);
+          break;
+        case "pause":
+          if (txResult.reason === "human_review") {
+            setStatusMsg(`次フェーズ '${txResult.nextPhase}' はレビュー待ちです`);
+          } else {
+            onRunAgent(jobId, txResult.nextPhase);
+          }
+          break;
       }
     } catch (e) {
       setStatusMsg(`エラー: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [jobId, store, config, iterationStore, phase, onRunAgent, onDone]);
+  }, [jobId, store, config, iterationStore, onRunAgent, onDone]);
+
+  const executeApprove = useCallback(() => {
+    try {
+      const jobData = store.load(jobId);
+      const wf = config.getWorkflow(jobData.frontmatter.workflow);
+      if (!wf) { setStatusMsg("ワークフローが見つかりません"); return; }
+      const currentPhase = jobData.frontmatter.current_phase ?? phase;
+      const phaseConfig = wf.getPhase(currentPhase);
+      const condition = phaseConfig?.reviewer !== undefined ? "approved" : "completed";
+      handleTransitionResult(condition);
+    } catch (e) {
+      setStatusMsg(`エラー: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [jobId, store, config, phase, handleTransitionResult]);
 
   const executeReject = useCallback(() => {
     try {
       const jobData = store.load(jobId);
       const wf = config.getWorkflow(jobData.frontmatter.workflow);
       if (!wf) { setStatusMsg("ワークフローが見つかりません"); return; }
-
       const currentPhase = jobData.frontmatter.current_phase ?? phase;
       const phaseConfig = wf.getPhase(currentPhase);
-      if (!phaseConfig) { setStatusMsg(`フェーズ '${currentPhase}' が見つかりません`); return; }
-
-      const engine = new WorkflowEngine(wf, store);
-      if (phaseConfig.reviewer !== undefined) {
-        engine.reject(jobId, "");
-      } else {
-        engine.transition(jobId, "failed", "");
-      }
-
-      const updatedJob = store.load(jobId);
-      if (updatedJob.frontmatter.status === "completed" || updatedJob.frontmatter.status === "failed") {
-        iterationStore.remove(jobId);
-        onDone();
-        return;
-      }
-
-      const nextPhaseName = updatedJob.frontmatter.current_phase;
-      if (nextPhaseName) {
-        const nextPhaseConfig = wf.getPhase(nextPhaseName);
-        if (nextPhaseConfig?.reviewer !== "human") {
-          onRunAgent(jobId, nextPhaseName);
-        } else {
-          setStatusMsg(`却下しました。次フェーズ: ${nextPhaseName}`);
-          onDone();
-        }
-      } else {
-        onDone();
-      }
+      const condition = phaseConfig?.reviewer !== undefined ? "rejected" : "failed";
+      handleTransitionResult(condition);
     } catch (e) {
       setStatusMsg(`エラー: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [jobId, store, config, iterationStore, phase, onRunAgent, onDone]);
+  }, [jobId, store, config, phase, handleTransitionResult]);
 
   useKeyboard((event: KeyEvent) => {
     if (event.ctrl && event.name === "q") { onQuit(); event.preventDefault(); return; }
@@ -127,20 +101,6 @@ export function PauseReviewView({
       if (event.name === "x") { executeReject(); event.preventDefault(); return; }
     } else if (isAgentReviewer) {
       if (event.name === "r" || event.name === "return" || event.name === "enter") {
-        try {
-          const jobData = store.load(jobId);
-          const wf = config.getWorkflow(jobData.frontmatter.workflow);
-          if (wf) {
-            const currentPhase = jobData.frontmatter.current_phase ?? phase;
-            const phaseConfig = wf.getPhase(currentPhase);
-            if (phaseConfig && phaseConfig.reviewer === undefined) {
-              const engine = new WorkflowEngine(wf, store);
-              engine.transition(jobId, "completed", "");
-            }
-          }
-        } catch {
-          // ignore
-        }
         onRunAgent(jobId, info.nextPhase);
         event.preventDefault();
         return;
@@ -149,20 +109,6 @@ export function PauseReviewView({
       if (event.name === "x") { executeReject(); event.preventDefault(); return; }
     } else if (isPauseOnly) {
       if (event.name === "return" || event.name === "enter") {
-        try {
-          const jobData = store.load(jobId);
-          const wf = config.getWorkflow(jobData.frontmatter.workflow);
-          if (wf) {
-            const currentPhase = jobData.frontmatter.current_phase ?? phase;
-            const phaseConfig = wf.getPhase(currentPhase);
-            if (phaseConfig && phaseConfig.reviewer === undefined) {
-              const engine = new WorkflowEngine(wf, store);
-              engine.transition(jobId, "completed", "");
-            }
-          }
-        } catch {
-          // phase log was already recorded
-        }
         onRunAgent(jobId, info.nextPhase);
         event.preventDefault();
         return;
@@ -172,16 +118,19 @@ export function PauseReviewView({
     event.preventDefault();
   });
 
-  let job: Job | null = null;
-  let wfConfig: WorkflowConfig | undefined;
-  let iteration = 0;
-  try {
-    job = store.load(jobId);
-    wfConfig = config.getWorkflow(job.frontmatter.workflow);
-    iteration = iterationStore.get(jobId);
-  } catch {
-    // ignore
-  }
+  const { job, wfConfig, iteration } = useMemo(() => {
+    let job: Job | null = null;
+    let wfConfig: WorkflowConfig | undefined;
+    let iteration = 0;
+    try {
+      job = store.load(jobId);
+      wfConfig = config.getWorkflow(job.frontmatter.workflow);
+      iteration = iterationStore.get(jobId);
+    } catch {
+      // ignore
+    }
+    return { job, wfConfig, iteration };
+  }, [jobId, store, config, iterationStore, statusMsg]);
 
   const isHumanReviewer = info.reviewer === "human";
   const isAgentReviewer = info.reviewer && info.reviewer !== "human";

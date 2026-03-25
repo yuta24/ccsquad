@@ -2,7 +2,7 @@ import type { KeyEvent, OptimizedBuffer } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { PersistentTerminal } from "ghostty-opentui";
 import { spawn, type IPty } from "bun-pty";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { SquadConfig, WorkflowConfig } from "../../config.js";
 import { parseTransitionCondition } from "../../config.js";
 import type { Job } from "../../job.js";
@@ -252,16 +252,19 @@ export function PhaseRunningView({
     }
   }, []);
 
-  let job: Job | null = null;
-  let wfConfig: WorkflowConfig | undefined;
-  let iteration = 0;
-  try {
-    job = store.load(jobId);
-    wfConfig = config.getWorkflow(job.frontmatter.workflow);
-    iteration = iterationStore.get(jobId);
-  } catch {
-    // ignore
-  }
+  const { job, wfConfig, iteration } = useMemo(() => {
+    let job: Job | null = null;
+    let wfConfig: WorkflowConfig | undefined;
+    let iteration = 0;
+    try {
+      job = store.load(jobId);
+      wfConfig = config.getWorkflow(job.frontmatter.workflow);
+      iteration = iterationStore.get(jobId);
+    } catch {
+      // ignore
+    }
+    return { job, wfConfig, iteration };
+  }, [jobId, store, config, iterationStore, tick, statusMsg]);
 
   if (fallbackMode) {
     return (

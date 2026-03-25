@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach } from "bun:test";
-import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createContext } from "../src/service/context.js";
+import { createContext, findConfig, findConfigOrThrow } from "../src/service/context.js";
 import { CcsquadError } from "../src/error.js";
 
 function makeTempDir(): string {
-  return mkdtempSync(join(tmpdir(), "ccsquad-context-test-"));
+  return realpathSync(mkdtempSync(join(tmpdir(), "ccsquad-context-test-")));
 }
 
 function writeValidConfig(dir: string): string {
@@ -103,5 +103,73 @@ expect(ctx.entryStore).toBeDefined();
     const ctx = createContext(configPath);
 
     expect(ctx.memoryDir).toBe(join(tmpDir, ".ccsquad", "memory", "entries"));
+  });
+});
+
+describe("findConfig", () => {
+  it("ccsquad.yaml が存在するディレクトリでパスを返す", () => {
+    const dir = makeTempDir();
+    writeValidConfig(dir);
+    const originalCwd = process.cwd();
+    process.chdir(dir);
+    try {
+      const result = findConfig();
+      expect(result).toBe(join(dir, "ccsquad.yaml"));
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  it("親ディレクトリに ccsquad.yaml がある場合そのパスを返す", () => {
+    const dir = makeTempDir();
+    writeValidConfig(dir);
+    const subDir = join(dir, "subdir");
+    mkdirSync(subDir, { recursive: true });
+    const originalCwd = process.cwd();
+    process.chdir(subDir);
+    try {
+      const result = findConfig();
+      expect(result).toBe(join(dir, "ccsquad.yaml"));
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  it("ccsquad.yaml が存在しない場合 null を返す", () => {
+    const dir = makeTempDir();
+    const originalCwd = process.cwd();
+    process.chdir(dir);
+    try {
+      const result = findConfig();
+      expect(result).toBeNull();
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+});
+
+describe("findConfigOrThrow", () => {
+  it("ccsquad.yaml が存在しない場合エラーをスローする", () => {
+    const dir = makeTempDir();
+    const originalCwd = process.cwd();
+    process.chdir(dir);
+    try {
+      expect(() => findConfigOrThrow()).toThrow("ccsquad.yaml が見つかりません");
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  it("ccsquad.yaml が存在する場合パスを返す", () => {
+    const dir = makeTempDir();
+    writeValidConfig(dir);
+    const originalCwd = process.cwd();
+    process.chdir(dir);
+    try {
+      const result = findConfigOrThrow();
+      expect(result).toBe(join(dir, "ccsquad.yaml"));
+    } finally {
+      process.chdir(originalCwd);
+    }
   });
 });

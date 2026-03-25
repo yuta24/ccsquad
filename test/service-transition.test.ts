@@ -402,6 +402,83 @@ describe("resolveAndExecuteTransition - reviewer フェーズ", () => {
   });
 });
 
+// ─── resolveAndExecuteTransition - バリデーション ─────────────────────────────
+
+describe("resolveAndExecuteTransition - バリデーション", () => {
+  it("current_phase が未設定の場合エラーをスローする", () => {
+    const { store, wf, iterationStore } = setup();
+    const job = store.load("J000001");
+    job.frontmatter.current_phase = undefined;
+    store.save(job);
+
+    expect(() =>
+      resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", ""),
+    ).toThrow("現在のフェーズが設定されていません");
+  });
+
+  it("running 以外のステータスの場合エラーをスローする", () => {
+    const { store, wf, iterationStore } = setup();
+    const job = store.load("J000001");
+    job.frontmatter.status = "pending";
+    store.save(job);
+
+    expect(() =>
+      resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", ""),
+    ).toThrow("実行中ではありません");
+  });
+
+  it("completed ステータスの場合エラーをスローする", () => {
+    const { store, wf, iterationStore } = setup();
+    const job = store.load("J000001");
+    job.frontmatter.status = "completed";
+    store.save(job);
+
+    expect(() =>
+      resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", ""),
+    ).toThrow("実行中ではありません");
+  });
+
+  it("レビューフェーズで completed を使うとエラーをスローする", () => {
+    const { store, wf, iterationStore } = setup();
+    const engine = new WorkflowEngine(wf, store);
+    engine.transition("J000001", "completed", "");
+    engine.transition("J000001", "completed", "");
+    // now at review (reviewer phase)
+
+    expect(() =>
+      resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", ""),
+    ).toThrow("approve/reject");
+  });
+
+  it("レビューフェーズで failed を使うとエラーをスローする", () => {
+    const { store, wf, iterationStore } = setup();
+    const engine = new WorkflowEngine(wf, store);
+    engine.transition("J000001", "completed", "");
+    engine.transition("J000001", "completed", "");
+
+    expect(() =>
+      resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "failed", ""),
+    ).toThrow("approve/reject");
+  });
+
+  it("通常フェーズで approved を使うとエラーをスローする", () => {
+    const { store, wf, iterationStore } = setup();
+    // plan is a normal phase
+
+    expect(() =>
+      resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "approved", ""),
+    ).toThrow("通常フェーズ");
+  });
+
+  it("通常フェーズで rejected を使うとエラーをスローする", () => {
+    const { store, wf, iterationStore } = setup();
+
+    expect(() =>
+      resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "rejected", ""),
+    ).toThrow("通常フェーズ");
+  });
+});
+
 // ─── validateConditionForPhase ────────────────────────────────────────────────
 
 describe("validateConditionForPhase", () => {

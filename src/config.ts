@@ -30,6 +30,7 @@ export interface WorkflowConfig {
   resolveTransition(phaseName: string, condition: TransitionCondition): string;
   maxIterations(): number;
   getPhase(name: string): PhaseConfig | undefined;
+  validate(workflowName: string): string[];
 }
 
 export interface SquadConfig {
@@ -206,7 +207,7 @@ class SquadConfigImpl implements SquadConfig {
   validate(): string[] {
     const warnings: string[] = [];
     for (const [name, workflow] of Object.entries(this.workflows)) {
-      const w = (workflow as WorkflowConfigImpl).validate(name);
+      const w = workflow.validate(name);
       warnings.push(...w);
     }
     return warnings;

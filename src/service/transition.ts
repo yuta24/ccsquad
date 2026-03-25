@@ -1,8 +1,6 @@
 import type { WorkflowConfig, TransitionCondition, PhaseConfig } from "../config.js";
-import { parseTransitionCondition } from "../config.js";
-import type { JobStore } from "../job.js";
+import type { Job, JobStore } from "../job.js";
 import { appendPhaseLog } from "../job.js";
-import { WorkflowEngine } from "../engine.js";
 import type { IterationStore } from "../iteration.js";
 import { CcsquadError } from "../error.js";
 
@@ -26,70 +24,97 @@ export function resolveAndExecuteTransition(
   message: string,
 ): TransitionResult {
   const job = store.load(jobId);
+  // Normalize depends_on
+  job.frontmatter.depends_on = job.frontmatter.depends_on ?? [];
+
   const phaseName = job.frontmatter.current_phase;
   if (!phaseName) {
     throw new CcsquadError("workflow", "現在のフェーズが設定されていません");
   }
+
+  // Validate running state
+  if (job.frontmatter.status !== "running") {
+    throw new CcsquadError(
+      "job",
+      `ジョブ '${jobId}' は実行中ではありません (status: ${job.frontmatter.status})`,
+    );
+  }
+
   const phaseConfig = wf.getPhase(phaseName);
   if (!phaseConfig) {
     throw new CcsquadError("workflow", `フェーズ '${phaseName}' がワークフローに定義されていません`);
   }
 
+  // Validate reviewer condition
+  if (phaseConfig.reviewer !== undefined) {
+    if (condition !== "approved" && condition !== "rejected") {
+      throw new CcsquadError("workflow", "レビューフェーズでは approve/reject を使用してください");
+    }
+  } else {
+    if (condition === "approved" || condition === "rejected") {
+      throw new CcsquadError("workflow", "通常フェーズでは approve/reject を使用できません");
+    }
+  }
+
   const next = wf.resolveTransition(phaseName, condition);
 
-  const executeEngineTransition = () => {
-    const engine = new WorkflowEngine(wf, store);
-    if (phaseConfig.reviewer !== undefined) {
-      condition === "approved" ? engine.approve(jobId, message) : engine.reject(jobId, message);
+  const executeTransition = (j: Job) => {
+    appendPhaseLog(j, phaseName, condition, next, message);
+    if (next === "COMPLETE") {
+      j.frontmatter.status = "completed";
+      j.frontmatter.current_phase = undefined;
+    } else if (next === "ABORT") {
+      j.frontmatter.status = "failed";
+      j.frontmatter.current_phase = undefined;
     } else {
-      engine.transition(jobId, condition, message);
+      j.frontmatter.current_phase = next;
     }
+    j.frontmatter.updated_at = new Date().toISOString();
+    store.save(j);
   };
 
-  const recordLogOnly = () => {
-    const jobToUpdate = store.load(jobId);
-    appendPhaseLog(jobToUpdate, phaseName, condition, next, message);
-    jobToUpdate.frontmatter.updated_at = new Date().toISOString();
-    store.save(jobToUpdate);
+  const recordLogOnly = (j: Job) => {
+    appendPhaseLog(j, phaseName, condition, next, message);
+    j.frontmatter.updated_at = new Date().toISOString();
+    store.save(j);
   };
 
   // Terminal states
   if (next === "COMPLETE" || next === "ABORT") {
-    executeEngineTransition();
-    const updated = store.load(jobId);
+    executeTransition(job);
     iterationStore.remove(jobId);
-    return { type: "done", jobId, status: updated.frontmatter.status };
+    return { type: "done", jobId, status: job.frontmatter.status };
   }
 
-  const nextPhase = wf.getPhase(next);
-  if (!nextPhase) {
+  const nextPhaseConfig = wf.getPhase(next);
+  if (!nextPhaseConfig) {
     throw new CcsquadError("workflow", `遷移先フェーズ '${next}' がワークフローに定義されていません`);
   }
 
   // Pause flag
-  if (nextPhase.pause) {
-    recordLogOnly();
-    return { type: "pause", jobId, nextPhase: next, phaseConfig: nextPhase, reason: "pause" };
+  if (nextPhaseConfig.pause) {
+    recordLogOnly(job);
+    return { type: "pause", jobId, nextPhase: next, phaseConfig: nextPhaseConfig, reason: "pause" };
   }
 
   // Max iterations
   const currentIteration = iterationStore.get(jobId);
   if (currentIteration >= wf.maxIterations()) {
-    recordLogOnly();
-    return { type: "pause", jobId, nextPhase: next, phaseConfig: nextPhase, reason: "max_iterations" };
+    recordLogOnly(job);
+    return { type: "pause", jobId, nextPhase: next, phaseConfig: nextPhaseConfig, reason: "max_iterations" };
   }
 
   // Human review
-  if (nextPhase.reviewer === "human") {
-    executeEngineTransition();
+  if (nextPhaseConfig.reviewer === "human") {
+    executeTransition(job);
     iterationStore.increment(jobId);
-    return { type: "pause", jobId, nextPhase: next, phaseConfig: nextPhase, reason: "human_review" };
+    return { type: "pause", jobId, nextPhase: next, phaseConfig: nextPhaseConfig, reason: "human_review" };
   }
 
   // Auto-continue
-  executeEngineTransition();
+  executeTransition(job);
   iterationStore.increment(jobId);
-  return { type: "continue", jobId, nextPhase: next, phaseConfig: nextPhase };
+  return { type: "continue", jobId, nextPhase: next, phaseConfig: nextPhaseConfig };
 }
 
 export function validateConditionForPhase(

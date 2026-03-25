@@ -139,7 +139,19 @@ export class EntryStore {
     }
 
     const { yaml, body } = parseFrontmatter(content);
-    const parsed = yamlParse(yaml) as Record<string, string>;
+    const rawParsed = yamlParse(yaml);
+
+    if (!rawParsed || typeof rawParsed !== "object") {
+      throw new CcsquadError("serialization", `エントリ '${key}' の frontmatter が不正です: オブジェクトではありません`);
+    }
+
+    const parsed = rawParsed as Record<string, unknown>;
+    if (typeof parsed["created_at"] !== "string") {
+      throw new CcsquadError("serialization", `エントリ '${key}' の frontmatter が不正です: created_at が文字列ではありません`);
+    }
+    if (typeof parsed["updated_at"] !== "string") {
+      throw new CcsquadError("serialization", `エントリ '${key}' の frontmatter が不正です: updated_at が文字列ではありません`);
+    }
 
     const fm: MemoryFrontmatter = {
       type: parsed["type"] as string | undefined,

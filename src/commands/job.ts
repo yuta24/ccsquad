@@ -6,6 +6,7 @@ import { WorkflowEngine, checkCircularDependency } from "../engine.js";
 import type { IterationStore } from "../iteration.js";
 import { CcsquadError } from "../error.js";
 import { resolveAndExecuteTransition, validateConditionForPhase } from "../service/transition.js";
+import { truncate } from "../util.js";
 
 // --- helper functions ---
 
@@ -40,13 +41,6 @@ function printTransitionResult(job: Job): void {
     default:
       break;
   }
-}
-
-function truncate(s: string, maxLen: number): string {
-  if ([...s].length <= maxLen) {
-    return s;
-  }
-  return [...s].slice(0, maxLen - 2).join("") + "..";
 }
 
 function getPhaseInfo(

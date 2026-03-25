@@ -1,14 +1,8 @@
 import { readFileSync } from "node:fs";
 import { EntryStore, MemoryEntry, MemoryFrontmatter, entryKey } from "../entry.js";
+import { truncate } from "../util.js";
 
 // --- helpers ---
-
-export function truncate(s: string, maxLen: number): string {
-  if ([...s].length <= maxLen) {
-    return s;
-  }
-  return [...s].slice(0, maxLen - 2).join("") + "..";
-}
 
 function formatTimestamp(isoString: string): string {
   return new Date(isoString).toISOString().slice(0, 16).replace("T", " ");

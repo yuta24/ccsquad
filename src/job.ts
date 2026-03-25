@@ -130,13 +130,32 @@ export class JobStore {
       throw new CcsquadError("serialization", `frontmatter パースエラー: ${e}`);
     }
 
-    let fm: JobFrontmatter;
+    let parsed: unknown;
     try {
-      fm = parseYaml(yaml) as JobFrontmatter;
+      parsed = parseYaml(yaml);
     } catch (e) {
       throw new CcsquadError("serialization", `YAML パースエラー: ${e}`);
     }
 
+    if (!parsed || typeof parsed !== "object") {
+      throw new CcsquadError("serialization", "frontmatter が不正です: オブジェクトではありません");
+    }
+
+    const raw = parsed as Record<string, unknown>;
+    if (typeof raw["id"] !== "string") {
+      throw new CcsquadError("serialization", "frontmatter が不正です: id が文字列ではありません");
+    }
+    if (typeof raw["title"] !== "string") {
+      throw new CcsquadError("serialization", "frontmatter が不正です: title が文字列ではありません");
+    }
+    if (typeof raw["workflow"] !== "string") {
+      throw new CcsquadError("serialization", "frontmatter が不正です: workflow が文字列ではありません");
+    }
+    if (typeof raw["status"] !== "string") {
+      throw new CcsquadError("serialization", "frontmatter が不正です: status が文字列ではありません");
+    }
+
+    const fm = parsed as JobFrontmatter;
     return { frontmatter: fm, body };
   }
 

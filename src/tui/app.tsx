@@ -1,6 +1,6 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 
@@ -23,24 +23,28 @@ let rendererInstance: any = null;
 function App() {
   const [screen, setScreen] = useState<Screen>({ type: "normal" });
 
-  const configPath = findConfig();
-  let squadConfig: SquadConfig | null = null;
-  let jobStore: JobStore | null = null;
-  let iterationStore: IterationStore | null = null;
+  const { configPath, squadConfig, jobStore, iterationStore } = useMemo(() => {
+    const configPath = findConfig();
+    let squadConfig: SquadConfig | null = null;
+    let jobStore: JobStore | null = null;
+    let iterationStore: IterationStore | null = null;
 
-  if (configPath) {
-    try {
-      squadConfig = SquadConfigImpl.load(configPath);
-      const projectRoot = dirname(configPath);
-      const squadDir = join(projectRoot, ".ccsquad");
-      const jobsDir = join(squadDir, "jobs");
-      mkdirSync(jobsDir, { recursive: true });
-      jobStore = new JobStore(jobsDir);
-      iterationStore = new IterationStore(squadDir);
-    } catch {
-      squadConfig = null;
+    if (configPath) {
+      try {
+        squadConfig = SquadConfigImpl.load(configPath);
+        const projectRoot = dirname(configPath);
+        const squadDir = join(projectRoot, ".ccsquad");
+        const jobsDir = join(squadDir, "jobs");
+        mkdirSync(jobsDir, { recursive: true });
+        jobStore = new JobStore(jobsDir);
+        iterationStore = new IterationStore(squadDir);
+      } catch {
+        squadConfig = null;
+      }
     }
-  }
+
+    return { configPath, squadConfig, jobStore, iterationStore };
+  }, []);
 
   const handleQuit = useCallback(() => {
     rendererInstance?.destroy();

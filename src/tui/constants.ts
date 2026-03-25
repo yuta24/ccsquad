@@ -1,4 +1,4 @@
-import type { PhaseConfig } from "../config.js";
+export { truncate, padRight } from "../util.js";
 
 // Attribute flags matching OpenTUI
 export const ATTR_BOLD = 1;
@@ -47,14 +47,5 @@ export interface StatusBarItem {
   label: string;
 }
 
-// Shared utilities
-export function truncateStr(s: string, maxLen: number): string {
-  if ([...s].length <= maxLen) return s;
-  return [...s].slice(0, maxLen - 2).join("") + "..";
-}
-
-export function padRight(s: string, len: number): string {
-  const chars = [...s];
-  if (chars.length >= len) return chars.slice(0, len).join("");
-  return s + " ".repeat(len - chars.length);
-}
+// truncateStr is kept as an alias for backward compatibility
+export { truncate as truncateStr } from "../util.js";
