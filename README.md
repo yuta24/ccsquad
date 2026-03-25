@@ -6,24 +6,17 @@
 
 ### CLI
 
-#### Cargo からビルド
-
-```bash
-cargo install --path crates/ccsquad-cli
-```
-
-#### ソースからビルド
-
 ```bash
 git clone https://github.com/yuta24/ccsquad.git
 cd ccsquad
-cargo build --release
+bun install
+bun run build
 ```
 
-ビルド後、`target/release/ccsquad` にバイナリが生成されます。必要に応じて PATH の通ったディレクトリにコピーしてください。
+ビルド後、`ccsquad` バイナリが生成されます。必要に応じて PATH の通ったディレクトリにコピーしてください。
 
 ```bash
-cp target/release/ccsquad /usr/local/bin/
+cp ccsquad /usr/local/bin/
 ```
 
 ### Agent Skill (Claude Code プラグイン)
