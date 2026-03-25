@@ -6,7 +6,9 @@ import type { Job } from "../../job.js";
 import { JobStore } from "../../job.js";
 import { WorkflowEngine } from "../../engine.js";
 import type { IterationStore } from "../../iteration.js";
+import { adjustViewportOffset } from "../../util.js";
 import { useSyncedState } from "../hooks/use-synced-state.js";
+import { useTerminalSize } from "../hooks/use-terminal-size.js";
 import { WorkflowDiagram } from "../components/workflow-diagram.js";
 import { StatusBar } from "../components/status-bar.js";
 import {
@@ -35,6 +37,11 @@ export function JobListView({
   const [jobs, setJobs, jobsRef] = useSyncedState<Job[]>([]);
   const [confirmAction, setConfirmAction, confirmRef] = useSyncedState<{ type: "delete" | "abort"; jobId: string } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [viewportOffset, setViewportOffset, viewportOffsetRef] = useSyncedState(0);
+  const { rows } = useTerminalSize();
+
+  // Reserve: header(1) + border(2) + col-header(1) + workflow-diagram(4) + confirm/msg(1) + statusbar(1) = 10
+  const viewportHeight = Math.max(rows - 10, 3);
 
   const loadJobs = useCallback(() => {
     try {
@@ -48,6 +55,11 @@ export function JobListView({
   useEffect(() => {
     loadJobs();
   }, [loadJobs]);
+
+  const adjustViewport = useCallback((newCursor: number) => {
+    const offset = adjustViewportOffset(newCursor, viewportOffsetRef.current, viewportHeight);
+    setViewportOffset(offset);
+  }, [viewportHeight, viewportOffsetRef, setViewportOffset]);
 
   const statusColor = (status: string): string => {
     switch (status) {
@@ -87,6 +99,7 @@ export function JobListView({
           loadJobs();
           const newCursor = Math.min(cursorRef.current, Math.max(0, jobsRef.current.length - 2));
           setCursor(newCursor);
+          adjustViewport(newCursor);
         } catch (e) {
           setMessage(`エラー: ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -106,13 +119,17 @@ export function JobListView({
     if (event.ctrl && event.name === "s") { onSwitchToNormal(); event.preventDefault(); return; }
 
     if (event.name === "up" || event.name === "k") {
-      setCursor(Math.max(0, cursorRef.current - 1));
+      const newCursor = Math.max(0, cursorRef.current - 1);
+      setCursor(newCursor);
+      adjustViewport(newCursor);
       setMessage(null);
       event.preventDefault();
       return;
     }
     if (event.name === "down" || event.name === "j") {
-      setCursor(Math.min(jobsRef.current.length - 1, cursorRef.current + 1));
+      const newCursor = Math.min(jobsRef.current.length - 1, cursorRef.current + 1);
+      setCursor(newCursor);
+      adjustViewport(newCursor);
       setMessage(null);
       event.preventDefault();
       return;
@@ -168,6 +185,10 @@ export function JobListView({
 
   const headerLine = `${padRight("ID", 10)} ${padRight("タイトル", 28)} ${padRight("ワークフロー", 12)} ${padRight("ステータス", 12)} ${padRight("フェーズ", 15)} ${padRight("優先度", 4)}`;
 
+  const visibleJobs = jobs.slice(viewportOffset, viewportOffset + viewportHeight);
+  const hasAbove = viewportOffset > 0;
+  const hasBelow = viewportOffset + viewportHeight < jobs.length;
+
   return (
     <box width="100%" height="100%" flexDirection="column">
       <box width="100%" height={1} backgroundColor={COLOR_HEADER_BG}>
@@ -179,14 +200,21 @@ export function JobListView({
           <text fg={COLOR_GRAY}>{headerLine}</text>
         </box>
 
+        {hasAbove && (
+          <box height={1} paddingLeft={1}>
+            <text fg={COLOR_DARK_GRAY}>  ▲ {viewportOffset} 件上</text>
+          </box>
+        )}
+
         {jobs.length === 0 ? (
           <box alignItems="center" justifyContent="center" flexGrow={1}>
             <text fg={COLOR_GRAY}>ジョブがありません。n キーで新規作成</text>
           </box>
         ) : (
-          jobs.map((job, idx) => {
+          visibleJobs.map((job, idx) => {
             const fm = job.frontmatter;
-            const isSelected = idx === cursor;
+            const absoluteIdx = idx + viewportOffset;
+            const isSelected = absoluteIdx === cursor;
             const line = `${padRight(fm.id, 10)} ${padRight(truncateStr(fm.title, 26), 28)} ${padRight(truncateStr(fm.workflow, 10), 12)} ${padRight(fm.status, 12)} ${padRight(fm.current_phase ?? "-", 15)} ${padRight(String(fm.priority), 4)}`;
             return (
               <box key={fm.id} height={1} paddingLeft={1} backgroundColor={isSelected ? COLOR_SELECTED_BG : undefined}>
@@ -194,6 +222,12 @@ export function JobListView({
               </box>
             );
           })
+        )}
+
+        {hasBelow && (
+          <box height={1} paddingLeft={1}>
+            <text fg={COLOR_DARK_GRAY}>  ▼ {jobs.length - viewportOffset - viewportHeight} 件下</text>
+          </box>
         )}
       </box>
 

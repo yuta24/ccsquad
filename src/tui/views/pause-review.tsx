@@ -1,11 +1,13 @@
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
+import type { MutableRefObject } from "react";
 import type { SquadConfig, WorkflowConfig } from "../../config.js";
 import type { Job } from "../../job.js";
 import { JobStore } from "../../job.js";
 import type { IterationStore } from "../../iteration.js";
 import { resolveAndExecuteTransition } from "../../service/transition.js";
+import type { SignalMessage } from "../../service/signal-server.js";
 import { PhaseHeader } from "../components/phase-header.js";
 import { StatusBar } from "../components/status-bar.js";
 import type { TransitionInfo, StatusBarItem } from "../constants.js";
@@ -21,16 +23,31 @@ interface PauseReviewViewProps {
   store: JobStore;
   config: SquadConfig;
   iterationStore: IterationStore;
+  signalHandlerRef: MutableRefObject<((msg: SignalMessage) => void) | null>;
   onRunAgent: (jobId: string, phase: string) => void;
   onDone: () => void;
   onQuit: () => void;
 }
 
 export function PauseReviewView({
-  jobId, phase, info, store, config, iterationStore,
+  jobId, phase, info, store, config, iterationStore, signalHandlerRef,
   onRunAgent, onDone, onQuit,
 }: PauseReviewViewProps) {
   const [statusMsg, setStatusMsg] = useState<string>("");
+
+  // Signal handler: auto-run agent on notification signal
+  useEffect(() => {
+    signalHandlerRef.current = (msg: SignalMessage) => {
+      if (msg.job_id && msg.job_id !== jobId) return;
+      if (msg.event === "notification") {
+        // Signal indicates agent should proceed
+        onRunAgent(jobId, info.nextPhase);
+      }
+    };
+    return () => {
+      signalHandlerRef.current = null;
+    };
+  }, [jobId, signalHandlerRef, onRunAgent, info.nextPhase]);
 
   const handleTransitionResult = useCallback((condition: "approved" | "rejected" | "completed" | "failed") => {
     try {

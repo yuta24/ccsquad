@@ -4,6 +4,7 @@ import { PersistentTerminal } from "ghostty-opentui";
 import { spawn, type IPty } from "bun-pty";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { renderTerminalToBuffer } from "../terminal-render.js";
+import { useTerminalSize } from "../hooks/use-terminal-size.js";
 
 interface NormalModeProps {
   onSwitchToWorkflow: () => void;
@@ -14,10 +15,9 @@ export function NormalMode({ onSwitchToWorkflow, onQuit }: NormalModeProps) {
   const [_, setTick] = useState(0);
   const ptyRef = useRef<IPty | null>(null);
   const termRef = useRef<PersistentTerminal | null>(null);
+  const { cols, rows } = useTerminalSize();
 
   useEffect(() => {
-    const cols = process.stdout.columns || 80;
-    const rows = process.stdout.rows || 24;
     const term = new PersistentTerminal({ cols, rows });
     termRef.current = term;
 
@@ -46,6 +46,16 @@ export function NormalMode({ onSwitchToWorkflow, onQuit }: NormalModeProps) {
       termRef.current = null;
     };
   }, []);
+
+  // Handle terminal resize
+  useEffect(() => {
+    if (ptyRef.current) {
+      try { ptyRef.current.resize(cols, rows); } catch { /* ignore */ }
+    }
+    if (termRef.current) {
+      try { (termRef.current as any).resize?.(cols, rows); } catch { /* ignore */ }
+    }
+  }, [cols, rows]);
 
   useKeyboard((event: KeyEvent) => {
     if (event.ctrl && event.name === "q") {

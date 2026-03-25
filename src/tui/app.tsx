@@ -137,6 +137,7 @@ function App() {
           store={store} config={cfg} iterationStore={itStore}
           projectRoot={dirname(configPath)}
           outputStore={outStore}
+          signalHandlerRef={signalHandlerRef}
           onTransition={(info) => navigateTo({ type: "pause-review", jobId, phase: info.nextPhase, info })}
           onDone={() => navigateTo({ type: "job-list" })}
           onQuit={handleQuit}
@@ -150,6 +151,7 @@ function App() {
         <PauseReviewView
           jobId={jobId} phase={phase} info={info}
           store={store} config={cfg} iterationStore={itStore}
+          signalHandlerRef={signalHandlerRef}
           onRunAgent={(jId, nextPhase) => navigateTo({ type: "phase-running", jobId: jId, phase: nextPhase })}
           onDone={() => navigateTo({ type: "job-list" })}
           onQuit={handleQuit}

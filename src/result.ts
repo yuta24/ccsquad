@@ -23,6 +23,37 @@ export function parsePrintOutput(json: string): PrintResult {
   };
 }
 
+/** Strip ANSI escape sequences (CSI + OSC) from terminal text. */
+export function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+}
+
+/**
+ * Parse PrintResult from terminal text (e.g. getText() output).
+ * Scans from the last line upward for a JSON line containing session_id.
+ */
+export function parsePrintOutputFromText(text: string): PrintResult | null {
+  const cleaned = stripAnsi(text);
+  const lines = cleaned.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const trimmed = lines[i].trim();
+    if (!trimmed.startsWith("{")) continue;
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      if ("session_id" in parsed || "result" in parsed) {
+        return {
+          sessionId: typeof parsed.session_id === "string" ? parsed.session_id : "",
+          content: typeof parsed.result === "string" ? parsed.result : "",
+          costUsd: typeof parsed.cost_usd === "number" ? parsed.cost_usd : 0,
+        };
+      }
+    } catch {
+      // not valid JSON, continue
+    }
+  }
+  return null;
+}
+
 export function extractResult(message: string): AgentResult | null {
   const lines = message.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
