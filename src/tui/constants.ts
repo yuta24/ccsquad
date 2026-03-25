@@ -37,7 +37,6 @@ export interface TransitionInfo {
 }
 
 export type Screen =
-  | { type: "normal" }
   | { type: "job-list" }
   | { type: "phase-running"; jobId: string; phase: string }
   | { type: "pause-review"; jobId: string; phase: string; info: TransitionInfo }

@@ -16,7 +16,6 @@ import type { SignalMessage } from "../service/signal-server.js";
 
 import type { Screen } from "./constants.js";
 import { ATTR_BOLD, COLOR_RED, COLOR_GRAY } from "./constants.js";
-import { NormalMode } from "./views/normal-mode.js";
 import { JobListView } from "./views/job-list.js";
 import { PhaseRunningView } from "./views/phase-running.js";
 import { PauseReviewView } from "./views/pause-review.js";
@@ -25,7 +24,7 @@ import { JobCreateView } from "./views/job-create.js";
 let rendererInstance: any = null;
 
 function App() {
-  const [screen, setScreen] = useState<Screen>({ type: "normal" });
+  const [screen, setScreen] = useState<Screen>({ type: "job-list" });
 
   const { configPath, squadConfig, jobStore, iterationStore, outputStore } = useMemo(() => {
     const configPath = findConfig();
@@ -105,14 +104,6 @@ function App() {
   const outStore = outputStore;
 
   switch (screen.type) {
-    case "normal":
-      return (
-        <NormalMode
-          onSwitchToWorkflow={() => navigateTo({ type: "job-list" })}
-          onQuit={handleQuit}
-        />
-      );
-
     case "job-list":
       return (
         <JobListView
@@ -123,7 +114,6 @@ function App() {
             if (phase) navigateTo({ type: "phase-running", jobId: job.frontmatter.id, phase });
           }}
           onCreateJob={() => navigateTo({ type: "job-create" })}
-          onSwitchToNormal={() => navigateTo({ type: "normal" })}
           onQuit={handleQuit}
         />
       );
