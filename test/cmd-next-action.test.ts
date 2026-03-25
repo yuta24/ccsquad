@@ -11,7 +11,6 @@ import { SquadConfigImpl } from "../src/config.js";
 
 // ─── テスト用設定 ─────────────────────────────────────────────────────────────
 // dev ワークフロー: plan → code → review(human) → COMPLETE
-// with_pause ワークフロー: investigate(pause) → fix → verify → COMPLETE
 
 const CONFIG_YAML = `
 workflows:
@@ -19,46 +18,26 @@ workflows:
     max_iterations: 3
     phases:
       - name: plan
+        type: task
         description: 計画
         agent: planner
         on:
           completed: code
           failed: ABORT
       - name: code
+        type: task
         description: 実装
         agent: coder
         on:
           completed: review
           failed: plan
       - name: review
+        type: review
         description: レビュー
-        agent: reviewer
         reviewer: human
         on:
           approved: COMPLETE
           rejected: code
-  with_pause:
-    max_iterations: 3
-    phases:
-      - name: investigate
-        description: 調査
-        agent: coder
-        pause: true
-        on:
-          completed: fix
-          failed: ABORT
-      - name: fix
-        description: 修正
-        agent: coder
-        on:
-          completed: verify
-          failed: investigate
-      - name: verify
-        description: 検証
-        agent: reviewer
-        on:
-          completed: COMPLETE
-          failed: fix
 `;
 
 function makeTmpDir(): string {
@@ -163,63 +142,6 @@ describe("cmdNextAction - 終端遷移", () => {
     captureNextAction(store, config, iterationStore, "J000001", "failed", "");
     const job = store.load("J000001");
     expect(job.frontmatter.status).toBe("failed");
-  });
-});
-
-// ─── 一時停止フェーズ ─────────────────────────────────────────────────────────
-
-describe("cmdNextAction - pause フェーズへの遷移", () => {
-  it("test_next_phase_with_pause_returns_pause_action", () => {
-    const { store, config, iterationStore } = setup("with_pause");
-    // fix → completed → verify は pause なし。investigate は pause=true
-    // fix → failed → investigate(pause=true)
-    cmdTransition(store, config, "J000001", "completed", ""); // investigate → fix (investigate は pause なのでまず fix に移動)
-    // 実際には with_pause の最初のフェーズが investigate(pause) なので cmdRun で investigate になる
-    // investigate は pause なのでそこには自動遷移できない。別のジョブが必要
-    // ここでは fix ワークフローで fix → failed → investigate(pause) を確認する
-    // fix at J000001 (setup は with_pause ワークフローで investigate から始まる)
-    // investigate は pause フェーズなので fix → investigate への直接確認は難しい
-    // 代わりに fix フェーズから investigate に戻る経路をテストする
-    // J000001 は investigate からスタート。investigate → completed → fix は investigate が pause なので
-    // cmdNextAction で investigate から completed に遷移しようとすると... investigate は pause フェーズ自体
-    // テスト: with_pause で fix → failed → investigate(pause) を確認
-    // まず investigate を手動で fix に移動する
-    const job = store.load("J000001");
-    job.frontmatter.current_phase = "fix";
-    job.frontmatter.depends_on = job.frontmatter.depends_on ?? [];
-    store.save(job);
-
-    const { output } = captureNextAction(store, config, iterationStore, "J000001", "failed", "バグ発見");
-    expect(output).not.toBeNull();
-    expect(output.action).toBe("pause");
-    expect(output.reason).toBe("pause");
-    expect(output.phase).toBe("investigate");
-  });
-
-  it("test_pause_transition_does_not_update_current_phase", () => {
-    const { store, config, iterationStore } = setup("with_pause");
-    // fix → failed → investigate(pause) のケース
-    const job = store.load("J000001");
-    job.frontmatter.current_phase = "fix";
-    job.frontmatter.depends_on = job.frontmatter.depends_on ?? [];
-    store.save(job);
-
-    captureNextAction(store, config, iterationStore, "J000001", "failed", "");
-    const updatedJob = store.load("J000001");
-    // pause なので current_phase は fix のまま (遷移しない)
-    expect(updatedJob.frontmatter.current_phase).toBe("fix");
-  });
-
-  it("test_pause_transition_appends_phase_log", () => {
-    const { store, config, iterationStore } = setup("with_pause");
-    const job = store.load("J000001");
-    job.frontmatter.current_phase = "fix";
-    job.frontmatter.depends_on = job.frontmatter.depends_on ?? [];
-    store.save(job);
-
-    captureNextAction(store, config, iterationStore, "J000001", "failed", "バグ発見");
-    const updatedJob = store.load("J000001");
-    expect(updatedJob.body).toContain("フェーズログ");
   });
 });
 

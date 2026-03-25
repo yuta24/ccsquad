@@ -14,20 +14,22 @@ workflows:
     description: 開発ワークフロー
     phases:
       - name: plan
+        type: task
         description: 計画
         agent: planner
         on:
           completed: code
           failed: ABORT
       - name: code
+        type: task
         description: 実装
         agent: coder
         on:
           completed: review
           failed: plan
       - name: review
+        type: review
         description: レビュー
-        agent: reviewer
         reviewer: human
         on:
           approved: COMPLETE

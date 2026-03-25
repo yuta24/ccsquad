@@ -67,7 +67,7 @@ export function PauseReviewView({
       if (!wf) { setStatusMsg("ワークフローが見つかりません"); return; }
       const currentPhase = jobData.frontmatter.current_phase ?? phase;
       const phaseConfig = wf.getPhase(currentPhase);
-      const condition = phaseConfig?.reviewer !== undefined ? "approved" : "completed";
+      const condition = phaseConfig?.type === "review" ? "approved" : "completed";
       handleTransitionResult(condition);
     } catch (e) {
       setStatusMsg(`エラー: ${e instanceof Error ? e.message : String(e)}`);
@@ -81,7 +81,7 @@ export function PauseReviewView({
       if (!wf) { setStatusMsg("ワークフローが見つかりません"); return; }
       const currentPhase = jobData.frontmatter.current_phase ?? phase;
       const phaseConfig = wf.getPhase(currentPhase);
-      const condition = phaseConfig?.reviewer !== undefined ? "rejected" : "failed";
+      const condition = phaseConfig?.type === "review" ? "rejected" : "failed";
       handleTransitionResult(condition);
     } catch (e) {
       setStatusMsg(`エラー: ${e instanceof Error ? e.message : String(e)}`);
@@ -92,14 +92,13 @@ export function PauseReviewView({
     if (event.ctrl && event.name === "q") { onQuit(); event.preventDefault(); return; }
     if (event.name === "escape") { onDone(); event.preventDefault(); return; }
 
-    const isHumanReviewer = info.reviewer === "human";
-    const isAgentReviewer = info.reviewer && info.reviewer !== "human";
-    const isPauseOnly = !info.reviewer;
+    const isHumanReview = info.phaseType === "review" && info.reviewer === "human";
+    const isAgentReview = info.phaseType === "review" && info.reviewer !== "human";
 
-    if (isHumanReviewer) {
+    if (isHumanReview) {
       if (event.name === "a") { executeApprove(); event.preventDefault(); return; }
       if (event.name === "x") { executeReject(); event.preventDefault(); return; }
-    } else if (isAgentReviewer) {
+    } else if (isAgentReview) {
       if (event.name === "r" || event.name === "return" || event.name === "enter") {
         onRunAgent(jobId, info.nextPhase);
         event.preventDefault();
@@ -107,7 +106,8 @@ export function PauseReviewView({
       }
       if (event.name === "a") { executeApprove(); event.preventDefault(); return; }
       if (event.name === "x") { executeReject(); event.preventDefault(); return; }
-    } else if (isPauseOnly) {
+    } else {
+      // max_iterations pause for task phase
       if (event.name === "return" || event.name === "enter") {
         onRunAgent(jobId, info.nextPhase);
         event.preventDefault();
@@ -132,16 +132,16 @@ export function PauseReviewView({
     return { job, wfConfig, iteration };
   }, [jobId, store, config, iterationStore, statusMsg]);
 
-  const isHumanReviewer = info.reviewer === "human";
-  const isAgentReviewer = info.reviewer && info.reviewer !== "human";
+  const isHumanReview = info.phaseType === "review" && info.reviewer === "human";
+  const isAgentReview = info.phaseType === "review" && info.reviewer !== "human";
 
   let keybinds: StatusBarItem[];
-  if (isHumanReviewer) {
+  if (isHumanReview) {
     keybinds = [
       { key: "a", label: "承認" }, { key: "x", label: "却下" },
       { key: "Esc", label: "一覧へ戻る" }, { key: "Ctrl+Q", label: "終了" },
     ];
-  } else if (isAgentReviewer) {
+  } else if (isAgentReview) {
     keybinds = [
       { key: "r/Enter", label: "レビューエージェント実行" },
       { key: "a", label: "直接承認" }, { key: "x", label: "直接却下" },
@@ -154,8 +154,7 @@ export function PauseReviewView({
     ];
   }
 
-  const reasonLabel = info.reason === "pause" ? "一時停止"
-    : info.reason === "max_iterations" ? "イテレーション上限到達" : "レビュー待ち";
+  const reasonLabel = info.reason === "max_iterations" ? "イテレーション上限到達" : "レビュー待ち";
   const resultColor = info.result === "completed" || info.result === "approved" ? COLOR_GREEN : COLOR_RED;
   const reviewerColor = info.reviewer === "human" ? COLOR_CYAN : COLOR_GREEN;
 

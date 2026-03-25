@@ -3,8 +3,10 @@ import { parse } from "yaml";
 import { CcsquadError } from "./error.js";
 
 export type TransitionCondition = "completed" | "failed" | "rejected" | "approved";
+export type PhaseType = "task" | "review";
 
 const ALL_CONDITIONS: TransitionCondition[] = ["completed", "failed", "rejected", "approved"];
+const ALL_PHASE_TYPES: PhaseType[] = ["task", "review"];
 
 export function parseTransitionCondition(s: string): TransitionCondition {
   if (ALL_CONDITIONS.includes(s as TransitionCondition)) {
@@ -15,10 +17,10 @@ export function parseTransitionCondition(s: string): TransitionCondition {
 
 export interface PhaseConfig {
   name: string;
+  type: PhaseType;
   description?: string;
   agent?: string;
   reviewer?: string;
-  pause: boolean;
   on: Partial<Record<TransitionCondition, string>>;
 }
 
@@ -90,6 +92,14 @@ class WorkflowConfigImpl implements WorkflowConfig {
     const phaseNames = new Set(this.phases.map((p) => p.name));
 
     for (const phase of this.phases) {
+      // Validate type
+      if (!ALL_PHASE_TYPES.includes(phase.type)) {
+        throw new CcsquadError(
+          "config",
+          `ワークフロー '${workflowName}': フェーズ '${phase.name}' の type '${phase.type}' が不正です (task または review を指定してください)`,
+        );
+      }
+
       // Validate transition targets
       for (const next of Object.values(phase.on)) {
         if (next !== "COMPLETE" && next !== "ABORT" && !phaseNames.has(next)) {
@@ -100,8 +110,20 @@ class WorkflowConfigImpl implements WorkflowConfig {
         }
       }
 
-      if (phase.reviewer !== undefined) {
-        // Reviewer phase: approved and rejected are required
+      if (phase.type === "review") {
+        // Review phase: reviewer required, agent not allowed
+        if (!phase.reviewer) {
+          throw new CcsquadError(
+            "config",
+            `ワークフロー '${workflowName}': レビューフェーズ '${phase.name}' に reviewer が設定されていません`,
+          );
+        }
+        if (phase.agent) {
+          throw new CcsquadError(
+            "config",
+            `ワークフロー '${workflowName}': レビューフェーズ '${phase.name}' に agent は設定できません`,
+          );
+        }
         if (!phase.on["approved"]) {
           throw new CcsquadError(
             "config",
@@ -115,7 +137,19 @@ class WorkflowConfigImpl implements WorkflowConfig {
           );
         }
       } else {
-        // Normal phase: completed is required
+        // Task phase: agent required, reviewer not allowed
+        if (!phase.agent) {
+          throw new CcsquadError(
+            "config",
+            `ワークフロー '${workflowName}': タスクフェーズ '${phase.name}' に agent が設定されていません`,
+          );
+        }
+        if (phase.reviewer) {
+          throw new CcsquadError(
+            "config",
+            `ワークフロー '${workflowName}': タスクフェーズ '${phase.name}' に reviewer は設定できません`,
+          );
+        }
         if (!phase.on["completed"]) {
           throw new CcsquadError(
             "config",
@@ -180,10 +214,10 @@ class SquadConfigImpl implements SquadConfig {
       if (Array.isArray(phasesRaw)) {
         phases = phasesRaw.map((p: Record<string, unknown>) => ({
           name: p.name as string,
+          type: p.type as PhaseType,
           description: p.description as string | undefined,
           agent: p.agent as string | undefined,
           reviewer: p.reviewer as string | undefined,
-          pause: (p.pause as boolean | undefined) ?? false,
           on: (p.on as Partial<Record<TransitionCondition, string>>) ?? {},
         }));
       } else {

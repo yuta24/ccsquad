@@ -11,7 +11,6 @@ import { WorkflowEngine } from "../src/engine.js";
 
 // ─── テスト用設定 ─────────────────────────────────────────────────────────────
 // dev ワークフロー: plan → code → review(human) → COMPLETE
-// with_pause ワークフロー: investigate(pause) → fix → verify → COMPLETE
 
 const CONFIG_YAML = `
 workflows:
@@ -19,46 +18,26 @@ workflows:
     max_iterations: 3
     phases:
       - name: plan
+        type: task
         description: 計画
         agent: planner
         on:
           completed: code
           failed: ABORT
       - name: code
+        type: task
         description: 実装
         agent: coder
         on:
           completed: review
           failed: plan
       - name: review
+        type: review
         description: レビュー
-        agent: reviewer
         reviewer: human
         on:
           approved: COMPLETE
           rejected: code
-  with_pause:
-    max_iterations: 3
-    phases:
-      - name: investigate
-        description: 調査
-        agent: coder
-        pause: true
-        on:
-          completed: fix
-          failed: ABORT
-      - name: fix
-        description: 修正
-        agent: coder
-        on:
-          completed: verify
-          failed: investigate
-      - name: verify
-        description: 検証
-        agent: reviewer
-        on:
-          completed: COMPLETE
-          failed: fix
 `;
 
 function makeTmpDir(): string {
@@ -141,67 +120,6 @@ describe("resolveAndExecuteTransition - 終端遷移 (COMPLETE)", () => {
     expect(iterationStore.get("J000001")).toBe(2);
 
     resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "approved", "");
-
-    expect(iterationStore.get("J000001")).toBe(0);
-  });
-});
-
-// ─── resolveAndExecuteTransition - pause フェーズ ─────────────────────────────
-
-describe("resolveAndExecuteTransition - pause フェーズ", () => {
-  it("test_pause_phase_returns_pause_with_reason_pause", () => {
-    const { store, config, iterationStore } = setup("with_pause");
-    const wf = config.getWorkflow("with_pause")!;
-    // fix → failed → investigate(pause=true)
-    const job = store.load("J000001");
-    job.frontmatter.current_phase = "fix";
-    store.save(job);
-
-    const result = resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "failed", "バグ発見");
-
-    expect(result.type).toBe("pause");
-    if (result.type === "pause") {
-      expect(result.reason).toBe("pause");
-      expect(result.nextPhase).toBe("investigate");
-    }
-  });
-
-  it("test_pause_phase_does_not_execute_engine_transition", () => {
-    const { store, config, iterationStore } = setup("with_pause");
-    const wf = config.getWorkflow("with_pause")!;
-    const job = store.load("J000001");
-    job.frontmatter.current_phase = "fix";
-    store.save(job);
-
-    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "failed", "");
-
-    // current_phase should still be "fix" (no engine transition occurred)
-    const updatedJob = store.load("J000001");
-    expect(updatedJob.frontmatter.current_phase).toBe("fix");
-  });
-
-  it("test_pause_phase_appends_phase_log", () => {
-    const { store, config, iterationStore } = setup("with_pause");
-    const wf = config.getWorkflow("with_pause")!;
-    const job = store.load("J000001");
-    job.frontmatter.current_phase = "fix";
-    store.save(job);
-
-    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "failed", "バグ発見");
-
-    const updatedJob = store.load("J000001");
-    expect(updatedJob.body).toContain("フェーズログ");
-  });
-
-  it("test_pause_phase_does_not_increment_iteration", () => {
-    const { store, config, iterationStore } = setup("with_pause");
-    const wf = config.getWorkflow("with_pause")!;
-    const job = store.load("J000001");
-    job.frontmatter.current_phase = "fix";
-    store.save(job);
-    expect(iterationStore.get("J000001")).toBe(0);
-
-    resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "failed", "");
 
     expect(iterationStore.get("J000001")).toBe(0);
   });

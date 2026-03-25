@@ -9,6 +9,7 @@ import { SquadConfigImpl } from "../config.js";
 import type { SquadConfig } from "../config.js";
 import { JobStore } from "../job.js";
 import { IterationStore } from "../iteration.js";
+import { OutputStore } from "../output.js";
 import { findConfig } from "../service/context.js";
 import { createSignalServer } from "../service/signal-server.js";
 import type { SignalMessage } from "../service/signal-server.js";
@@ -26,11 +27,12 @@ let rendererInstance: any = null;
 function App() {
   const [screen, setScreen] = useState<Screen>({ type: "normal" });
 
-  const { configPath, squadConfig, jobStore, iterationStore } = useMemo(() => {
+  const { configPath, squadConfig, jobStore, iterationStore, outputStore } = useMemo(() => {
     const configPath = findConfig();
     let squadConfig: SquadConfig | null = null;
     let jobStore: JobStore | null = null;
     let iterationStore: IterationStore | null = null;
+    let outputStore: OutputStore | null = null;
 
     if (configPath) {
       try {
@@ -38,15 +40,18 @@ function App() {
         const projectRoot = dirname(configPath);
         const squadDir = join(projectRoot, ".ccsquad");
         const jobsDir = join(squadDir, "jobs");
+        const outputsDir = join(squadDir, "outputs");
         mkdirSync(jobsDir, { recursive: true });
+        mkdirSync(outputsDir, { recursive: true });
         jobStore = new JobStore(jobsDir);
         iterationStore = new IterationStore(squadDir);
+        outputStore = new OutputStore(outputsDir);
       } catch {
         squadConfig = null;
       }
     }
 
-    return { configPath, squadConfig, jobStore, iterationStore };
+    return { configPath, squadConfig, jobStore, iterationStore, outputStore };
   }, []);
 
   // Signal server for receiving hooks notifications
@@ -82,7 +87,7 @@ function App() {
     setScreen(s);
   }, []);
 
-  if (!configPath || !squadConfig || !jobStore || !iterationStore) {
+  if (!configPath || !squadConfig || !jobStore || !iterationStore || !outputStore) {
     return (
       <box width="100%" height="100%" flexDirection="column" alignItems="center" justifyContent="center">
         <text fg={COLOR_RED} attributes={ATTR_BOLD}>エラー: ccsquad.yaml が見つかりません</text>
@@ -97,6 +102,7 @@ function App() {
   const cfg = squadConfig;
   const store = jobStore;
   const itStore = iterationStore;
+  const outStore = outputStore;
 
   switch (screen.type) {
     case "normal":
@@ -130,7 +136,7 @@ function App() {
           jobId={jobId} phase={phase}
           store={store} config={cfg} iterationStore={itStore}
           projectRoot={dirname(configPath)}
-          signalHandlerRef={signalHandlerRef}
+          outputStore={outStore}
           onTransition={(info) => navigateTo({ type: "pause-review", jobId, phase: info.nextPhase, info })}
           onDone={() => navigateTo({ type: "job-list" })}
           onQuit={handleQuit}

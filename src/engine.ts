@@ -51,7 +51,7 @@ export class WorkflowEngine {
     const phaseName = this.currentPhaseName(job);
     const phaseConfig = this.getPhaseConfig(phaseName);
 
-    if (phaseConfig.reviewer !== undefined) {
+    if (phaseConfig.type === "review") {
       throw new CcsquadError(
         "workflow",
         "レビューフェーズでは approve/reject を使用してください",
@@ -70,7 +70,7 @@ export class WorkflowEngine {
     const phaseName = this.currentPhaseName(job);
     const phaseConfig = this.getPhaseConfig(phaseName);
 
-    if (phaseConfig.reviewer === undefined) {
+    if (phaseConfig.type !== "review") {
       throw new CcsquadError(
         "workflow",
         "このフェーズにはレビュアーが設定されていません",
@@ -89,7 +89,7 @@ export class WorkflowEngine {
     const phaseName = this.currentPhaseName(job);
     const phaseConfig = this.getPhaseConfig(phaseName);
 
-    if (phaseConfig.reviewer === undefined) {
+    if (phaseConfig.type !== "review") {
       throw new CcsquadError(
         "workflow",
         "このフェーズにはレビュアーが設定されていません",

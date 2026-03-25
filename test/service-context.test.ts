@@ -17,12 +17,14 @@ workflows:
     description: 開発ワークフロー
     phases:
       - name: plan
+        type: task
         description: 実装計画を策定する
         agent: planner
         on:
           completed: code
           failed: ABORT
       - name: code
+        type: task
         description: コードを実装する
         agent: coder
         on:
@@ -47,10 +49,12 @@ describe("createContext", () => {
     expect(ctx.config).toBeDefined();
     expect(ctx.store).toBeDefined();
     expect(ctx.iterationStore).toBeDefined();
-expect(ctx.entryStore).toBeDefined();
+    expect(ctx.entryStore).toBeDefined();
+    expect(ctx.outputStore).toBeDefined();
     expect(ctx.squadDir).toBeDefined();
     expect(ctx.jobsDir).toBeDefined();
     expect(ctx.memoryDir).toBeDefined();
+    expect(ctx.outputsDir).toBeDefined();
   });
 
   it(".ccsquad/jobs ディレクトリを作成する", () => {
@@ -103,6 +107,30 @@ expect(ctx.entryStore).toBeDefined();
     const ctx = createContext(configPath);
 
     expect(ctx.memoryDir).toBe(join(tmpDir, ".ccsquad", "memory", "entries"));
+  });
+
+  it("outputsDir が squadDir 配下の outputs を指す", () => {
+    const configPath = writeValidConfig(tmpDir);
+    const ctx = createContext(configPath);
+
+    expect(ctx.outputsDir).toBe(join(tmpDir, ".ccsquad", "outputs"));
+  });
+
+  it(".ccsquad/outputs ディレクトリを作成する", () => {
+    const configPath = writeValidConfig(tmpDir);
+    const ctx = createContext(configPath);
+
+    expect(existsSync(ctx.outputsDir)).toBe(true);
+    expect(ctx.outputsDir).toContain(".ccsquad/outputs");
+  });
+
+  it("outputStore が OutputStore のインスタンスである", () => {
+    const configPath = writeValidConfig(tmpDir);
+    const ctx = createContext(configPath);
+
+    expect(ctx.outputStore).toBeDefined();
+    expect(typeof ctx.outputStore.save).toBe("function");
+    expect(typeof ctx.outputStore.loadForJob).toBe("function");
   });
 });
 

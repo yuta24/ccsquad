@@ -1,23 +1,20 @@
-import type { KeyEvent, OptimizedBuffer } from "@opentui/core";
+import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
-import { PersistentTerminal } from "ghostty-opentui";
-import { spawn, type IPty } from "bun-pty";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import type { SquadConfig, WorkflowConfig } from "../../config.js";
+import type { SquadConfig, WorkflowConfig, PhaseType } from "../../config.js";
 import { parseTransitionCondition } from "../../config.js";
 import type { Job } from "../../job.js";
-import { JobStore } from "../../job.js";
+import type { JobStore } from "../../job.js";
 import type { IterationStore } from "../../iteration.js";
 import { resolveAndExecuteTransition } from "../../service/transition.js";
-import { extractResult } from "../../result.js";
-import type { SignalMessage } from "../../service/signal-server.js";
-import { renderTerminalToBuffer } from "../terminal-render.js";
-import { useSyncedState } from "../hooks/use-synced-state.js";
+import { parsePrintOutput } from "../../result.js";
+import type { OutputStore } from "../../output.js";
+import { buildTaskPrompt, buildReviewPrompt, buildResumePrompt } from "../../service/prompt-builder.js";
 import { PhaseHeader } from "../components/phase-header.js";
 import { StatusBar } from "../components/status-bar.js";
 import type { TransitionInfo } from "../constants.js";
 import {
-  ATTR_BOLD, COLOR_CYAN, COLOR_GRAY, COLOR_YELLOW, COLOR_DARK_BG,
+  ATTR_BOLD, COLOR_CYAN, COLOR_GRAY, COLOR_DARK_BG,
 } from "../constants.js";
 
 interface PhaseRunningViewProps {
@@ -27,7 +24,7 @@ interface PhaseRunningViewProps {
   config: SquadConfig;
   iterationStore: IterationStore;
   projectRoot: string;
-  signalHandlerRef: React.MutableRefObject<((msg: SignalMessage) => void) | null>;
+  outputStore: OutputStore;
   onTransition: (info: TransitionInfo) => void;
   onDone: () => void;
   onQuit: () => void;
@@ -35,64 +32,12 @@ interface PhaseRunningViewProps {
 
 export function PhaseRunningView({
   jobId, phase, store, config, iterationStore,
-  projectRoot, signalHandlerRef,
+  projectRoot, outputStore,
   onTransition, onDone, onQuit,
 }: PhaseRunningViewProps) {
-  const isDebug = process.env.CCSQUAD_DEBUG === "1";
-  const [tick, setTick] = useState(0);
   const [statusMsg, setStatusMsg] = useState<string>("エージェントを起動中...");
-  const [lastSignal, setLastSignal] = useState<string | null>(null);
-  const [fallbackMode, setFallbackMode, fallbackModeRef] = useSyncedState(false);
-  const [fallbackOptions, setFallbackOptions, fallbackOptionsRef] = useSyncedState<string[]>([]);
-  const [fallbackCursor, setFallbackCursor, fallbackCursorRef] = useSyncedState(0);
-  const ptyRef = useRef<IPty | null>(null);
-  const termRef = useRef<PersistentTerminal | null>(null);
   const isProcessingRef = useRef(false);
   const currentPhaseRef = useRef(phase);
-
-  const spawnAgentForPhase = useCallback((phaseName: string, term: PersistentTerminal) => {
-    const cols = process.stdout.columns || 80;
-    const rows = process.stdout.rows || 24;
-
-    let jobData: Job;
-    try {
-      jobData = store.load(jobId);
-    } catch {
-      return;
-    }
-    const wf = config.getWorkflow(jobData.frontmatter.workflow);
-    const phaseConfig = wf?.getPhase(phaseName);
-    const agent = phaseConfig?.agent ?? "claude";
-    const iteration = iterationStore.get(jobId);
-
-    const promptParts = [
-      `ジョブID: ${jobId}`,
-      `タイトル: ${jobData.frontmatter.title}`,
-      `フェーズ: ${phaseName}`,
-    ];
-    if (phaseConfig?.description) promptParts.push(`フェーズ説明: ${phaseConfig.description}`);
-    if (jobData.body) promptParts.push(`\n説明:\n${jobData.body}`);
-    promptParts.push(`\nイテレーション: ${iteration}`);
-
-    const pty = spawn("claude", ["--agent", agent, promptParts.join("\n")], {
-      name: "xterm-256color",
-      cols,
-      rows,
-      env: { ...process.env, TERM: "xterm-256color", CCSQUAD_ROOT: projectRoot, JOB_ID: jobId },
-      cwd: process.cwd(),
-    });
-    ptyRef.current = pty;
-
-    pty.onData((data: string) => {
-      term.feed(data);
-      setTick((t) => t + 1);
-    });
-
-    pty.onExit(() => {
-      setStatusMsg("エージェント終了。Ctrl+D で結果を確認");
-      setTick((t) => t + 1);
-    });
-  }, [jobId, store, config, iterationStore]);
 
   const processTransition = useCallback((result: string, message: string) => {
     try {
@@ -122,18 +67,16 @@ export function PhaseRunningView({
             description: txResult.phaseConfig.description,
             agent: txResult.phaseConfig.agent,
             reviewer: txResult.phaseConfig.reviewer,
+            phaseType: txResult.phaseConfig.type,
             reason: txResult.reason === "human_review" ? undefined : txResult.reason,
+            sessionId: outputStore.findLastByPhase(jobId, currentPhaseRef.current)?.sessionId,
           });
           break;
         case "continue": {
-          const sep = `\r\n${"═".repeat(60)}\r\n フェーズ完了: ${currentPhaseRef.current} → ${txResult.nextPhase} \r\n${"═".repeat(60)}\r\n`;
-          const term = termRef.current!;
-          term.feed(sep);
           currentPhaseRef.current = txResult.nextPhase;
           setStatusMsg(`フェーズ ${txResult.nextPhase} を実行中...`);
-          setTick((t) => t + 1);
           isProcessingRef.current = false;
-          spawnAgentForPhase(txResult.nextPhase, term);
+          spawnAgentForPhase(txResult.nextPhase);
           break;
         }
       }
@@ -141,138 +84,166 @@ export function PhaseRunningView({
       setStatusMsg(`エラー: ${e instanceof Error ? e.message : String(e)}`);
       isProcessingRef.current = false;
     }
-  }, [jobId, store, config, iterationStore, onTransition, onDone, spawnAgentForPhase]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId, store, config, iterationStore, onTransition, onDone, outputStore]);
 
-  const handleCtrlD = useCallback(() => {
-    if (isProcessingRef.current) return;
-    isProcessingRef.current = true;
-
-    ptyRef.current?.kill();
-    ptyRef.current = null;
-
-    const term = termRef.current;
-    if (!term) {
-      isProcessingRef.current = false;
-      onDone();
+  const spawnAgentForPhase = useCallback((phaseName: string) => {
+    let jobData: Job;
+    try {
+      jobData = store.load(jobId);
+    } catch {
+      setStatusMsg("ジョブの読み込みに失敗しました");
       return;
     }
 
-    let text = "";
-    try { text = term.getText(); } catch { text = ""; }
+    const wf = config.getWorkflow(jobData.frontmatter.workflow);
+    const phaseConfig = wf?.getPhase(phaseName);
+    if (!phaseConfig) {
+      setStatusMsg(`フェーズ '${phaseName}' の設定が見つかりません`);
+      return;
+    }
 
-    const agentResult = extractResult(text);
+    const phaseType: PhaseType = phaseConfig.type;
+    const agentName = phaseConfig.agent ?? "claude";
+    const iteration = iterationStore.get(jobId);
 
-    if (!agentResult) {
-      setStatusMsg("結果を自動検出できませんでした。手動で選択してください");
-      isProcessingRef.current = false;
+    // Determine if this is a resume
+    const lastOutput = outputStore.findLastByPhase(jobId, phaseName);
+    const sessionId = lastOutput?.sessionId;
 
+    let prompt: string;
+    let args: string[];
+
+    if (sessionId) {
+      // Resume: determine feedback based on phase type
+      let feedback: string;
+      if (phaseType === "task") {
+        // For task resume: feedback is the last review output's content (reject reason)
+        const allOutputs = outputStore.loadForJob(jobId);
+        const reviewOutputs = allOutputs.filter((o) => o.phase !== phaseName);
+        const lastReviewOutput = reviewOutputs.length > 0 ? reviewOutputs[reviewOutputs.length - 1] : null;
+        feedback = lastReviewOutput?.content ?? "";
+      } else {
+        // For review resume: feedback is the last task output's content (updated work)
+        const allOutputs = outputStore.loadForJob(jobId);
+        const taskOutputs = allOutputs.filter((o) => o.phase !== phaseName);
+        const lastTaskOutput = taskOutputs.length > 0 ? taskOutputs[taskOutputs.length - 1] : null;
+        feedback = lastTaskOutput?.content ?? "";
+      }
+
+      prompt = buildResumePrompt({ phase: phaseName, phaseType, iteration, feedback });
+      args = ["-p", "--resume", sessionId, "--output-format", "json", prompt];
+    } else {
+      const previousOutputs = outputStore.loadForJob(jobId);
+
+      if (phaseType === "review") {
+        // Review phase: find most recent task output
+        const taskOutputs = previousOutputs.filter((o) => {
+          const pc = wf?.getPhase(o.phase);
+          return pc?.type === "task";
+        });
+        const lastTaskOutput = taskOutputs.length > 0 ? taskOutputs[taskOutputs.length - 1] : null;
+        const taskOutput = lastTaskOutput?.content ?? "";
+
+        prompt = buildReviewPrompt({
+          jobId,
+          title: jobData.frontmatter.title,
+          phase: phaseName,
+          phaseDescription: phaseConfig.description,
+          iteration,
+          jobBody: jobData.body,
+          taskOutput,
+        });
+        args = ["-p", "--agent", agentName, "--output-format", "json", prompt];
+      } else {
+        // Task phase
+        prompt = buildTaskPrompt({
+          jobId,
+          title: jobData.frontmatter.title,
+          phase: phaseName,
+          phaseDescription: phaseConfig.description,
+          iteration,
+          jobBody: jobData.body,
+          previousOutputs,
+        });
+        args = ["-p", "--agent", agentName, "--output-format", "json", prompt];
+      }
+    }
+
+    setStatusMsg(`エージェント実行中: ${phaseName}...`);
+
+    const proc = Bun.spawn(["claude", ...args], {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, CCSQUAD_ROOT: projectRoot, JOB_ID: jobId },
+      cwd: process.cwd(),
+    });
+
+    const chunks: Uint8Array[] = [];
+
+    // Collect stdout asynchronously
+    (async () => {
       try {
-        const jobData = store.load(jobId);
-        const wf = config.getWorkflow(jobData.frontmatter.workflow);
-        const currentPhase = jobData.frontmatter.current_phase ?? currentPhaseRef.current;
-        const phaseConfig = wf?.getPhase(currentPhase);
-        if (phaseConfig?.reviewer !== undefined) {
-          setFallbackOptions(["approved", "rejected"]);
-        } else {
-          setFallbackOptions(["completed", "failed"]);
+        for await (const chunk of proc.stdout) {
+          chunks.push(chunk);
         }
       } catch {
-        setFallbackOptions(["completed", "failed"]);
+        // ignore read errors
       }
-      setFallbackCursor(0);
-      setFallbackMode(true);
-      return;
-    }
+    })();
 
-    processTransition(agentResult.result, agentResult.message);
-  }, [jobId, store, config, processTransition, onDone, setFallbackMode, setFallbackOptions, setFallbackCursor]);
+    proc.exited.then((exitCode) => {
+      const rawOutput = Buffer.concat(chunks).toString("utf-8").trim();
+
+      let parsedSessionId: string | undefined;
+      let content = rawOutput;
+
+      try {
+        const printResult = parsePrintOutput(rawOutput);
+        parsedSessionId = printResult.sessionId || undefined;
+        content = printResult.content || rawOutput;
+      } catch {
+        // If parsing fails, use raw output as content
+        content = rawOutput;
+      }
+
+      // Save to output store
+      const result = phaseType === "task"
+        ? (exitCode === 0 ? "completed" : "failed")
+        : (exitCode === 0 ? "approved" : "rejected");
+
+      try {
+        outputStore.save(jobId, {
+          phase: phaseName,
+          executor: agentName,
+          result,
+          sessionId: parsedSessionId,
+          iteration,
+          timestamp: new Date().toISOString(),
+          content,
+        });
+      } catch (e) {
+        setStatusMsg(`出力の保存に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+        isProcessingRef.current = false;
+        return;
+      }
+
+      processTransition(result, content);
+    }).catch((e) => {
+      setStatusMsg(`エージェント実行エラー: ${e instanceof Error ? e.message : String(e)}`);
+      isProcessingRef.current = false;
+    });
+  }, [jobId, store, config, iterationStore, projectRoot, outputStore, processTransition]);
 
   useEffect(() => {
-    const cols = process.stdout.columns || 80;
-    const rows = process.stdout.rows || 24;
-    const term = new PersistentTerminal({ cols, rows });
-    termRef.current = term;
     currentPhaseRef.current = phase;
-
-    spawnAgentForPhase(phase, term);
-    setStatusMsg("エージェント実行中...");
-
-    return () => {
-      ptyRef.current?.kill();
-      ptyRef.current = null;
-      termRef.current?.destroy();
-      termRef.current = null;
-    };
+    spawnAgentForPhase(phase);
   }, []);
-
-  // Register signal handler for Stop/Notification hooks
-  useEffect(() => {
-    signalHandlerRef.current = (msg: SignalMessage) => {
-      if (isDebug) {
-        const ts = new Date().toLocaleTimeString();
-        setLastSignal(`[${ts}] ${msg.event}${msg.job_id ? ` job=${msg.job_id}` : ""}`);
-      }
-      if ((msg.event === "stop" || msg.event === "notification") && (!msg.job_id || msg.job_id === jobId)) {
-        handleCtrlD();
-      }
-    };
-    return () => {
-      signalHandlerRef.current = null;
-    };
-  }, [jobId, handleCtrlD, isDebug]);
 
   useKeyboard((event: KeyEvent) => {
-    if (fallbackModeRef.current) {
-      if (event.name === "up" || event.name === "k") {
-        setFallbackCursor(Math.max(0, fallbackCursorRef.current - 1));
-        event.preventDefault();
-        return;
-      }
-      if (event.name === "down" || event.name === "j") {
-        setFallbackCursor(Math.min(fallbackOptionsRef.current.length - 1, fallbackCursorRef.current + 1));
-        event.preventDefault();
-        return;
-      }
-      if (event.name === "return" || event.name === "enter") {
-        const selectedResult = fallbackOptionsRef.current[fallbackCursorRef.current];
-        if (selectedResult) {
-          setFallbackMode(false);
-          processTransition(selectedResult, "手動選択");
-        }
-        event.preventDefault();
-        return;
-      }
-      if (event.name === "escape") {
-        setFallbackMode(false);
-        onDone();
-        event.preventDefault();
-        return;
-      }
-      event.preventDefault();
-      return;
-    }
-
     if (event.ctrl && event.name === "q") { onQuit(); event.preventDefault(); return; }
-    if (event.ctrl && event.name === "d") { handleCtrlD(); event.preventDefault(); return; }
-
-    // Forward to PTY
-    if (ptyRef.current) {
-      if (event.sequence) { ptyRef.current.write(event.sequence); }
-      else if (event.name && event.name.length === 1) { ptyRef.current.write(event.name); }
-    }
     event.preventDefault();
   });
-
-  const renderTerminal = useCallback((buffer: OptimizedBuffer) => {
-    const term = termRef.current;
-    if (!term) return;
-    try {
-      const data = term.getJson();
-      renderTerminalToBuffer(buffer, data, 1, 1);
-    } catch {
-      // terminal might be destroyed
-    }
-  }, []);
 
   const { job, wfConfig, iteration } = useMemo(() => {
     let job: Job | null = null;
@@ -286,46 +257,22 @@ export function PhaseRunningView({
       // ignore
     }
     return { job, wfConfig, iteration };
-  }, [jobId, store, config, iterationStore, tick, statusMsg]);
-
-  if (fallbackMode) {
-    return (
-      <box width="100%" height="100%" flexDirection="column">
-        {job && <PhaseHeader job={job} workflowConfig={wfConfig} iteration={iteration} />}
-        <box
-          flexGrow={1} flexDirection="column" borderStyle="single" borderColor={COLOR_YELLOW}
-          alignItems="center" justifyContent="center"
-        >
-          <text fg={COLOR_YELLOW} attributes={ATTR_BOLD}>結果を手動で選択してください</text>
-          <box height={1} />
-          {fallbackOptions.map((opt, idx) => (
-            <text key={opt} fg={idx === fallbackCursor ? COLOR_CYAN : COLOR_GRAY} attributes={idx === fallbackCursor ? ATTR_BOLD : 0}>
-              {idx === fallbackCursor ? "▶ " : "  "}{opt}
-            </text>
-          ))}
-        </box>
-        <box height={1} paddingLeft={1}>
-          <text fg={COLOR_GRAY}>{statusMsg}</text>
-        </box>
-        <StatusBar items={[
-          { key: "↑/k↓/j", label: "選択" }, { key: "Enter", label: "確定" }, { key: "Esc", label: "キャンセル" },
-        ]} />
-      </box>
-    );
-  }
+  }, [jobId, store, config, iterationStore, statusMsg]);
 
   return (
     <box width="100%" height="100%" flexDirection="column">
       {job && <PhaseHeader job={job} workflowConfig={wfConfig} iteration={iteration} />}
-      <box flexGrow={1} borderStyle="single" borderColor="#66ff66" renderAfter={renderTerminal} />
+      <box
+        flexGrow={1} flexDirection="column" borderStyle="single" borderColor={COLOR_CYAN}
+        alignItems="center" justifyContent="center"
+      >
+        <text fg={COLOR_CYAN} attributes={ATTR_BOLD}>{statusMsg}</text>
+      </box>
       <box height={1} paddingLeft={1} backgroundColor={COLOR_DARK_BG} flexDirection="row">
-        <text fg={COLOR_GRAY}>{statusMsg}</text>
-        {isDebug && lastSignal && (
-          <text fg={COLOR_YELLOW}>{" │ "}{lastSignal}</text>
-        )}
+        <text fg={COLOR_GRAY}>{currentPhaseRef.current}</text>
       </box>
       <StatusBar items={[
-        { key: "Ctrl+D", label: "フェーズ完了" }, { key: "Ctrl+C", label: "割り込み" }, { key: "Ctrl+Q", label: "終了" },
+        { key: "Ctrl+Q", label: "終了" },
       ]} />
     </box>
   );

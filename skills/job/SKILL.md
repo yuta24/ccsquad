@@ -18,39 +18,40 @@ ccsquad CLI のジョブ管理機能を操作するスキル。ジョブはス�
 
 ## ワークフロー設定 (ccsquad.yaml)
 
-ワークフローは `ccsquad.yaml` で定義する。各フェーズの遷移先は `on:` で明示的に指定する。
+ワークフローは `ccsquad.yaml` で定義する。各フェーズには `type` を指定し、遷移先は `on:` で明示的に指定する。
 
 ```yaml
 workflows:
   dev:
     description: 開発ワークフロー
+    max_iterations: 10
     phases:
-      - name: plan
-        description: 実装計画を策定する
-        agent: planner
-        on:
-          completed: code
-          failed: ABORT
       - name: code
+        type: task
         description: コードを実装する
         agent: coder
         on:
           completed: review
-          failed: plan
+          failed: code
       - name: review
+        type: review
         description: コードレビューを行う
-        agent: reviewer
         reviewer: human
         on:
           approved: COMPLETE
           rejected: code
 ```
 
+### フェーズタイプ
+
+- **task**: エージェントが作業を実行するフェーズ。`agent` が必須。遷移条件は `completed` / `failed`。
+- **review**: レビューを行うフェーズ。`reviewer` が必須（`human` または エージェント名）。遷移条件は `approved` / `rejected`。
+
 ### ワークフローの規約
 
 - `phases` 配列の最初の要素が開始フェーズになる
-- 通常フェーズ: `on.completed` が必須
-- reviewer フェーズ: `on.approved` と `on.rejected` が必須
+- `type: task` フェーズ: `agent` 必須、`on.completed` 必須
+- `type: review` フェーズ: `reviewer` 必須、`on.approved` と `on.rejected` 必須
 - 特殊値: `COMPLETE`(成功終了)、`ABORT`(失敗終了)
 - `on.failed` はオプション（定義しない場合、failed での遷移はエラーになる）
 
@@ -78,7 +79,7 @@ ccsquad job show <ID>
 ccsquad job show <ID> --format json
 ```
 
-- `--format json` でマシンリーダブルな出力を得られる。現フェーズの設定（agent, reviewer）も含まれる。
+- `--format json` でマシンリーダブルな出力を得られる。現フェーズの設定（type, agent, reviewer）も含まれる。
 
 ### ジョブの編集
 
@@ -104,7 +105,7 @@ ccsquad job run <ID>
 ccsquad job transition <ID> <completed|failed> [--message "メッセージ"]
 ```
 
-- reviewer フェーズでは使用不可（`approve`/`reject` を使う）。
+- review フェーズでは使用不可（`approve`/`reject` を使う）。
 - 対応する `on` ルールがなければエラー。
 
 ### レビュー承認/却下
@@ -114,7 +115,7 @@ ccsquad job approve <ID> [--message "メッセージ"]
 ccsquad job reject <ID> --message "却下理由"
 ```
 
-- reviewer フェーズでのみ使用可。
+- review フェーズでのみ使用可。
 - `reject` は `--message` が必須。
 
 ### ジョブの中断
@@ -158,19 +159,6 @@ updated_at: 2026-03-24T11:00:00Z
 JWT ベースの認証機能を実装する。
 
 ## フェーズログ
-### plan (completed → code) - 2026-03-24T10:00:00Z
-計画を策定した。
-```
-
-## ワークフロー自動実行の例
-
-ジョブの現在のフェーズ情報を取得してエージェントを起動する場合:
-
-```bash
-# ジョブの状態を JSON で取得
-ccsquad job show J000001 --format json
-
-# phase_config.agent を見て適切なエージェントを起動
-# エージェント完了後にフェーズを遷移
-ccsquad job transition J000001 completed --message "実装完了"
+### code (completed → review) - 2026-03-24T10:00:00Z
+実装完了。
 ```

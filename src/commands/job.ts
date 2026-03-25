@@ -46,7 +46,7 @@ function printTransitionResult(job: Job): void {
 function getPhaseInfo(
   config: SquadConfig,
   job: Job,
-): { description?: string; agent?: string; reviewer?: string } | undefined {
+): { type?: string; description?: string; agent?: string; reviewer?: string } | undefined {
   const phaseName = job.frontmatter.current_phase;
   if (!phaseName) return undefined;
   const wf = config.getWorkflow(job.frontmatter.workflow);
@@ -54,6 +54,7 @@ function getPhaseInfo(
   const phase = wf.getPhase(phaseName);
   if (!phase) return undefined;
   return {
+    type: phase.type,
     description: phase.description,
     agent: phase.agent,
     reviewer: phase.reviewer,
@@ -106,6 +107,7 @@ export function cmdShow(
     }
     if (phaseInfo !== undefined) {
       const phaseConfig: Record<string, unknown> = {};
+      if (phaseInfo.type !== undefined) phaseConfig.type = phaseInfo.type;
       if (phaseInfo.description !== undefined) phaseConfig.description = phaseInfo.description;
       if (phaseInfo.agent !== undefined) phaseConfig.agent = phaseInfo.agent;
       if (phaseInfo.reviewer !== undefined) phaseConfig.reviewer = phaseInfo.reviewer;
@@ -121,6 +123,7 @@ export function cmdShow(
       console.log(`現在のフェーズ: ${fm.current_phase}`);
       const info = getPhaseInfo(config, job);
       if (info) {
+        if (info.type) console.log(`  タイプ: ${info.type}`);
         if (info.description) console.log(`  説明: ${info.description}`);
         if (info.agent) console.log(`  エージェント: ${info.agent}`);
         if (info.reviewer) console.log(`  レビュアー: ${info.reviewer}`);

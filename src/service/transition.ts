@@ -12,7 +12,7 @@ export type TransitionResult =
       jobId: string;
       nextPhase: string;
       phaseConfig: PhaseConfig;
-      reason: "pause" | "max_iterations" | "human_review";
+      reason: "max_iterations" | "human_review";
     };
 
 export function resolveAndExecuteTransition(
@@ -45,8 +45,8 @@ export function resolveAndExecuteTransition(
     throw new CcsquadError("workflow", `フェーズ '${phaseName}' がワークフローに定義されていません`);
   }
 
-  // Validate reviewer condition
-  if (phaseConfig.reviewer !== undefined) {
+  // Validate condition based on phase type
+  if (phaseConfig.type === "review") {
     if (condition !== "approved" && condition !== "rejected") {
       throw new CcsquadError("workflow", "レビューフェーズでは approve/reject を使用してください");
     }
@@ -91,12 +91,6 @@ export function resolveAndExecuteTransition(
     throw new CcsquadError("workflow", `遷移先フェーズ '${next}' がワークフローに定義されていません`);
   }
 
-  // Pause flag
-  if (nextPhaseConfig.pause) {
-    recordLogOnly(job);
-    return { type: "pause", jobId, nextPhase: next, phaseConfig: nextPhaseConfig, reason: "pause" };
-  }
-
   // Max iterations
   const currentIteration = iterationStore.get(jobId);
   if (currentIteration >= wf.maxIterations()) {
@@ -105,7 +99,7 @@ export function resolveAndExecuteTransition(
   }
 
   // Human review
-  if (nextPhaseConfig.reviewer === "human") {
+  if (nextPhaseConfig.type === "review" && nextPhaseConfig.reviewer === "human") {
     executeTransition(job);
     iterationStore.increment(jobId);
     return { type: "pause", jobId, nextPhase: next, phaseConfig: nextPhaseConfig, reason: "human_review" };
@@ -127,7 +121,7 @@ export function validateConditionForPhase(
     throw new CcsquadError("workflow", `フェーズ '${phaseName}' がワークフローに定義されていません`);
   }
 
-  if (phaseConfig.reviewer !== undefined) {
+  if (phaseConfig.type === "review") {
     if (condition !== "approved" && condition !== "rejected") {
       throw new CcsquadError("workflow", "レビューフェーズでは approved/rejected を使用してください");
     }

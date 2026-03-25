@@ -5,6 +5,7 @@ import type { SquadConfig } from "../config.js";
 import { JobStore } from "../job.js";
 import { IterationStore } from "../iteration.js";
 import { EntryStore } from "../entry.js";
+import { OutputStore } from "../output.js";
 import { CcsquadError } from "../error.js";
 
 export interface ProjectContext {
@@ -12,9 +13,11 @@ export interface ProjectContext {
   store: JobStore;
   iterationStore: IterationStore;
   entryStore: EntryStore;
+  outputStore: OutputStore;
   squadDir: string;
   jobsDir: string;
   memoryDir: string;
+  outputsDir: string;
 }
 
 export function findConfig(): string | null {
@@ -56,16 +59,20 @@ export function createContext(configPath?: string): ProjectContext {
   const squadDir = join(projectRoot, ".ccsquad");
   const jobsDir = join(squadDir, "jobs");
   const memoryDir = join(squadDir, "memory", "entries");
+  const outputsDir = join(squadDir, "outputs");
   mkdirSync(jobsDir, { recursive: true });
   mkdirSync(memoryDir, { recursive: true });
+  mkdirSync(outputsDir, { recursive: true });
 
   return {
     config,
     store: new JobStore(jobsDir),
     iterationStore: new IterationStore(squadDir),
     entryStore: new EntryStore(memoryDir),
+    outputStore: new OutputStore(outputsDir),
     squadDir,
     jobsDir,
     memoryDir,
+    outputsDir,
   };
 }

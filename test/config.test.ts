@@ -9,20 +9,22 @@ workflows:
     description: 開発ワークフロー
     phases:
       - name: plan
+        type: task
         description: 実装計画を策定する
         agent: planner
         on:
           completed: code
           failed: ABORT
       - name: code
+        type: task
         description: コードを実装する
         agent: coder
         on:
           completed: review
           failed: plan
       - name: review
+        type: review
         description: コードレビューを行う
-        agent: reviewer
         reviewer: human
         on:
           approved: COMPLETE
@@ -64,6 +66,8 @@ workflows:
   test:
     phases:
       - name: plan
+        type: task
+        agent: planner
         on:
           completed: nonexistent
 `;
@@ -84,6 +88,7 @@ workflows:
   test:
     phases:
       - name: plan
+        type: task
         agent: planner
 `;
     const config = SquadConfigImpl.parse(yaml);
@@ -103,6 +108,7 @@ workflows:
   test:
     phases:
       - name: review
+        type: review
         reviewer: human
         on:
           rejected: ABORT
@@ -124,6 +130,7 @@ workflows:
   test:
     phases:
       - name: review
+        type: review
         reviewer: human
         on:
           approved: COMPLETE
@@ -145,9 +152,13 @@ workflows:
   test:
     phases:
       - name: plan
+        type: task
+        agent: planner
         on:
           completed: COMPLETE
       - name: orphan
+        type: task
+        agent: coder
         on:
           completed: COMPLETE
 `;
@@ -185,33 +196,115 @@ workflows:
     expect(() => parseTransitionCondition("invalid")).toThrow(CcsquadError);
   });
 
-  it("pauseのデフォルト値はfalse", () => {
-    const config = SquadConfigImpl.parse(devWorkflowYaml());
-    const dev = config.getWorkflow("dev")!;
-    expect(dev.getPhase("plan")!.pause).toBe(false);
-    expect(dev.getPhase("code")!.pause).toBe(false);
-    expect(dev.getPhase("review")!.pause).toBe(false);
-  });
-
-  it("pause: true", () => {
+  it("typeフィールドが必須", () => {
     const yaml = `
 workflows:
-  dev:
+  test:
     phases:
       - name: plan
         agent: planner
-        pause: true
-        on:
-          completed: code
-      - name: code
-        agent: coder
         on:
           completed: COMPLETE
 `;
     const config = SquadConfigImpl.parse(yaml);
-    const dev = config.getWorkflow("dev")!;
-    expect(dev.getPhase("plan")!.pause).toBe(true);
-    expect(dev.getPhase("code")!.pause).toBe(false);
+    let error: CcsquadError | undefined;
+    try {
+      config.validate();
+    } catch (e) {
+      error = e as CcsquadError;
+    }
+    expect(error).toBeInstanceOf(CcsquadError);
+    expect(error!.message).toContain("type");
+  });
+
+  it("taskフェーズにはagentが必須", () => {
+    const yaml = `
+workflows:
+  test:
+    phases:
+      - name: plan
+        type: task
+        on:
+          completed: COMPLETE
+`;
+    const config = SquadConfigImpl.parse(yaml);
+    let error: CcsquadError | undefined;
+    try {
+      config.validate();
+    } catch (e) {
+      error = e as CcsquadError;
+    }
+    expect(error).toBeInstanceOf(CcsquadError);
+    expect(error!.message).toContain("agent");
+  });
+
+  it("reviewフェーズにはreviewerが必須", () => {
+    const yaml = `
+workflows:
+  test:
+    phases:
+      - name: review
+        type: review
+        on:
+          approved: COMPLETE
+          rejected: ABORT
+`;
+    const config = SquadConfigImpl.parse(yaml);
+    let error: CcsquadError | undefined;
+    try {
+      config.validate();
+    } catch (e) {
+      error = e as CcsquadError;
+    }
+    expect(error).toBeInstanceOf(CcsquadError);
+    expect(error!.message).toContain("reviewer");
+  });
+
+  it("taskフェーズにreviewerは設定できない", () => {
+    const yaml = `
+workflows:
+  test:
+    phases:
+      - name: plan
+        type: task
+        agent: planner
+        reviewer: human
+        on:
+          completed: COMPLETE
+`;
+    const config = SquadConfigImpl.parse(yaml);
+    let error: CcsquadError | undefined;
+    try {
+      config.validate();
+    } catch (e) {
+      error = e as CcsquadError;
+    }
+    expect(error).toBeInstanceOf(CcsquadError);
+    expect(error!.message).toContain("reviewer");
+  });
+
+  it("reviewフェーズにagentは設定できない", () => {
+    const yaml = `
+workflows:
+  test:
+    phases:
+      - name: review
+        type: review
+        reviewer: human
+        agent: some-agent
+        on:
+          approved: COMPLETE
+          rejected: ABORT
+`;
+    const config = SquadConfigImpl.parse(yaml);
+    let error: CcsquadError | undefined;
+    try {
+      config.validate();
+    } catch (e) {
+      error = e as CcsquadError;
+    }
+    expect(error).toBeInstanceOf(CcsquadError);
+    expect(error!.message).toContain("agent");
   });
 
   it("max_iterationsのデフォルト値は10", () => {
@@ -228,6 +321,7 @@ workflows:
     max_iterations: 5
     phases:
       - name: plan
+        type: task
         agent: planner
         on:
           completed: COMPLETE

@@ -31,7 +31,9 @@ export interface TransitionInfo {
   description?: string;
   agent?: string;
   reviewer?: string;
-  reason?: "pause" | "max_iterations";
+  phaseType?: "task" | "review";
+  reason?: "max_iterations";
+  sessionId?: string;
 }
 
 export type Screen =
