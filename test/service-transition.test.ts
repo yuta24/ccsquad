@@ -397,6 +397,63 @@ describe("resolveAndExecuteTransition - バリデーション", () => {
   });
 });
 
+// ─── resolveAndExecuteTransition - agent reviewer auto-transition ─────────────
+
+const AUTO_REVIEWER_CONFIG_YAML = `
+workflows:
+  dev:
+    max_iterations: 10
+    phases:
+      - name: plan
+        type: task
+        description: 計画
+        agent: planner
+        on:
+          completed: code
+          failed: ABORT
+      - name: code
+        type: task
+        description: 実装
+        agent: coder
+        on:
+          completed: review
+          failed: plan
+      - name: review
+        type: review
+        description: レビュー
+        reviewer: auto-reviewer
+        on:
+          approved: COMPLETE
+          rejected: code
+`;
+
+describe("resolveAndExecuteTransition - agent reviewer auto-transition", () => {
+  it("reviewer が human でない review フェーズへの遷移は continue を返す", () => {
+    const dir = makeTmpDir();
+    const store = new JobStore(dir);
+    store.ensureDir();
+    const config = SquadConfigImpl.parse(AUTO_REVIEWER_CONFIG_YAML);
+    const iterationStore = new IterationStore(dir);
+    const wf = config.getWorkflow("dev")!;
+    const engine = new WorkflowEngine(wf, store);
+
+    const job = makeJob("J000001", "pending", "dev");
+    store.save(job);
+    engine.startJob("J000001");
+
+    // plan → completed → code
+    engine.transition("J000001", "completed", "");
+    // code → completed → review (auto-reviewer)
+
+    const result = resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", "実装完了");
+
+    expect(result.type).toBe("continue");
+    if (result.type === "continue") {
+      expect(result.nextPhase).toBe("review");
+    }
+  });
+});
+
 // ─── validateConditionForPhase ────────────────────────────────────────────────
 
 describe("validateConditionForPhase", () => {

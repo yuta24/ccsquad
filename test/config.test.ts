@@ -307,6 +307,21 @@ workflows:
     expect(error!.message).toContain("agent");
   });
 
+  it("不正な type 値を持つフェーズで validate() が CcsquadError を投げる", () => {
+    const yaml = `
+workflows:
+  test:
+    phases:
+      - name: plan
+        type: unknown
+        agent: planner
+        on:
+          completed: COMPLETE
+`;
+    const config = SquadConfigImpl.parse(yaml);
+    expect(() => config.validate()).toThrow(CcsquadError);
+  });
+
   it("max_iterationsのデフォルト値は10", () => {
     const config = SquadConfigImpl.parse(devWorkflowYaml());
     const dev = config.getWorkflow("dev")!;
