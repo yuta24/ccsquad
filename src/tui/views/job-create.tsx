@@ -1,6 +1,6 @@
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import type { SquadConfig } from "../../config.js";
 import { JobStore } from "../../job.js";
 import { useSyncedState } from "../hooks/use-synced-state.js";
@@ -28,6 +28,13 @@ export function JobCreateView({ config, store, onCreated, onCancel, onQuit }: Jo
   const FIELD_COUNT = 4;
 
   const workflowNames = Object.keys(config.workflows);
+  const maxVisibleWf = 3;
+  const wfViewStart = useMemo(() => {
+    const total = workflowNames.length;
+    if (total <= maxVisibleWf) return 0;
+    const half = Math.floor(maxVisibleWf / 2);
+    return Math.max(0, Math.min(workflowIndex - half, total - maxVisibleWf));
+  }, [workflowIndex, workflowNames.length]);
 
   const handleCreate = useCallback(() => {
     const t = titleRef.current.trim();
@@ -176,15 +183,27 @@ export function JobCreateView({ config, store, onCreated, onCancel, onQuit }: Jo
 
         <box flexDirection="column" marginBottom={1}>
           <text fg={fieldLabelColor(1)}>ワークフロー (必須):</text>
-          <box borderStyle="single" borderColor={fieldBorderColor(1)} padding={1}>
+          <box borderStyle="single" borderColor={fieldBorderColor(1)} paddingLeft={1} paddingRight={1}>
             {workflowNames.length === 0 ? (
               <text fg={COLOR_RED}>ワークフローが定義されていません</text>
             ) : (
-              workflowNames.map((wfName, idx) => (
-                <text key={wfName} fg={idx === workflowIndex ? COLOR_CYAN : COLOR_GRAY} attributes={idx === workflowIndex ? ATTR_BOLD : 0}>
-                  {idx === workflowIndex ? "▶ " : "  "}{wfName}
-                </text>
-              ))
+              (() => {
+                const total = workflowNames.length;
+                const end = Math.min(wfViewStart + maxVisibleWf, total);
+                const visible = workflowNames.slice(wfViewStart, end);
+                const hasAbove = wfViewStart > 0;
+                const hasBelow = end < total;
+                return <>
+                  {hasAbove && <text fg={COLOR_GRAY}>  ↑ {wfViewStart} more</text>}
+                  {visible.map((wfName, i) => {
+                    const realIdx = wfViewStart + i;
+                    return <text key={wfName} fg={realIdx === workflowIndex ? COLOR_CYAN : COLOR_GRAY} attributes={realIdx === workflowIndex ? ATTR_BOLD : 0}>
+                      {realIdx === workflowIndex ? "▶ " : "  "}{wfName}
+                    </text>;
+                  })}
+                  {hasBelow && <text fg={COLOR_GRAY}>  ↓ {total - end} more</text>}
+                </>;
+              })()
             )}
           </box>
         </box>
