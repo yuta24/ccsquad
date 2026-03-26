@@ -128,7 +128,6 @@ function App() {
           projectRoot={dirname(configPath)}
           outputStore={outStore}
           signalHandlerRef={signalHandlerRef}
-          onTransition={(info) => navigateTo({ type: "pause-review", jobId, phase: info.nextPhase, info })}
           onDone={() => navigateTo({ type: "job-list" })}
         />
       );

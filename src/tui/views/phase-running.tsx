@@ -5,7 +5,7 @@ import { useKeyboard, useRenderer } from "@opentui/react";
 import { spawn, type IPty } from "bun-pty";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { MutableRefObject } from "react";
-import type { SquadConfig, WorkflowConfig, PhaseType } from "../../config.js";
+import type { SquadConfig, WorkflowConfig, PhaseType, PhaseConfig } from "../../config.js";
 import { parseTransitionCondition } from "../../config.js";
 import type { Job } from "../../job.js";
 import type { JobStore } from "../../job.js";
@@ -15,11 +15,14 @@ import { parseStreamJsonResult } from "../../result.js";
 import type { OutputStore } from "../../output.js";
 import { buildTaskPrompt, buildReviewPrompt, buildResumePrompt } from "../../service/prompt-builder.js";
 import type { SignalMessage } from "../../service/signal-server.js";
-import { PhaseHeader } from "../components/phase-header.js";
 import { StatusBar } from "../components/status-bar.js";
-import type { TransitionInfo } from "../constants.js";
-import { ATTR_BOLD, COLOR_CYAN, COLOR_GREEN, COLOR_RED, COLOR_DARK_GRAY, COLOR_WHITE } from "../constants.js";
+import type { TransitionInfo, StatusBarItem } from "../constants.js";
+import {
+  ATTR_BOLD, COLOR_CYAN, COLOR_GREEN, COLOR_RED, COLOR_DARK_GRAY, COLOR_WHITE,
+  COLOR_HEADER_BG, COLOR_GRAY, COLOR_YELLOW, truncateStr,
+} from "../constants.js";
 import { useTerminalSize } from "../hooks/use-terminal-size.js";
+import { useSyncedState } from "../hooks/use-synced-state.js";
 
 // ── Styled span model ──
 
@@ -156,6 +159,12 @@ function OutputLine({ spans }: { spans: DisplayLine }) {
   );
 }
 
+// ── Types ──
+
+type ExecutionState = "idle" | "running" | "paused";
+type FocusPane = "left" | "right";
+type ReviewMode = "browse" | "decide" | "feedback";
+
 // ── Main component ──
 
 interface PhaseRunningViewProps {
@@ -167,14 +176,13 @@ interface PhaseRunningViewProps {
   projectRoot: string;
   outputStore: OutputStore;
   signalHandlerRef: MutableRefObject<((msg: SignalMessage) => void) | null>;
-  onTransition: (info: TransitionInfo) => void;
   onDone: () => void;
 }
 
 export function PhaseRunningView({
   jobId, phase, store, config, iterationStore,
   projectRoot, outputStore, signalHandlerRef,
-  onTransition, onDone,
+  onDone,
 }: PhaseRunningViewProps) {
   const renderer = useRenderer();
   const [displayLines, setDisplayLines] = useState<DisplayLine[]>([]);
@@ -187,6 +195,138 @@ export function PhaseRunningView({
   const displayLinesRef = useRef<DisplayLine[]>([]);
   const scrollBoxRef = useRef<ScrollBoxRenderable | null>(null);
   const { cols } = useTerminalSize();
+
+  // Execution state
+  const [execState, setExecState, execStateRef] = useSyncedState<ExecutionState>("idle");
+  const [focusPane, setFocusPane, focusPaneRef] = useSyncedState<FocusPane>("left");
+
+  // Pause-review state
+  const [pauseInfo, setPauseInfo, pauseInfoRef] = useSyncedState<TransitionInfo | null>(null);
+  const [reviewMode, setReviewMode, reviewModeRef] = useSyncedState<ReviewMode>("browse");
+  const [feedbackText, setFeedbackText, feedbackTextRef] = useSyncedState("");
+  const [statusMsg, setStatusMsg] = useState("");
+
+  // ── Transition handling (with integrated pause-review) ──
+
+  const handleTransitionResult = useCallback((condition: "approved" | "rejected" | "completed" | "failed", message?: string) => {
+    try {
+      const jobData = store.load(jobId);
+      const wf = config.getWorkflow(jobData.frontmatter.workflow);
+      if (!wf) { setStatusMsg("ワークフローが見つかりません"); return; }
+
+      const txResult = resolveAndExecuteTransition(wf, store, iterationStore, jobId, condition, message ?? "");
+
+      switch (txResult.type) {
+        case "done":
+          onDone();
+          break;
+        case "continue":
+          // Auto-continue: start next phase
+          currentPhaseRef.current = txResult.nextPhase;
+          setPauseInfo(null);
+          setReviewMode("browse");
+          setExecState("running");
+          setFocusPane("right");
+          spawnAgentForPhase(txResult.nextPhase);
+          break;
+        case "pause":
+          if (txResult.reason === "human_review") {
+            // Re-enter paused state for the new phase
+            const lastOut = outputStore.findLastByPhase(jobId, jobData.frontmatter.current_phase ?? "");
+            setPauseInfo({
+              prevPhase: jobData.frontmatter.current_phase ?? "",
+              result: condition,
+              message: message ?? "",
+              nextPhase: txResult.nextPhase,
+              description: txResult.phaseConfig.description,
+              agent: txResult.phaseConfig.agent,
+              reviewer: txResult.phaseConfig.reviewer,
+              phaseType: txResult.phaseConfig.type,
+              sessionId: lastOut?.sessionId,
+            });
+            setReviewMode("browse");
+            setExecState("paused");
+            setFocusPane("left");
+          } else {
+            // max_iterations - wait for user action
+            setPauseInfo({
+              prevPhase: jobData.frontmatter.current_phase ?? "",
+              result: condition,
+              message: message ?? "",
+              nextPhase: txResult.nextPhase,
+              description: txResult.phaseConfig.description,
+              agent: txResult.phaseConfig.agent,
+              reviewer: txResult.phaseConfig.reviewer,
+              phaseType: txResult.phaseConfig.type,
+              reason: "max_iterations",
+            });
+            setReviewMode("browse");
+            setExecState("paused");
+            setFocusPane("left");
+          }
+          break;
+      }
+    } catch (e) {
+      setStatusMsg(`エラー: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId, store, config, iterationStore, outputStore, onDone]);
+
+  const executeApprove = useCallback(() => {
+    try {
+      const jobData = store.load(jobId);
+      const wf = config.getWorkflow(jobData.frontmatter.workflow);
+      if (!wf) { setStatusMsg("ワークフローが見つかりません"); return; }
+      const currentPhase = jobData.frontmatter.current_phase ?? phase;
+      const phaseConfig = wf.getPhase(currentPhase);
+      const condition = phaseConfig?.type === "review" ? "approved" : "completed";
+      handleTransitionResult(condition);
+    } catch (e) {
+      setStatusMsg(`エラー: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [jobId, store, config, phase, handleTransitionResult]);
+
+  const executeReject = useCallback(() => {
+    try {
+      const jobData = store.load(jobId);
+      const wf = config.getWorkflow(jobData.frontmatter.workflow);
+      if (!wf) { setStatusMsg("ワークフローが見つかりません"); return; }
+      const currentPhase = jobData.frontmatter.current_phase ?? phase;
+      const phaseConfig = wf.getPhase(currentPhase);
+      const condition = phaseConfig?.type === "review" ? "rejected" : "failed";
+      handleTransitionResult(condition);
+    } catch (e) {
+      setStatusMsg(`エラー: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [jobId, store, config, phase, handleTransitionResult]);
+
+  const executeRejectWithFeedback = useCallback((feedback: string) => {
+    try {
+      const jobData = store.load(jobId);
+      const wf = config.getWorkflow(jobData.frontmatter.workflow);
+      if (!wf) { setStatusMsg("ワークフローが見つかりません"); return; }
+      const currentPhase = jobData.frontmatter.current_phase ?? phase;
+      const phaseConfig = wf.getPhase(currentPhase);
+      const condition = phaseConfig?.type === "review" ? "rejected" : "failed";
+
+      if (feedback.trim()) {
+        outputStore.save(jobId, {
+          phase: currentPhase,
+          executor: "human",
+          result: "rejected",
+          iteration: iterationStore.get(jobId),
+          timestamp: new Date().toISOString(),
+          content: feedback,
+        });
+      }
+
+      handleTransitionResult(condition, feedback);
+    } catch (e) {
+      setStatusMsg(`エラー: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [jobId, store, config, iterationStore, outputStore, phase, handleTransitionResult]);
+
+  // ── Process transition from agent exit ──
 
   const processTransition = useCallback((result: string, message: string) => {
     try {
@@ -205,10 +345,11 @@ export function PhaseRunningView({
           isProcessingRef.current = false;
           onDone();
           break;
-        case "pause":
+        case "pause": {
           isProcessingRef.current = false;
-          onTransition({
-            prevPhase: currentPhaseRef.current,
+          const prevPhase = currentPhaseRef.current;
+          const info: TransitionInfo = {
+            prevPhase,
             result: condition,
             message,
             nextPhase: txResult.nextPhase,
@@ -217,9 +358,14 @@ export function PhaseRunningView({
             reviewer: txResult.phaseConfig.reviewer,
             phaseType: txResult.phaseConfig.type,
             reason: txResult.reason === "human_review" ? undefined : txResult.reason,
-            sessionId: outputStore.findLastByPhase(jobId, currentPhaseRef.current)?.sessionId,
-          });
+            sessionId: outputStore.findLastByPhase(jobId, prevPhase)?.sessionId,
+          };
+          setPauseInfo(info);
+          setReviewMode("browse");
+          setExecState("paused");
+          setFocusPane("left");
           break;
+        }
         case "continue": {
           currentPhaseRef.current = txResult.nextPhase;
           isProcessingRef.current = false;
@@ -231,7 +377,9 @@ export function PhaseRunningView({
       isProcessingRef.current = false;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, store, config, iterationStore, onTransition, onDone, outputStore]);
+  }, [jobId, store, config, iterationStore, onDone, outputStore]);
+
+  // ── Spawn agent ──
 
   const spawnAgentForPhase = useCallback((phaseName: string) => {
     if (ptyRef.current) {
@@ -398,14 +546,25 @@ export function PhaseRunningView({
       if (msg.event === "stop" && ptyRef.current && !exitedRef.current) {
         try { ptyRef.current.kill(); } catch { /* ignore */ }
       }
+      if (msg.event === "notification" && execStateRef.current === "paused") {
+        // Auto-run on notification while paused (same as pause-review)
+        const info = pauseInfoRef.current;
+        if (info) {
+          currentPhaseRef.current = info.nextPhase;
+          setPauseInfo(null);
+          setReviewMode("browse");
+          setExecState("running");
+          setFocusPane("right");
+          spawnAgentForPhase(info.nextPhase);
+        }
+      }
     };
     return () => { signalHandlerRef.current = null; };
-  }, [jobId, signalHandlerRef]);
+  }, [jobId, signalHandlerRef, execStateRef, pauseInfoRef, setPauseInfo, setReviewMode, setExecState, setFocusPane, spawnAgentForPhase]);
 
-  // Start agent on mount
+  // Initialize refs on mount (do NOT auto-start)
   useEffect(() => {
     currentPhaseRef.current = phase;
-    spawnAgentForPhase(phase);
     return () => {
       if (ptyRef.current) {
         try { ptyRef.current.kill(); } catch { /* ignore */ }
@@ -414,7 +573,7 @@ export function PhaseRunningView({
     };
   }, []);
 
-  // Auto-copy selection to clipboard via OSC 52 when selection changes
+  // Auto-copy selection to clipboard via OSC 52
   useEffect(() => {
     const onSelection = () => {
       const selection = renderer.getSelection();
@@ -429,8 +588,31 @@ export function PhaseRunningView({
     return () => { renderer.off(CliRenderEvents.SELECTION, onSelection); };
   }, [renderer]);
 
+  // ── Keyboard handler ──
+
   useKeyboard((event: KeyEvent) => {
+    const state = execStateRef.current;
+    const focus = focusPaneRef.current;
+
+    // Tab: toggle focus pane
+    if (event.name === "tab") {
+      setFocusPane(focus === "left" ? "right" : "left");
+      event.preventDefault();
+      return;
+    }
+
+    // Escape: kill process if running, go back to job list
     if (event.name === "escape") {
+      if (state === "paused" && reviewModeRef.current === "feedback") {
+        setReviewMode("decide");
+        event.preventDefault();
+        return;
+      }
+      if (state === "paused" && reviewModeRef.current === "decide") {
+        setReviewMode("browse");
+        event.preventDefault();
+        return;
+      }
       if (ptyRef.current) {
         try { ptyRef.current.kill(); } catch { /* ignore */ }
       }
@@ -438,46 +620,335 @@ export function PhaseRunningView({
       event.preventDefault();
       return;
     }
+
+    // ── Idle state ──
+    if (state === "idle") {
+      if (event.name === "return" || event.name === "enter") {
+        setExecState("running");
+        setFocusPane("right");
+        spawnAgentForPhase(phase);
+        event.preventDefault();
+        return;
+      }
+      event.preventDefault();
+      return;
+    }
+
+    // ── Running state ──
+    if (state === "running") {
+      // All scrolling handled by scrollbox focused state
+      event.preventDefault();
+      return;
+    }
+
+    // ── Paused state ──
+    if (state === "paused") {
+      const info = pauseInfoRef.current;
+      if (!info) { event.preventDefault(); return; }
+
+      const isHumanReview = info.phaseType === "review" && info.reviewer === "human";
+      const isAgentReview = info.phaseType === "review" && info.reviewer !== "human";
+      const currentReviewMode = reviewModeRef.current;
+
+      if (isHumanReview) {
+        if (currentReviewMode === "browse") {
+          if (event.name === "return" || event.name === "enter") {
+            setReviewMode("decide");
+            event.preventDefault();
+            return;
+          }
+        } else if (currentReviewMode === "decide") {
+          if (event.name === "a") { executeApprove(); event.preventDefault(); return; }
+          if (event.name === "x") { setReviewMode("feedback"); setFeedbackText(""); event.preventDefault(); return; }
+        } else if (currentReviewMode === "feedback") {
+          if (event.ctrl && (event.name === "return" || event.name === "enter")) {
+            executeRejectWithFeedback(feedbackTextRef.current);
+            event.preventDefault();
+            return;
+          }
+          if (event.name === "backspace" || event.name === "delete") {
+            setFeedbackText((prev) => [...prev].slice(0, -1).join(""));
+            event.preventDefault();
+            return;
+          }
+          if (event.name === "return" || event.name === "enter") {
+            setFeedbackText((prev) => prev + "\n");
+            event.preventDefault();
+            return;
+          }
+          if (!event.ctrl && !event.meta && event.sequence && event.sequence.length === 1) {
+            setFeedbackText((prev) => prev + event.sequence);
+            event.preventDefault();
+            return;
+          }
+        }
+      } else if (isAgentReview) {
+        if (event.name === "r" || event.name === "return" || event.name === "enter") {
+          currentPhaseRef.current = info.nextPhase;
+          setPauseInfo(null);
+          setReviewMode("browse");
+          setExecState("running");
+          setFocusPane("right");
+          spawnAgentForPhase(info.nextPhase);
+          event.preventDefault();
+          return;
+        }
+        if (event.name === "a") { executeApprove(); event.preventDefault(); return; }
+        if (event.name === "x") { executeReject(); event.preventDefault(); return; }
+      } else {
+        // max_iterations pause
+        if (event.name === "return" || event.name === "enter") {
+          currentPhaseRef.current = info.nextPhase;
+          setPauseInfo(null);
+          setReviewMode("browse");
+          setExecState("running");
+          setFocusPane("right");
+          spawnAgentForPhase(info.nextPhase);
+          event.preventDefault();
+          return;
+        }
+      }
+
+      event.preventDefault();
+      return;
+    }
+
     event.preventDefault();
   });
 
-  const { job, wfConfig, iteration } = useMemo(() => {
+  // ── Derived data ──
+
+  const { job, wfConfig, iteration, phaseConfig } = useMemo(() => {
     let job: Job | null = null;
     let wfConfig: WorkflowConfig | undefined;
     let iteration = 0;
+    let phaseConfig: PhaseConfig | undefined;
     try {
       job = store.load(jobId);
       wfConfig = config.getWorkflow(job.frontmatter.workflow);
       iteration = iterationStore.get(jobId);
+      phaseConfig = wfConfig?.getPhase(currentPhaseRef.current);
     } catch {
       // ignore
     }
-    return { job, wfConfig, iteration };
-  }, [jobId, store, config, iterationStore, displayLines]);
+    return { job, wfConfig, iteration, phaseConfig };
+  }, [jobId, store, config, iterationStore, displayLines, execState]);
+
+  const currentPhaseName = currentPhaseRef.current;
+
+  // Build workflow diagram text
+  const diagramText = useMemo(() => {
+    if (!wfConfig) return "";
+    return wfConfig.phases.map((p, i) => {
+      const isCurrent = p.name === currentPhaseName;
+      const marker = isCurrent ? "●" : "○";
+      const arrow = i < wfConfig.phases.length - 1 ? " → " : "";
+      return `${marker} ${p.name}${arrow}`;
+    }).join("");
+  }, [wfConfig, currentPhaseName]);
+
+  // Job body lines for left pane display
+  const jobBodyLines = useMemo(() => {
+    if (!job?.body) return ["(なし)"];
+    // Extract body before phase log section for cleaner display
+    const logIdx = job.body.indexOf("## フェーズログ");
+    const displayBody = logIdx >= 0 ? job.body.slice(0, logIdx).trimEnd() : job.body;
+    return displayBody.split("\n");
+  }, [job]);
+
+  // ── Status bar ──
+
+  const statusBarItems = useMemo((): StatusBarItem[] => {
+    if (execState === "idle") {
+      return [
+        { key: "Enter", label: "実行開始" },
+        { key: "Tab", label: "ペイン切替" },
+        { key: "Esc", label: "一覧に戻る" },
+      ];
+    }
+    if (execState === "running") {
+      return [
+        { key: "↑↓/Scroll", label: "スクロール" },
+        { key: "Tab", label: "ペイン切替" },
+        { key: "Esc", label: "一覧に戻る" },
+      ];
+    }
+    // paused
+    const info = pauseInfo;
+    if (!info) return [{ key: "Esc", label: "一覧に戻る" }];
+
+    const isHumanReview = info.phaseType === "review" && info.reviewer === "human";
+    const isAgentReview = info.phaseType === "review" && info.reviewer !== "human";
+
+    if (isHumanReview) {
+      if (reviewMode === "browse") {
+        return [
+          { key: "Enter", label: "判断へ" },
+          { key: "Tab", label: "ペイン切替" },
+          { key: "Esc", label: "一覧に戻る" },
+        ];
+      }
+      if (reviewMode === "decide") {
+        return [
+          { key: "a", label: "承認" },
+          { key: "x", label: "却下" },
+          { key: "Esc", label: "閲覧に戻る" },
+        ];
+      }
+      // feedback
+      return [
+        { key: "Ctrl+Enter", label: "却下を確定" },
+        { key: "Esc", label: "判断に戻る" },
+      ];
+    }
+    if (isAgentReview) {
+      return [
+        { key: "r/Enter", label: "レビューエージェント実行" },
+        { key: "a", label: "直接承認" },
+        { key: "x", label: "直接却下" },
+        { key: "Tab", label: "ペイン切替" },
+        { key: "Esc", label: "一覧に戻る" },
+      ];
+    }
+    // max_iterations
+    return [
+      { key: "Enter", label: "次フェーズ実行" },
+      { key: "Tab", label: "ペイン切替" },
+      { key: "Esc", label: "一覧に戻る" },
+    ];
+  }, [execState, pauseInfo, reviewMode]);
+
+  // ── Render ──
+
+  const leftBorderColor = focusPane === "left" ? COLOR_CYAN : COLOR_GRAY;
+  const rightBorderColor = focusPane === "right" ? COLOR_CYAN : COLOR_GRAY;
 
   return (
     <box width="100%" height="100%" flexDirection="column">
-      {job && <PhaseHeader job={job} workflowConfig={wfConfig} iteration={iteration} />}
-      <scrollbox
-        ref={scrollBoxRef}
-        flexGrow={1}
-        borderStyle="single"
-        borderColor={COLOR_CYAN}
-        scrollY
-        stickyScroll
-        stickyStart="bottom"
-        paddingLeft={1}
-        paddingRight={1}
-        focused
-      >
-        {displayLines.map((line, i) => (
-          <OutputLine key={i} spans={line} />
-        ))}
-      </scrollbox>
-      <StatusBar items={[
-        { key: "↑↓/Scroll", label: "スクロール" },
-        { key: "Esc", label: "一覧に戻る" },
-      ]} />
+      {/* Header */}
+      <box width="100%" height={1} backgroundColor={COLOR_HEADER_BG}>
+        <text fg={COLOR_CYAN} attributes={ATTR_BOLD}>
+          {` ${job?.frontmatter.id ?? jobId} | ${truncateStr(job?.frontmatter.title ?? "", 40)} | ${currentPhaseName} (iter: ${iteration})`}
+        </text>
+      </box>
+
+      {/* Main content - horizontal split */}
+      <box flexDirection="row" flexGrow={1}>
+        {/* Left pane */}
+        <box width="35%" flexDirection="column" borderStyle="single" borderColor={leftBorderColor}>
+          {/* Workflow section */}
+          <box flexDirection="column" paddingLeft={1} paddingRight={1}>
+            <text fg={COLOR_GRAY} attributes={ATTR_BOLD}>ワークフロー</text>
+            <text fg={COLOR_YELLOW}>{job?.frontmatter.workflow ?? ""}</text>
+            <text fg={COLOR_GRAY}>{diagramText || "フェーズなし"}</text>
+          </box>
+
+          {/* Phase details */}
+          <box flexDirection="column" paddingLeft={1} paddingRight={1}>
+            <text fg={COLOR_GRAY} attributes={ATTR_BOLD}>フェーズ詳細</text>
+            <box flexDirection="row" height={1}>
+              <text fg={COLOR_GRAY}>名前: </text>
+              <text fg={COLOR_CYAN}>{currentPhaseName}</text>
+            </box>
+            <box flexDirection="row" height={1}>
+              <text fg={COLOR_GRAY}>タイプ: </text>
+              <text fg={COLOR_YELLOW}>{phaseConfig?.type ?? "-"}</text>
+            </box>
+            {phaseConfig?.agent ? (
+              <box flexDirection="row" height={1}>
+                <text fg={COLOR_GRAY}>エージェント: </text>
+                <text fg={COLOR_GREEN}>{phaseConfig.agent}</text>
+              </box>
+            ) : null}
+            {phaseConfig?.reviewer ? (
+              <box flexDirection="row" height={1}>
+                <text fg={COLOR_GRAY}>レビュアー: </text>
+                <text fg={COLOR_GREEN}>{phaseConfig.reviewer}</text>
+              </box>
+            ) : null}
+            {phaseConfig?.description ? (
+              <text fg={COLOR_DARK_GRAY}>{phaseConfig.description}</text>
+            ) : null}
+          </box>
+
+          {/* Pause review controls (when paused) */}
+          {execState === "paused" && pauseInfo && (
+            <box flexDirection="column" paddingLeft={1} paddingRight={1}>
+              <text fg={COLOR_YELLOW} attributes={ATTR_BOLD}>
+                {pauseInfo.reason === "max_iterations" ? "⚠ イテレーション上限" : "⏸ レビュー待ち"}
+              </text>
+              <box flexDirection="row" height={1}>
+                <text fg={COLOR_GRAY}>前フェーズ: </text>
+                <text fg={COLOR_WHITE}>{pauseInfo.prevPhase}</text>
+                <text fg={COLOR_GRAY}> → </text>
+                <text fg={pauseInfo.result === "completed" || pauseInfo.result === "approved" ? COLOR_GREEN : COLOR_RED}>
+                  {pauseInfo.result}
+                </text>
+              </box>
+              <box flexDirection="row" height={1}>
+                <text fg={COLOR_GRAY}>次フェーズ: </text>
+                <text fg={COLOR_YELLOW}>{pauseInfo.nextPhase}</text>
+              </box>
+
+              {reviewMode === "decide" && (
+                <box flexDirection="column">
+                  <box height={1} />
+                  <text fg={COLOR_WHITE}>  [a] 承認  [x] 却下</text>
+                </box>
+              )}
+
+              {reviewMode === "feedback" && (
+                <box flexDirection="column" flexGrow={1}>
+                  <box height={1} />
+                  <text fg={COLOR_CYAN} attributes={ATTR_BOLD}>却下理由:</text>
+                  <box flexGrow={1} borderStyle="single" borderColor={COLOR_GRAY} paddingLeft={1}>
+                    <text fg={COLOR_WHITE}>{feedbackText}█</text>
+                  </box>
+                </box>
+              )}
+
+              {statusMsg ? <text fg={COLOR_RED}>{statusMsg}</text> : null}
+            </box>
+          )}
+
+          {/* Job body (scrollable, takes remaining space) */}
+          <box flexDirection="column" paddingLeft={1} paddingRight={1} flexGrow={1}>
+            <text fg={COLOR_GRAY} attributes={ATTR_BOLD}>ジョブ本文</text>
+            <scrollbox flexGrow={1} scrollY focused={focusPane === "left"}>
+              {jobBodyLines.map((line, i) => (
+                <text key={i} fg={COLOR_WHITE}>{line || " "}</text>
+              ))}
+            </scrollbox>
+          </box>
+        </box>
+
+        {/* Right pane */}
+        <box flexGrow={1} flexDirection="column" borderStyle="single" borderColor={rightBorderColor}>
+          {execState === "idle" ? (
+            <box flexGrow={1} alignItems="center" justifyContent="center">
+              <text fg={COLOR_GRAY}>Enter を押してフェーズを実行開始</text>
+            </box>
+          ) : (
+            <scrollbox
+              ref={scrollBoxRef}
+              flexGrow={1}
+              scrollY
+              stickyScroll
+              stickyStart="bottom"
+              paddingLeft={1}
+              paddingRight={1}
+              focused={focusPane === "right"}
+            >
+              {displayLines.map((line, i) => (
+                <OutputLine key={i} spans={line} />
+              ))}
+            </scrollbox>
+          )}
+        </box>
+      </box>
+
+      {/* Status bar */}
+      <StatusBar items={statusBarItems} />
     </box>
   );
 }
