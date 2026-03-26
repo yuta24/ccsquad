@@ -141,6 +141,7 @@ function App() {
         <PauseReviewView
           jobId={jobId} phase={phase} info={info}
           store={store} config={cfg} iterationStore={itStore}
+          outputStore={outStore}
           signalHandlerRef={signalHandlerRef}
           onRunAgent={(jId, nextPhase) => navigateTo({ type: "phase-running", jobId: jId, phase: nextPhase })}
           onDone={() => navigateTo({ type: "job-list" })}
