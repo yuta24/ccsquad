@@ -93,7 +93,7 @@ function App() {
         <box height={1} />
         <text fg={COLOR_GRAY}>ccsquad.yaml が存在するディレクトリで実行してください</text>
         <box height={1} />
-        <text fg={COLOR_GRAY}>Ctrl+Q で終了</text>
+        <text fg={COLOR_GRAY}>Esc で終了</text>
       </box>
     );
   }
@@ -130,7 +130,6 @@ function App() {
           signalHandlerRef={signalHandlerRef}
           onTransition={(info) => navigateTo({ type: "pause-review", jobId, phase: info.nextPhase, info })}
           onDone={() => navigateTo({ type: "job-list" })}
-          onQuit={handleQuit}
         />
       );
     }
@@ -145,7 +144,6 @@ function App() {
           signalHandlerRef={signalHandlerRef}
           onRunAgent={(jId, nextPhase) => navigateTo({ type: "phase-running", jobId: jId, phase: nextPhase })}
           onDone={() => navigateTo({ type: "job-list" })}
-          onQuit={handleQuit}
         />
       );
     }
@@ -156,7 +154,6 @@ function App() {
           config={cfg} store={store}
           onCreated={() => navigateTo({ type: "job-list" })}
           onCancel={() => navigateTo({ type: "job-list" })}
-          onQuit={handleQuit}
         />
       );
 

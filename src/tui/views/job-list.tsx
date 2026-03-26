@@ -114,7 +114,7 @@ export function JobListView({
       return;
     }
 
-    if (event.ctrl && event.name === "q") { onQuit(); event.preventDefault(); return; }
+    if (event.name === "escape") { onQuit(); event.preventDefault(); return; }
 
     if (event.name === "up" || event.name === "k") {
       const newCursor = Math.max(0, cursorRef.current - 1);
@@ -261,7 +261,7 @@ export function JobListView({
         { key: "↑/k", label: "上" }, { key: "↓/j", label: "下" },
         { key: "Enter", label: "開始/再開" }, { key: "n", label: "新規作成" },
         { key: "d", label: "削除" }, { key: "a", label: "中断" },
-        { key: "r", label: "更新" }, { key: "Ctrl+Q", label: "終了" },
+        { key: "r", label: "更新" }, { key: "Esc", label: "終了" },
       ]} />
     </box>
   );

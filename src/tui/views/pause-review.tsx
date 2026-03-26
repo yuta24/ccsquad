@@ -34,12 +34,12 @@ interface PauseReviewViewProps {
   signalHandlerRef: MutableRefObject<((msg: SignalMessage) => void) | null>;
   onRunAgent: (jobId: string, phase: string) => void;
   onDone: () => void;
-  onQuit: () => void;
+
 }
 
 export function PauseReviewView({
   jobId, phase, info, store, config, iterationStore, outputStore, signalHandlerRef,
-  onRunAgent, onDone, onQuit,
+  onRunAgent, onDone,
 }: PauseReviewViewProps) {
   const [statusMsg, setStatusMsg] = useState<string>("");
   const [mode, setMode, modeRef] = useSyncedState<ReviewMode>("browse");
@@ -187,8 +187,6 @@ export function PauseReviewView({
   const isAgentReview = info.phaseType === "review" && info.reviewer !== "human";
 
   useKeyboard((event: KeyEvent) => {
-    if (event.ctrl && event.name === "q") { onQuit(); event.preventDefault(); return; }
-
     if (!isHumanReview) {
       // Non-human-review: original behavior
       if (event.name === "escape") { onDone(); event.preventDefault(); return; }
@@ -272,32 +270,29 @@ export function PauseReviewView({
         { key: "↑/↓", label: "スクロール" },
         { key: "Enter", label: "判断へ" },
         { key: "Esc", label: "一覧に戻る" },
-        { key: "Ctrl+Q", label: "終了" },
       ];
     } else if (mode === "decide") {
       keybinds = [
         { key: "a", label: "承認" },
         { key: "x", label: "却下" },
         { key: "Esc", label: "閲覧に戻る" },
-        { key: "Ctrl+Q", label: "終了" },
       ];
     } else {
       keybinds = [
         { key: "Ctrl+Enter", label: "却下を確定" },
         { key: "Esc", label: "判断に戻る" },
-        { key: "Ctrl+Q", label: "終了" },
       ];
     }
   } else if (isAgentReview) {
     keybinds = [
       { key: "r/Enter", label: "レビューエージェント実行" },
       { key: "a", label: "直接承認" }, { key: "x", label: "直接却下" },
-      { key: "Esc", label: "一覧へ戻る" }, { key: "Ctrl+Q", label: "終了" },
+      { key: "Esc", label: "一覧へ戻る" },
     ];
   } else {
     keybinds = [
       { key: "Enter", label: "エージェント実行" },
-      { key: "Esc", label: "一覧へ戻る" }, { key: "Ctrl+Q", label: "終了" },
+      { key: "Esc", label: "一覧へ戻る" },
     ];
   }
 

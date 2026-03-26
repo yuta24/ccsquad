@@ -32,13 +32,12 @@ interface PhaseRunningViewProps {
   signalHandlerRef: MutableRefObject<((msg: SignalMessage) => void) | null>;
   onTransition: (info: TransitionInfo) => void;
   onDone: () => void;
-  onQuit: () => void;
 }
 
 export function PhaseRunningView({
   jobId, phase, store, config, iterationStore,
   projectRoot, outputStore, signalHandlerRef,
-  onTransition, onDone, onQuit,
+  onTransition, onDone,
 }: PhaseRunningViewProps) {
   const [_tick, setTick] = useState(0);
   const ptyRef = useRef<IPty | null>(null);
@@ -288,14 +287,14 @@ export function PhaseRunningView({
   }, []);
 
   useKeyboard((event: KeyEvent) => {
-    if (event.ctrl && event.name === "q") {
+    if (event.name === "escape") {
       if (ptyRef.current) {
         try { ptyRef.current.kill(); } catch { /* ignore */ }
       }
       if (termRef.current) {
         try { termRef.current.destroy(); } catch { /* ignore */ }
       }
-      onQuit();
+      onDone();
       event.preventDefault();
       return;
     }
@@ -337,7 +336,7 @@ export function PhaseRunningView({
         renderAfter={renderTerminal}
       />
       <StatusBar items={[
-        { key: "Ctrl+Q", label: "終了" },
+        { key: "Esc", label: "一覧に戻る" },
       ]} />
     </box>
   );

@@ -15,10 +15,9 @@ interface JobCreateViewProps {
   store: JobStore;
   onCreated: () => void;
   onCancel: () => void;
-  onQuit: () => void;
 }
 
-export function JobCreateView({ config, store, onCreated, onCancel, onQuit }: JobCreateViewProps) {
+export function JobCreateView({ config, store, onCreated, onCancel }: JobCreateViewProps) {
   const [focusIndex, setFocusIndex, focusRef] = useSyncedState(0);
   const [title, setTitle, titleRef] = useSyncedState("");
   const [workflowIndex, setWorkflowIndex, workflowIndexRef] = useSyncedState(0);
@@ -63,7 +62,6 @@ export function JobCreateView({ config, store, onCreated, onCancel, onQuit }: Jo
   }, [store, workflowNames, onCreated, titleRef, workflowIndexRef, priorityRef, descriptionRef, setErrorMsg]);
 
   useKeyboard((event: KeyEvent) => {
-    if (event.ctrl && event.name === "q") { onQuit(); event.preventDefault(); return; }
     if (event.name === "escape") { onCancel(); event.preventDefault(); return; }
 
     // Tab / Shift+Tab: move focus
@@ -232,7 +230,6 @@ export function JobCreateView({ config, store, onCreated, onCancel, onQuit }: Jo
       <StatusBar items={[
         { key: "Tab", label: "次フィールド" }, { key: "Shift+Tab", label: "前フィールド" },
         { key: "Ctrl+Enter", label: "作成" }, { key: "Esc", label: "キャンセル" },
-        { key: "Ctrl+Q", label: "終了" },
       ]} />
     </box>
   );
