@@ -54,6 +54,32 @@ export function parsePrintOutputFromText(text: string): PrintResult | null {
   return null;
 }
 
+/**
+ * Parse PrintResult from raw stream-json output.
+ * Scans from the last line upward for a result event: {"type":"result",...}
+ */
+export function parseStreamJsonResult(rawOutput: string): PrintResult | null {
+  const cleaned = stripAnsi(rawOutput);
+  const lines = cleaned.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const trimmed = lines[i].trim();
+    if (!trimmed.startsWith("{")) continue;
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      if (parsed.type === "result") {
+        return {
+          sessionId: typeof parsed.session_id === "string" ? parsed.session_id : "",
+          content: typeof parsed.result === "string" ? parsed.result : "",
+          costUsd: typeof parsed.total_cost_usd === "number" ? parsed.total_cost_usd : 0,
+        };
+      }
+    } catch {
+      // not valid JSON, continue
+    }
+  }
+  return null;
+}
+
 export function extractResult(message: string): AgentResult | null {
   const lines = message.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {

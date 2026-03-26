@@ -10,7 +10,7 @@ import type { Job } from "../../job.js";
 import type { JobStore } from "../../job.js";
 import type { IterationStore } from "../../iteration.js";
 import { resolveAndExecuteTransition } from "../../service/transition.js";
-import { parsePrintOutputFromText } from "../../result.js";
+import { parseStreamJsonResult } from "../../result.js";
 import type { OutputStore } from "../../output.js";
 import { buildTaskPrompt, buildReviewPrompt, buildResumePrompt } from "../../service/prompt-builder.js";
 import type { SignalMessage } from "../../service/signal-server.js";
@@ -20,6 +20,74 @@ import { StatusBar } from "../components/status-bar.js";
 import type { TransitionInfo } from "../constants.js";
 import { COLOR_CYAN } from "../constants.js";
 import { useTerminalSize } from "../hooks/use-terminal-size.js";
+
+// ANSI escape helpers
+const RESET = "\x1b[0m";
+const DIM = "\x1b[2m";
+const BOLD = "\x1b[1m";
+const CYAN = "\x1b[36m";
+const GREEN = "\x1b[32m";
+const RED = "\x1b[31m";
+
+/** Format a stream-json event line into styled terminal text. Returns null to skip. */
+function formatStreamEvent(line: string): string | null {
+  if (!line.startsWith("{")) return null;
+  let event: Record<string, unknown>;
+  try {
+    event = JSON.parse(line) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  const type = event.type as string | undefined;
+  if (type === "system" || type === "rate_limit_event" || type === "result") {
+    return null;
+  }
+
+  if (type === "assistant") {
+    const msg = event.message as Record<string, unknown> | undefined;
+    const content = (msg?.content as Array<Record<string, unknown>>) ?? [];
+    const parts: string[] = [];
+    for (const block of content) {
+      const blockType = block.type as string;
+      if (blockType === "thinking") {
+        const text = (block.thinking as string) ?? "";
+        if (text) parts.push(`${DIM}${text}${RESET}`);
+      } else if (blockType === "text") {
+        const text = (block.text as string) ?? "";
+        if (text) parts.push(text);
+      } else if (blockType === "tool_use") {
+        const name = (block.name as string) ?? "?";
+        const input = block.input as Record<string, unknown> | undefined;
+        const keys = input ? Object.keys(input).join(", ") : "";
+        parts.push(`${BOLD}${CYAN}▶ ${name}${RESET}${DIM}(${keys})${RESET}`);
+      }
+    }
+    return parts.length > 0 ? parts.join("\r\n") : null;
+  }
+
+  if (type === "user") {
+    const msg = event.message as Record<string, unknown> | undefined;
+    const content = (msg?.content as Array<Record<string, unknown>>) ?? [];
+    const parts: string[] = [];
+    for (const block of content) {
+      const blockType = block.type as string;
+      if (blockType === "tool_result") {
+        const isError = block.is_error === true;
+        const text = typeof block.content === "string" ? block.content : JSON.stringify(block.content ?? "");
+        const preview = text.length > 200 ? text.slice(0, 200) + "..." : text;
+        if (isError) {
+          parts.push(`${RED}✗ ${preview}${RESET}`);
+        } else {
+          parts.push(`${GREEN}✓${RESET} ${DIM}${preview}${RESET}`);
+        }
+      }
+    }
+    return parts.length > 0 ? parts.join("\r\n") : null;
+  }
+
+  return null;
+}
 
 interface PhaseRunningViewProps {
   jobId: string;
@@ -45,6 +113,8 @@ export function PhaseRunningView({
   const isProcessingRef = useRef(false);
   const currentPhaseRef = useRef(phase);
   const exitedRef = useRef(false);
+  const rawOutputRef = useRef("");
+  const lineBufferRef = useRef("");
   const { cols, rows } = useTerminalSize();
 
   // Resize PTY and terminal when terminal size changes
@@ -113,6 +183,8 @@ export function PhaseRunningView({
       termRef.current = null;
     }
     exitedRef.current = false;
+    rawOutputRef.current = "";
+    lineBufferRef.current = "";
 
     let jobData: Job;
     try {
@@ -151,7 +223,7 @@ export function PhaseRunningView({
       }
 
       prompt = buildResumePrompt({ phase: phaseName, phaseType, phasePrompt: phaseConfig.prompt, iteration, feedback });
-      args = ["claude", "-p", "--resume", sessionId, "--output-format", "json", prompt];
+      args = ["claude", "-p", "--verbose", "--resume", sessionId, "--output-format", "stream-json", prompt];
     } else {
       const previousOutputs = outputStore.loadForJob(jobId);
 
@@ -175,7 +247,7 @@ export function PhaseRunningView({
           previousOutputs,
           includeOutputPhases: phaseConfig.context?.include_outputs,
         });
-        args = ["claude", "-p", "--agent", agentName, "--output-format", "json", prompt];
+        args = ["claude", "-p", "--verbose", "--agent", agentName, "--output-format", "stream-json", prompt];
       } else {
         prompt = buildTaskPrompt({
           jobId,
@@ -188,7 +260,7 @@ export function PhaseRunningView({
           previousOutputs,
           includeOutputPhases: phaseConfig.context?.include_outputs,
         });
-        args = ["claude", "-p", "--agent", agentName, "--output-format", "json", prompt];
+        args = ["claude", "-p", "--verbose", "--agent", agentName, "--output-format", "stream-json", prompt];
       }
     }
 
@@ -208,7 +280,18 @@ export function PhaseRunningView({
     ptyRef.current = pty;
 
     pty.onData((data: string) => {
-      term.feed(data);
+      rawOutputRef.current += data;
+      lineBufferRef.current += data;
+
+      const lines = lineBufferRef.current.split("\n");
+      lineBufferRef.current = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const styled = formatStreamEvent(line.replace(/\r$/, ""));
+        if (styled !== null) {
+          term.feed(styled + "\r\n");
+        }
+      }
       setTick((t) => t + 1);
     });
 
@@ -216,18 +299,15 @@ export function PhaseRunningView({
       exitedRef.current = true;
       const exitCode = exitInfo.exitCode;
 
-      // Extract output from terminal text
+      // Extract output from raw stream-json data
       let parsedSessionId: string | undefined;
       let content = "";
 
       try {
-        const termText = (term as any).getText?.() ?? "";
-        const printResult = parsePrintOutputFromText(termText);
+        const printResult = parseStreamJsonResult(rawOutputRef.current);
         if (printResult) {
           parsedSessionId = printResult.sessionId || undefined;
-          content = printResult.content || termText;
-        } else {
-          content = termText;
+          content = printResult.content || "";
         }
       } catch {
         content = "";

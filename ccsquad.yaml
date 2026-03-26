@@ -39,8 +39,15 @@ workflows:
         description: 分解されたジョブの妥当性をレビューする
         reviewer: human
         on:
-          approved: COMPLETE
+          approved: generate
           rejected: decompose
+      - name: generate
+        type: task
+        description:  分解されたジョブを作成する
+        agent: coder
+        on:
+          completed: COMPLETE
+          failed: ABORT
   bugfix:
     description: バグ修正ワークフロー
     max_iterations: 10
