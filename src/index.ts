@@ -15,6 +15,7 @@ import {
 } from "./commands/memory.js";
 import { cmdSetup } from "./commands/setup.js";
 import { cmdSignal } from "./commands/signal.js";
+import { cmdLint } from "./commands/lint.js";
 
 const program = new Command();
 program.name("ccsquad").description("ジョブ管理 + ワークフローエンジン + メモリ管理 CLI");
@@ -156,6 +157,13 @@ signalCmd.command("stop").description("Stop シグナルを送信")
   .option("--job <id>", "ジョブ ID")
   .action((opts: { job?: string }) => {
     cmdSignal("stop", opts.job);
+  });
+
+// ===== lint command =====
+program.command("lint").description("ccsquad.yaml を検証")
+  .option("--config <path>", "設定ファイルのパス")
+  .action((opts: { config?: string }) => {
+    cmdLint(opts.config);
   });
 
 // ===== setup command =====

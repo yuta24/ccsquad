@@ -30,6 +30,13 @@ export interface PhaseConfig {
   on: Partial<Record<TransitionCondition, string>>;
 }
 
+export interface Diagnostic {
+  severity: "error" | "warning";
+  workflow: string;
+  phase?: string;
+  message: string;
+}
+
 export interface WorkflowConfig {
   description?: string;
   max_iterations?: number;
@@ -38,13 +45,13 @@ export interface WorkflowConfig {
   resolveTransition(phaseName: string, condition: TransitionCondition): string;
   maxIterations(): number;
   getPhase(name: string): PhaseConfig | undefined;
-  validate(workflowName: string): string[];
+  lint(workflowName: string): Diagnostic[];
 }
 
 export interface SquadConfig {
   workflows: Record<string, WorkflowConfig>;
   getWorkflow(name: string): WorkflowConfig | undefined;
-  validate(): string[];
+  lint(): Diagnostic[];
 }
 
 class WorkflowConfigImpl implements WorkflowConfig {
@@ -88,11 +95,12 @@ class WorkflowConfigImpl implements WorkflowConfig {
     return this.phases.find((p) => p.name === name);
   }
 
-  validate(workflowName: string): string[] {
-    const warnings: string[] = [];
+  lint(workflowName: string): Diagnostic[] {
+    const diagnostics: Diagnostic[] = [];
 
     if (this.phases.length === 0) {
-      throw new CcsquadError("config", `ワークフロー '${workflowName}': フェーズが定義されていません`);
+      diagnostics.push({ severity: "error", workflow: workflowName, message: "フェーズが定義されていません" });
+      return diagnostics;
     }
 
     const phaseNames = new Set(this.phases.map((p) => p.name));
@@ -100,77 +108,98 @@ class WorkflowConfigImpl implements WorkflowConfig {
     for (const phase of this.phases) {
       // Validate type
       if (!ALL_PHASE_TYPES.includes(phase.type)) {
-        throw new CcsquadError(
-          "config",
-          `ワークフロー '${workflowName}': フェーズ '${phase.name}' の type '${phase.type}' が不正です (task または review を指定してください)`,
-        );
+        diagnostics.push({
+          severity: "error",
+          workflow: workflowName,
+          phase: phase.name,
+          message: `type '${phase.type}' が不正です (task または review を指定してください)`,
+        });
+        continue;
       }
 
       // Validate transition targets
       for (const next of Object.values(phase.on)) {
         if (next !== "COMPLETE" && next !== "ABORT" && !phaseNames.has(next)) {
-          throw new CcsquadError(
-            "config",
-            `ワークフロー '${workflowName}': フェーズ '${phase.name}' の遷移先 '${next}' が存在しません`,
-          );
+          diagnostics.push({
+            severity: "error",
+            workflow: workflowName,
+            phase: phase.name,
+            message: `遷移先 '${next}' が存在しません`,
+          });
         }
       }
 
       if (phase.type === "review") {
         // Review phase: reviewer required, agent not allowed
         if (!phase.reviewer) {
-          throw new CcsquadError(
-            "config",
-            `ワークフロー '${workflowName}': レビューフェーズ '${phase.name}' に reviewer が設定されていません`,
-          );
+          diagnostics.push({
+            severity: "error",
+            workflow: workflowName,
+            phase: phase.name,
+            message: "reviewer が設定されていません",
+          });
         }
         if (phase.agent) {
-          throw new CcsquadError(
-            "config",
-            `ワークフロー '${workflowName}': レビューフェーズ '${phase.name}' に agent は設定できません`,
-          );
+          diagnostics.push({
+            severity: "error",
+            workflow: workflowName,
+            phase: phase.name,
+            message: "agent は設定できません",
+          });
         }
         if (!phase.on["approved"]) {
-          throw new CcsquadError(
-            "config",
-            `ワークフロー '${workflowName}': レビューフェーズ '${phase.name}' に 'approved' ルールがありません`,
-          );
+          diagnostics.push({
+            severity: "error",
+            workflow: workflowName,
+            phase: phase.name,
+            message: "'approved' ルールがありません",
+          });
         }
         if (!phase.on["rejected"]) {
-          throw new CcsquadError(
-            "config",
-            `ワークフロー '${workflowName}': レビューフェーズ '${phase.name}' に 'rejected' ルールがありません`,
-          );
+          diagnostics.push({
+            severity: "error",
+            workflow: workflowName,
+            phase: phase.name,
+            message: "'rejected' ルールがありません",
+          });
         }
       } else {
         // Task phase: agent required, reviewer not allowed
         if (!phase.agent) {
-          throw new CcsquadError(
-            "config",
-            `ワークフロー '${workflowName}': タスクフェーズ '${phase.name}' に agent が設定されていません`,
-          );
+          diagnostics.push({
+            severity: "error",
+            workflow: workflowName,
+            phase: phase.name,
+            message: "agent が設定されていません",
+          });
         }
         if (phase.reviewer) {
-          throw new CcsquadError(
-            "config",
-            `ワークフロー '${workflowName}': タスクフェーズ '${phase.name}' に reviewer は設定できません`,
-          );
+          diagnostics.push({
+            severity: "error",
+            workflow: workflowName,
+            phase: phase.name,
+            message: "reviewer は設定できません",
+          });
         }
         if (!phase.on["completed"]) {
-          throw new CcsquadError(
-            "config",
-            `ワークフロー '${workflowName}': フェーズ '${phase.name}' に 'completed' ルールがありません`,
-          );
+          diagnostics.push({
+            severity: "error",
+            workflow: workflowName,
+            phase: phase.name,
+            message: "'completed' ルールがありません",
+          });
         }
       }
 
       if (phase.context?.include_outputs) {
         for (const ref of phase.context.include_outputs) {
           if (!phaseNames.has(ref)) {
-            throw new CcsquadError(
-              "config",
-              `ワークフロー '${workflowName}': フェーズ '${phase.name}' の context.include_outputs に存在しないフェーズ '${ref}' が指定されています`,
-            );
+            diagnostics.push({
+              severity: "error",
+              workflow: workflowName,
+              phase: phase.name,
+              message: `context.include_outputs に存在しないフェーズ '${ref}' が指定されています`,
+            });
           }
         }
       }
@@ -196,11 +225,16 @@ class WorkflowConfigImpl implements WorkflowConfig {
 
     for (const phase of this.phases) {
       if (!reachable.has(phase.name)) {
-        warnings.push(`ワークフロー '${workflowName}': フェーズ '${phase.name}' は到達不能です`);
+        diagnostics.push({
+          severity: "warning",
+          workflow: workflowName,
+          phase: phase.name,
+          message: "到達不能なフェーズです",
+        });
       }
     }
 
-    return warnings;
+    return diagnostics;
   }
 }
 
@@ -257,13 +291,12 @@ class SquadConfigImpl implements SquadConfig {
     return this.workflows[name];
   }
 
-  validate(): string[] {
-    const warnings: string[] = [];
+  lint(): Diagnostic[] {
+    const diagnostics: Diagnostic[] = [];
     for (const [name, workflow] of Object.entries(this.workflows)) {
-      const w = workflow.validate(name);
-      warnings.push(...w);
+      diagnostics.push(...workflow.lint(name));
     }
-    return warnings;
+    return diagnostics;
   }
 }
 

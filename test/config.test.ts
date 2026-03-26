@@ -46,8 +46,8 @@ describe("config", () => {
 
   it("有効な設定のバリデーション", () => {
     const config = SquadConfigImpl.parse(devWorkflowYaml());
-    const warnings = config.validate();
-    expect(warnings.length).toBe(0);
+    const diagnostics = config.lint();
+    expect(diagnostics.length).toBe(0);
   });
 
   it("空のphasesでエラー", () => {
@@ -57,7 +57,10 @@ workflows:
     phases: []
 `;
     const config = SquadConfigImpl.parse(yaml);
-    expect(() => config.validate()).toThrow(CcsquadError);
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].message).toContain("フェーズが定義されていません");
   });
 
   it("存在しない遷移先でエラー", () => {
@@ -72,14 +75,10 @@ workflows:
           completed: nonexistent
 `;
     const config = SquadConfigImpl.parse(yaml);
-    let error: CcsquadError | undefined;
-    try {
-      config.validate();
-    } catch (e) {
-      error = e as CcsquadError;
-    }
-    expect(error).toBeInstanceOf(CcsquadError);
-    expect(error!.message).toContain("存在しません");
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].message).toContain("存在しません");
   });
 
   it("completedルールなしでエラー", () => {
@@ -92,14 +91,10 @@ workflows:
         agent: planner
 `;
     const config = SquadConfigImpl.parse(yaml);
-    let error: CcsquadError | undefined;
-    try {
-      config.validate();
-    } catch (e) {
-      error = e as CcsquadError;
-    }
-    expect(error).toBeInstanceOf(CcsquadError);
-    expect(error!.message).toContain("completed");
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].message).toContain("completed");
   });
 
   it("reviewerフェーズにapprovedなしでエラー", () => {
@@ -114,14 +109,10 @@ workflows:
           rejected: ABORT
 `;
     const config = SquadConfigImpl.parse(yaml);
-    let error: CcsquadError | undefined;
-    try {
-      config.validate();
-    } catch (e) {
-      error = e as CcsquadError;
-    }
-    expect(error).toBeInstanceOf(CcsquadError);
-    expect(error!.message).toContain("approved");
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].message).toContain("approved");
   });
 
   it("reviewerフェーズにrejectedなしでエラー", () => {
@@ -136,14 +127,10 @@ workflows:
           approved: COMPLETE
 `;
     const config = SquadConfigImpl.parse(yaml);
-    let error: CcsquadError | undefined;
-    try {
-      config.validate();
-    } catch (e) {
-      error = e as CcsquadError;
-    }
-    expect(error).toBeInstanceOf(CcsquadError);
-    expect(error!.message).toContain("rejected");
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].message).toContain("rejected");
   });
 
   it("到達不能フェーズで警告", () => {
@@ -163,10 +150,11 @@ workflows:
           completed: COMPLETE
 `;
     const config = SquadConfigImpl.parse(yaml);
-    const warnings = config.validate();
+    const diagnostics = config.lint();
+    const warnings = diagnostics.filter(d => d.severity === "warning");
     expect(warnings.length).toBe(1);
-    expect(warnings[0]).toContain("orphan");
-    expect(warnings[0]).toContain("到達不能");
+    expect(warnings[0].phase).toContain("orphan");
+    expect(warnings[0].message).toContain("到達不能");
   });
 
   it("遷移先の解決", () => {
@@ -207,14 +195,10 @@ workflows:
           completed: COMPLETE
 `;
     const config = SquadConfigImpl.parse(yaml);
-    let error: CcsquadError | undefined;
-    try {
-      config.validate();
-    } catch (e) {
-      error = e as CcsquadError;
-    }
-    expect(error).toBeInstanceOf(CcsquadError);
-    expect(error!.message).toContain("type");
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].message).toContain("type");
   });
 
   it("taskフェーズにはagentが必須", () => {
@@ -228,14 +212,10 @@ workflows:
           completed: COMPLETE
 `;
     const config = SquadConfigImpl.parse(yaml);
-    let error: CcsquadError | undefined;
-    try {
-      config.validate();
-    } catch (e) {
-      error = e as CcsquadError;
-    }
-    expect(error).toBeInstanceOf(CcsquadError);
-    expect(error!.message).toContain("agent");
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].message).toContain("agent");
   });
 
   it("reviewフェーズにはreviewerが必須", () => {
@@ -250,14 +230,10 @@ workflows:
           rejected: ABORT
 `;
     const config = SquadConfigImpl.parse(yaml);
-    let error: CcsquadError | undefined;
-    try {
-      config.validate();
-    } catch (e) {
-      error = e as CcsquadError;
-    }
-    expect(error).toBeInstanceOf(CcsquadError);
-    expect(error!.message).toContain("reviewer");
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].message).toContain("reviewer");
   });
 
   it("taskフェーズにreviewerは設定できない", () => {
@@ -273,14 +249,10 @@ workflows:
           completed: COMPLETE
 `;
     const config = SquadConfigImpl.parse(yaml);
-    let error: CcsquadError | undefined;
-    try {
-      config.validate();
-    } catch (e) {
-      error = e as CcsquadError;
-    }
-    expect(error).toBeInstanceOf(CcsquadError);
-    expect(error!.message).toContain("reviewer");
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].message).toContain("reviewer");
   });
 
   it("reviewフェーズにagentは設定できない", () => {
@@ -297,17 +269,13 @@ workflows:
           rejected: ABORT
 `;
     const config = SquadConfigImpl.parse(yaml);
-    let error: CcsquadError | undefined;
-    try {
-      config.validate();
-    } catch (e) {
-      error = e as CcsquadError;
-    }
-    expect(error).toBeInstanceOf(CcsquadError);
-    expect(error!.message).toContain("agent");
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].message).toContain("agent");
   });
 
-  it("不正な type 値を持つフェーズで validate() が CcsquadError を投げる", () => {
+  it("不正な type 値を持つフェーズで lint() がエラー診断を返す", () => {
     const yaml = `
 workflows:
   test:
@@ -319,7 +287,9 @@ workflows:
           completed: COMPLETE
 `;
     const config = SquadConfigImpl.parse(yaml);
-    expect(() => config.validate()).toThrow(CcsquadError);
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
   });
 
   it("max_iterationsのデフォルト値は10", () => {
@@ -406,15 +376,11 @@ workflows:
           completed: COMPLETE
 `;
     const config = SquadConfigImpl.parse(yaml);
-    let error: CcsquadError | undefined;
-    try {
-      config.validate();
-    } catch (e) {
-      error = e as CcsquadError;
-    }
-    expect(error).toBeInstanceOf(CcsquadError);
-    expect(error!.message).toContain("include_outputs");
-    expect(error!.message).toContain("nonexistent");
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].message).toContain("include_outputs");
+    expect(errors[0].message).toContain("nonexistent");
   });
 
   it("promptとcontextが未設定でも正常にパースされる", () => {
