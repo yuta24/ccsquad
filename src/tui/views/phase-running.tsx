@@ -1,6 +1,7 @@
-import type { KeyEvent, OptimizedBuffer } from "@opentui/core";
-import { useKeyboard } from "@opentui/react";
-import { PersistentTerminal } from "ghostty-opentui";
+import type { KeyEvent } from "@opentui/core";
+import type { ScrollBoxRenderable } from "@opentui/core";
+import { CliRenderEvents } from "@opentui/core";
+import { useKeyboard, useRenderer } from "@opentui/react";
 import { spawn, type IPty } from "bun-pty";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { MutableRefObject } from "react";
@@ -14,80 +15,148 @@ import { parseStreamJsonResult } from "../../result.js";
 import type { OutputStore } from "../../output.js";
 import { buildTaskPrompt, buildReviewPrompt, buildResumePrompt } from "../../service/prompt-builder.js";
 import type { SignalMessage } from "../../service/signal-server.js";
-import { renderTerminalToBuffer } from "../terminal-render.js";
 import { PhaseHeader } from "../components/phase-header.js";
 import { StatusBar } from "../components/status-bar.js";
 import type { TransitionInfo } from "../constants.js";
-import { COLOR_CYAN } from "../constants.js";
+import { ATTR_BOLD, COLOR_CYAN, COLOR_GREEN, COLOR_RED, COLOR_DARK_GRAY, COLOR_WHITE } from "../constants.js";
 import { useTerminalSize } from "../hooks/use-terminal-size.js";
 
-// ANSI escape helpers
-const RESET = "\x1b[0m";
-const DIM = "\x1b[2m";
-const BOLD = "\x1b[1m";
-const CYAN = "\x1b[36m";
-const GREEN = "\x1b[32m";
-const RED = "\x1b[31m";
+// ── Styled span model ──
 
-/** Format a stream-json event line into styled terminal text. Returns null to skip. */
-function formatStreamEvent(line: string): string | null {
-  if (!line.startsWith("{")) return null;
+interface TextSpan {
+  text: string;
+  color: string;
+  attrs: number;
+}
+
+type DisplayLine = TextSpan[];
+
+// ── ANSI → DisplayLine parser ──
+
+const COLOR_DIM = "#6a6a6a";
+
+function parseAnsiToSpans(text: string): DisplayLine {
+  const spans: TextSpan[] = [];
+  let color = COLOR_WHITE;
+  let attrs = 0;
+  let buf = "";
+
+  const flush = () => {
+    if (buf) {
+      spans.push({ text: buf, color, attrs });
+      buf = "";
+    }
+  };
+
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === "\x1b" && text[i + 1] === "[") {
+      flush();
+      const end = text.indexOf("m", i + 2);
+      if (end === -1) { i++; continue; }
+      const codes = text.slice(i + 2, end).split(";").map(Number);
+      for (const code of codes) {
+        switch (code) {
+          case 0: color = COLOR_WHITE; attrs = 0; break;
+          case 1: attrs |= ATTR_BOLD; break;
+          case 2: color = COLOR_DIM; break;
+          case 31: color = COLOR_RED; break;
+          case 32: color = COLOR_GREEN; break;
+          case 36: color = COLOR_CYAN; break;
+        }
+      }
+      i = end + 1;
+    } else {
+      buf += text[i];
+      i++;
+    }
+  }
+  flush();
+  return spans;
+}
+
+// ── stream-json event formatter ──
+
+const ESC_RESET = "\x1b[0m";
+const ESC_DIM = "\x1b[2m";
+const ESC_BOLD = "\x1b[1m";
+const ESC_CYAN = "\x1b[36m";
+const ESC_GREEN = "\x1b[32m";
+const ESC_RED = "\x1b[31m";
+
+function formatStreamEvent(line: string): string[] {
+  if (!line.startsWith("{")) return [];
   let event: Record<string, unknown>;
   try {
     event = JSON.parse(line) as Record<string, unknown>;
   } catch {
-    return null;
+    return [];
   }
 
   const type = event.type as string | undefined;
   if (type === "system" || type === "rate_limit_event" || type === "result") {
-    return null;
+    return [];
   }
 
   if (type === "assistant") {
     const msg = event.message as Record<string, unknown> | undefined;
     const content = (msg?.content as Array<Record<string, unknown>>) ?? [];
-    const parts: string[] = [];
+    const result: string[] = [];
     for (const block of content) {
-      const blockType = block.type as string;
-      if (blockType === "thinking") {
-        const text = (block.thinking as string) ?? "";
-        if (text) parts.push(`${DIM}${text}${RESET}`);
-      } else if (blockType === "text") {
-        const text = (block.text as string) ?? "";
-        if (text) parts.push(text);
-      } else if (blockType === "tool_use") {
+      const bt = block.type as string;
+      if (bt === "thinking") {
+        const t = (block.thinking as string) ?? "";
+        if (t) for (const l of t.split("\n")) result.push(`${ESC_DIM}${l}${ESC_RESET}`);
+      } else if (bt === "text") {
+        const t = (block.text as string) ?? "";
+        if (t) for (const l of t.split("\n")) result.push(l);
+      } else if (bt === "tool_use") {
         const name = (block.name as string) ?? "?";
         const input = block.input as Record<string, unknown> | undefined;
         const keys = input ? Object.keys(input).join(", ") : "";
-        parts.push(`${BOLD}${CYAN}▶ ${name}${RESET}${DIM}(${keys})${RESET}`);
+        result.push(`${ESC_BOLD}${ESC_CYAN}▶ ${name}${ESC_RESET}${ESC_DIM}(${keys})${ESC_RESET}`);
       }
     }
-    return parts.length > 0 ? parts.join("\r\n") : null;
+    return result;
   }
 
   if (type === "user") {
     const msg = event.message as Record<string, unknown> | undefined;
     const content = (msg?.content as Array<Record<string, unknown>>) ?? [];
-    const parts: string[] = [];
+    const result: string[] = [];
     for (const block of content) {
-      const blockType = block.type as string;
-      if (blockType === "tool_result") {
+      if ((block.type as string) === "tool_result") {
         const isError = block.is_error === true;
-        const text = typeof block.content === "string" ? block.content : JSON.stringify(block.content ?? "");
-        const preview = text.length > 200 ? text.slice(0, 200) + "..." : text;
-        if (isError) {
-          parts.push(`${RED}✗ ${preview}${RESET}`);
-        } else {
-          parts.push(`${GREEN}✓${RESET} ${DIM}${preview}${RESET}`);
-        }
+        const raw = typeof block.content === "string" ? block.content : JSON.stringify(block.content ?? "");
+        const preview = raw.length > 200 ? raw.slice(0, 200) + "..." : raw;
+        result.push(isError
+          ? `${ESC_RED}✗ ${preview}${ESC_RESET}`
+          : `${ESC_GREEN}✓${ESC_RESET} ${ESC_DIM}${preview}${ESC_RESET}`);
       }
     }
-    return parts.length > 0 ? parts.join("\r\n") : null;
+    return result;
   }
 
-  return null;
+  return [];
 }
+
+// ── Line component ──
+
+function OutputLine({ spans }: { spans: DisplayLine }) {
+  if (spans.length === 0) return <box height={1} />;
+  if (spans.length === 1) {
+    return <text selectable fg={spans[0].color} attributes={spans[0].attrs}>{spans[0].text}</text>;
+  }
+  return (
+    <box height={1} flexDirection="row">
+      {spans.map((s, i) => (
+        <text key={i} selectable fg={s.color} attributes={s.attrs}>{s.text}</text>
+      ))}
+    </box>
+  );
+}
+
+// ── Main component ──
 
 interface PhaseRunningViewProps {
   jobId: string;
@@ -107,25 +176,17 @@ export function PhaseRunningView({
   projectRoot, outputStore, signalHandlerRef,
   onTransition, onDone,
 }: PhaseRunningViewProps) {
-  const [_tick, setTick] = useState(0);
+  const renderer = useRenderer();
+  const [displayLines, setDisplayLines] = useState<DisplayLine[]>([]);
   const ptyRef = useRef<IPty | null>(null);
-  const termRef = useRef<PersistentTerminal | null>(null);
   const isProcessingRef = useRef(false);
   const currentPhaseRef = useRef(phase);
   const exitedRef = useRef(false);
   const rawOutputRef = useRef("");
   const lineBufferRef = useRef("");
-  const { cols, rows } = useTerminalSize();
-
-  // Resize PTY and terminal when terminal size changes
-  useEffect(() => {
-    if (ptyRef.current) {
-      try { ptyRef.current.resize(cols, rows - 5); } catch { /* ignore */ }
-    }
-    if (termRef.current) {
-      try { (termRef.current as any).resize?.(cols, rows - 5); } catch { /* ignore */ }
-    }
-  }, [cols, rows]);
+  const displayLinesRef = useRef<DisplayLine[]>([]);
+  const scrollBoxRef = useRef<ScrollBoxRenderable | null>(null);
+  const { cols } = useTerminalSize();
 
   const processTransition = useCallback((result: string, message: string) => {
     try {
@@ -173,18 +234,15 @@ export function PhaseRunningView({
   }, [jobId, store, config, iterationStore, onTransition, onDone, outputStore]);
 
   const spawnAgentForPhase = useCallback((phaseName: string) => {
-    // Clean up previous PTY/terminal
     if (ptyRef.current) {
       try { ptyRef.current.kill(); } catch { /* ignore */ }
       ptyRef.current = null;
     }
-    if (termRef.current) {
-      try { termRef.current.destroy(); } catch { /* ignore */ }
-      termRef.current = null;
-    }
     exitedRef.current = false;
     rawOutputRef.current = "";
     lineBufferRef.current = "";
+    displayLinesRef.current = [];
+    setDisplayLines([]);
 
     let jobData: Job;
     try {
@@ -201,7 +259,6 @@ export function PhaseRunningView({
     const agentName = phaseConfig.agent ?? "claude";
     const iteration = iterationStore.get(jobId);
 
-    // Determine if this is a resume
     const lastOutput = outputStore.findLastByPhase(jobId, phaseName);
     const sessionId = lastOutput?.sessionId;
 
@@ -223,7 +280,7 @@ export function PhaseRunningView({
       }
 
       prompt = buildResumePrompt({ phase: phaseName, phaseType, phasePrompt: phaseConfig.prompt, iteration, feedback });
-      args = ["claude", "-p", "--verbose", "--resume", sessionId, "--output-format", "stream-json", prompt];
+      args = ["claude", "-p", "--verbose", "--permission-mode", "auto", "--resume", sessionId, "--output-format", "stream-json", prompt];
     } else {
       const previousOutputs = outputStore.loadForJob(jobId);
 
@@ -247,7 +304,7 @@ export function PhaseRunningView({
           previousOutputs,
           includeOutputPhases: phaseConfig.context?.include_outputs,
         });
-        args = ["claude", "-p", "--verbose", "--agent", agentName, "--output-format", "stream-json", prompt];
+        args = ["claude", "-p", "--verbose", "--permission-mode", "auto", "--agent", agentName, "--output-format", "stream-json", prompt];
       } else {
         prompt = buildTaskPrompt({
           jobId,
@@ -260,20 +317,14 @@ export function PhaseRunningView({
           previousOutputs,
           includeOutputPhases: phaseConfig.context?.include_outputs,
         });
-        args = ["claude", "-p", "--verbose", "--agent", agentName, "--output-format", "stream-json", prompt];
+        args = ["claude", "-p", "--verbose", "--permission-mode", "auto", "--agent", agentName, "--output-format", "stream-json", prompt];
       }
     }
 
-    // Create PersistentTerminal and PTY
-    const termCols = cols;
-    const termRows = Math.max(rows - 5, 10); // reserve space for header + status bar
-    const term = new PersistentTerminal({ cols: termCols, rows: termRows });
-    termRef.current = term;
-
     const pty = spawn(args[0], args.slice(1), {
       name: "xterm-256color",
-      cols: termCols,
-      rows: termRows,
+      cols: Math.max(cols, 80),
+      rows: 24,
       env: { ...process.env, TERM: "xterm-256color", CCSQUAD_ROOT: projectRoot, JOB_ID: jobId },
       cwd: process.cwd(),
     });
@@ -286,20 +337,24 @@ export function PhaseRunningView({
       const lines = lineBufferRef.current.split("\n");
       lineBufferRef.current = lines.pop() ?? "";
 
+      let added = false;
       for (const line of lines) {
-        const styled = formatStreamEvent(line.replace(/\r$/, ""));
-        if (styled !== null) {
-          term.feed(styled + "\r\n");
+        const formatted = formatStreamEvent(line.replace(/\r$/, ""));
+        for (const textLine of formatted) {
+          displayLinesRef.current.push(parseAnsiToSpans(textLine));
+          added = true;
         }
       }
-      setTick((t) => t + 1);
+
+      if (added) {
+        setDisplayLines([...displayLinesRef.current]);
+      }
     });
 
     pty.onExit((exitInfo: { exitCode: number }) => {
       exitedRef.current = true;
       const exitCode = exitInfo.exitCode;
 
-      // Extract output from raw stream-json data
       let parsedSessionId: string | undefined;
       let content = "";
 
@@ -334,7 +389,7 @@ export function PhaseRunningView({
 
       processTransition(result, content);
     });
-  }, [jobId, store, config, iterationStore, projectRoot, outputStore, processTransition, cols, rows]);
+  }, [jobId, store, config, iterationStore, projectRoot, outputStore, processTransition, cols]);
 
   // Signal handler
   useEffect(() => {
@@ -344,35 +399,40 @@ export function PhaseRunningView({
         try { ptyRef.current.kill(); } catch { /* ignore */ }
       }
     };
-    return () => {
-      signalHandlerRef.current = null;
-    };
+    return () => { signalHandlerRef.current = null; };
   }, [jobId, signalHandlerRef]);
 
   // Start agent on mount
   useEffect(() => {
     currentPhaseRef.current = phase;
     spawnAgentForPhase(phase);
-
     return () => {
       if (ptyRef.current) {
         try { ptyRef.current.kill(); } catch { /* ignore */ }
         ptyRef.current = null;
       }
-      if (termRef.current) {
-        try { termRef.current.destroy(); } catch { /* ignore */ }
-        termRef.current = null;
-      }
     };
   }, []);
+
+  // Auto-copy selection to clipboard via OSC 52 when selection changes
+  useEffect(() => {
+    const onSelection = () => {
+      const selection = renderer.getSelection();
+      if (selection && !selection.isDragging) {
+        const text = selection.getSelectedText();
+        if (text) {
+          renderer.copyToClipboardOSC52(text);
+        }
+      }
+    };
+    renderer.on(CliRenderEvents.SELECTION, onSelection);
+    return () => { renderer.off(CliRenderEvents.SELECTION, onSelection); };
+  }, [renderer]);
 
   useKeyboard((event: KeyEvent) => {
     if (event.name === "escape") {
       if (ptyRef.current) {
         try { ptyRef.current.kill(); } catch { /* ignore */ }
-      }
-      if (termRef.current) {
-        try { termRef.current.destroy(); } catch { /* ignore */ }
       }
       onDone();
       event.preventDefault();
@@ -380,17 +440,6 @@ export function PhaseRunningView({
     }
     event.preventDefault();
   });
-
-  const renderTerminal = useCallback((buffer: OptimizedBuffer) => {
-    const term = termRef.current;
-    if (!term) return;
-    try {
-      const data = term.getJson();
-      renderTerminalToBuffer(buffer, data, 1, 4); // offset for header + border
-    } catch {
-      // terminal might be destroyed
-    }
-  }, []);
 
   const { job, wfConfig, iteration } = useMemo(() => {
     let job: Job | null = null;
@@ -404,18 +453,29 @@ export function PhaseRunningView({
       // ignore
     }
     return { job, wfConfig, iteration };
-  }, [jobId, store, config, iterationStore, _tick]);
+  }, [jobId, store, config, iterationStore, displayLines]);
 
   return (
     <box width="100%" height="100%" flexDirection="column">
       {job && <PhaseHeader job={job} workflowConfig={wfConfig} iteration={iteration} />}
-      <box
+      <scrollbox
+        ref={scrollBoxRef}
         flexGrow={1}
         borderStyle="single"
         borderColor={COLOR_CYAN}
-        renderAfter={renderTerminal}
-      />
+        scrollY
+        stickyScroll
+        stickyStart="bottom"
+        paddingLeft={1}
+        paddingRight={1}
+        focused
+      >
+        {displayLines.map((line, i) => (
+          <OutputLine key={i} spans={line} />
+        ))}
+      </scrollbox>
       <StatusBar items={[
+        { key: "↑↓/Scroll", label: "スクロール" },
         { key: "Esc", label: "一覧に戻る" },
       ]} />
     </box>

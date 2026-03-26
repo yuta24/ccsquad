@@ -163,6 +163,6 @@ function App() {
 }
 
 export async function launchTui(): Promise<void> {
-  rendererInstance = await createCliRenderer({ exitOnCtrlC: false });
+  rendererInstance = await createCliRenderer({ exitOnCtrlC: false, useMouse: true });
   createRoot(rendererInstance).render(<App />);
 }
