@@ -56,10 +56,6 @@ export function parseTransitionCondition(s: string): TransitionCondition {
   throw new CcsquadError("workflow", `不明な遷移条件です: ${s}`);
 }
 
-export interface PhaseContext {
-  include_outputs?: string[];
-}
-
 export interface PhaseConfig {
   name: string;
   type: PhaseType;
@@ -67,7 +63,6 @@ export interface PhaseConfig {
   agent?: string;
   reviewer?: string;
   prompt?: string;
-  context?: PhaseContext;
   output_format?: string[] | null;
   on: Partial<Record<TransitionCondition, string>>;
 }
@@ -233,18 +228,6 @@ class WorkflowConfigImpl implements WorkflowConfig {
         }
       }
 
-      if (phase.context?.include_outputs) {
-        for (const ref of phase.context.include_outputs) {
-          if (!phaseNames.has(ref)) {
-            diagnostics.push({
-              severity: "error",
-              workflow: workflowName,
-              phase: phase.name,
-              message: `context.include_outputs に存在しないフェーズ '${ref}' が指定されています`,
-            });
-          }
-        }
-      }
     }
 
     // Detect unreachable phases
@@ -312,7 +295,6 @@ class SquadConfigImpl implements SquadConfig {
           agent: p.agent as string | undefined,
           reviewer: p.reviewer as string | undefined,
           prompt: p.prompt as string | undefined,
-          context: p.context as PhaseContext | undefined,
           output_format: p.output_format != null ? (p.output_format as string[]) : undefined,
           on: (p.on as Partial<Record<TransitionCondition, string>>) ?? {},
         }));
