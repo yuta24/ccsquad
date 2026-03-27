@@ -1,39 +1,6 @@
-import type { PhaseConfig } from "../config.js";
 import { isTaskLikeType } from "../config.js";
-import type { NodeOutput } from "../output.js";
 
 const DEFAULT_MAX_CHARS = 50000;
-
-function buildOutputFormatInstruction(contract: string[]): string {
-  const sections = contract.map((s) => `- ${s}`).join("\n");
-  return [
-    "## 出力フォーマット（必須）",
-    "",
-    "あなたの出力には以下のセクションを **必ず** 含めてください:",
-    "",
-    sections,
-    "",
-    "各セクションは見出しで始め、簡潔かつ具体的に記載してください。",
-  ].join("\n");
-}
-
-function buildJobUpdateInstruction(jobFilePath: string, phase: string): string {
-  return [
-    "## ジョブ本文への記録（必須）",
-    "",
-    `タスク完了時、以下の手順でジョブファイル \`${jobFilePath}\` の本文を更新してください。`,
-    "",
-    "1. ジョブファイルを読み込む",
-    `2. 「## フェーズログ」セクションの **直前** に「## ${phase}」セクションを追加（既に存在する場合は内容を置換）`,
-    "3. セクションには以下を簡潔に記載する:",
-    "   - このフェーズで実施した内容の要約",
-    "   - 重要な判断とその根拠",
-    "   - 次フェーズに引き継ぐべきコンテキスト（発見事項、制約、未解決事項など）",
-    "4. ファイルを保存する",
-    "",
-    "注意: frontmatter や他のセクションは変更しないこと。",
-  ].join("\n");
-}
 
 export function truncateOutput(content: string, maxChars: number = DEFAULT_MAX_CHARS): string {
   if (content.length <= maxChars) {
@@ -50,6 +17,53 @@ export function truncateOutput(content: string, maxChars: number = DEFAULT_MAX_C
   return `${head}\n\n... (${omitted} 文字省略) ...\n\n${tail}`;
 }
 
+export interface OutputFileRef {
+  seq: number;
+  phase: string;
+  filePath: string;
+}
+
+function buildJobUpdateInstruction(jobFilePath: string, phase: string, outputFormat?: string[] | null): string {
+  const formatLines = outputFormat && outputFormat.length > 0
+    ? [
+        "3. セクションは以下の構成で記載する:",
+        ...outputFormat.map((s) => `   - ${s}`),
+      ]
+    : [
+        "3. セクションには以下を簡潔に記載する:",
+        "   - このフェーズで実施した内容の要約",
+        "   - 重要な判断とその根拠",
+        "   - 次フェーズに引き継ぐべきコンテキスト（発見事項、制約、未解決事項など）",
+      ];
+
+  return [
+    "## ジョブ本文への記録（必須）",
+    "",
+    `タスク完了時、以下の手順でジョブファイル \`${jobFilePath}\` の本文を更新してください。`,
+    "",
+    "1. ジョブファイルを読み込む",
+    `2. 「## フェーズログ」セクションの **直前** に「## ${phase}」セクションを追加（既に存在する場合は内容を置換）`,
+    ...formatLines,
+    "4. 各セクションは簡潔かつ具体的に記載する",
+    "5. ファイルを保存する",
+    "",
+    "注意: frontmatter や他のセクションは変更しないこと。",
+  ].join("\n");
+}
+
+function buildOutputReferencesSection(outputFiles: OutputFileRef[]): string {
+  if (outputFiles.length === 0) return "";
+
+  const lines = [
+    "## 前フェーズの出力（参照）",
+    "",
+    "過去のフェーズ出力は以下のファイルに保存されています。必要に応じて読み込んでください。",
+    "",
+    ...outputFiles.map((f) => `- ${f.phase} (#${f.seq}): \`${f.filePath}\``),
+  ];
+  return lines.join("\n");
+}
+
 export function buildTaskPrompt(params: {
   jobId: string;
   title: string;
@@ -59,11 +73,10 @@ export function buildTaskPrompt(params: {
   iteration: number;
   jobBody: string;
   jobFilePath: string;
-  previousOutputs: NodeOutput[];
-  includeOutputPhases?: string[];
+  outputFiles: OutputFileRef[];
   outputFormat?: string[] | null;
 }): string {
-  const { jobId, title, phase, phaseDescription, phasePrompt, iteration, jobBody, jobFilePath, previousOutputs, includeOutputPhases, outputFormat } = params;
+  const { jobId, title, phase, phaseDescription, phasePrompt, iteration, jobBody, jobFilePath, outputFiles, outputFormat } = params;
 
   const parts: string[] = [
     `ジョブID: ${jobId}`,
@@ -85,29 +98,14 @@ export function buildTaskPrompt(params: {
     parts.push(phasePrompt);
   }
 
-  const outputsToInclude = includeOutputPhases
-    ? previousOutputs.filter((o) => includeOutputPhases.includes(o.phase))
-    : previousOutputs.length > 0
-      ? [previousOutputs[previousOutputs.length - 1]]
-      : [];
-
-  if (outputsToInclude.length > 0) {
+  const refsSection = buildOutputReferencesSection(outputFiles);
+  if (refsSection) {
     parts.push("");
-    parts.push("## 前フェーズの出力");
-    for (const output of outputsToInclude) {
-      const truncated = truncateOutput(output.content);
-      parts.push(`### ${output.phase} (イテレーション ${output.iteration})`);
-      parts.push(truncated);
-    }
-  }
-
-  if (outputFormat && outputFormat.length > 0) {
-    parts.push("");
-    parts.push(buildOutputFormatInstruction(outputFormat));
+    parts.push(refsSection);
   }
 
   parts.push("");
-  parts.push(buildJobUpdateInstruction(jobFilePath, phase));
+  parts.push(buildJobUpdateInstruction(jobFilePath, phase, outputFormat));
 
   return parts.join("\n");
 }
@@ -153,12 +151,11 @@ export function buildReviewPrompt(params: {
   iteration: number;
   jobBody: string;
   jobFilePath: string;
-  taskOutput: string;
-  previousOutputs?: NodeOutput[];
-  includeOutputPhases?: string[];
+  taskOutputFile: OutputFileRef;
+  outputFiles: OutputFileRef[];
   outputFormat?: string[] | null;
 }): string {
-  const { jobId, title, phase, phaseDescription, phasePrompt, iteration, jobBody, jobFilePath, taskOutput, previousOutputs, includeOutputPhases, outputFormat } = params;
+  const { jobId, title, phase, phaseDescription, phasePrompt, iteration, jobBody, jobFilePath, taskOutputFile, outputFiles, outputFormat } = params;
 
   const parts: string[] = [
     `ジョブID: ${jobId}`,
@@ -180,32 +177,21 @@ export function buildReviewPrompt(params: {
     parts.push(phasePrompt);
   }
 
-  if (includeOutputPhases && previousOutputs) {
-    const relatedOutputs = previousOutputs.filter(
-      (o) => includeOutputPhases.includes(o.phase) && o.content !== taskOutput,
-    );
-    if (relatedOutputs.length > 0) {
-      parts.push("");
-      parts.push("## 参考: 関連フェーズの出力");
-      for (const output of relatedOutputs) {
-        const truncated = truncateOutput(output.content);
-        parts.push(`### ${output.phase} (イテレーション ${output.iteration})`);
-        parts.push(truncated);
-      }
-    }
-  }
-
+  // Reference to the output being reviewed
   parts.push("");
   parts.push("## レビュー対象");
-  parts.push(taskOutput);
+  parts.push(`以下のファイルに記載された出力をレビューしてください: \`${taskOutputFile.filePath}\``);
 
-  if (outputFormat && outputFormat.length > 0) {
+  // Other output files for reference
+  const otherFiles = outputFiles.filter((f) => f.filePath !== taskOutputFile.filePath);
+  const refsSection = buildOutputReferencesSection(otherFiles);
+  if (refsSection) {
     parts.push("");
-    parts.push(buildOutputFormatInstruction(outputFormat));
+    parts.push(refsSection);
   }
 
   parts.push("");
-  parts.push(buildJobUpdateInstruction(jobFilePath, phase));
+  parts.push(buildJobUpdateInstruction(jobFilePath, phase, outputFormat));
 
   return parts.join("\n");
 }

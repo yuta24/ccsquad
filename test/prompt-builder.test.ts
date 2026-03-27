@@ -1,61 +1,10 @@
 import { describe, it, expect } from "bun:test";
-import { buildTaskPrompt, buildResumePrompt, buildReviewPrompt, truncateOutput } from "../src/service/prompt-builder.js";
-import type { NodeOutput } from "../src/output.js";
+import { buildTaskPrompt, buildResumePrompt, buildReviewPrompt } from "../src/service/prompt-builder.js";
+import type { OutputFileRef } from "../src/service/prompt-builder.js";
 
-function makeNodeOutput(phase: string, content: string, iteration = 1): NodeOutput {
-  return {
-    seq: 1,
-    phase,
-    executor: "test-agent",
-    result: "completed",
-    iteration,
-    timestamp: new Date().toISOString(),
-    content,
-  };
+function makeOutputFileRef(phase: string, seq: number): OutputFileRef {
+  return { seq, phase, filePath: `.ccsquad/outputs/J000001/${seq}-${phase}.md` };
 }
-
-// ─── truncateOutput ────────────────────────────────────────────────────────────
-
-describe("truncateOutput", () => {
-  it("maxChars 以下のコンテンツはそのまま返す", () => {
-    const content = "短いコンテンツ";
-    expect(truncateOutput(content, 100)).toBe(content);
-  });
-
-  it("maxChars を超えるコンテンツは省略される", () => {
-    const content = "a".repeat(1000);
-    const result = truncateOutput(content, 100);
-    expect(result.length).toBeLessThan(content.length);
-    expect(result).toContain("省略");
-  });
-
-  it("省略後のテキストは先頭と末尾を含む", () => {
-    const content = "HEAD" + "x".repeat(1000) + "TAIL";
-    const result = truncateOutput(content, 100);
-    expect(result).toContain("HEAD");
-    expect(result).toContain("TAIL");
-  });
-
-  it("省略された文字数を表示する", () => {
-    const content = "a".repeat(1000);
-    const result = truncateOutput(content, 100);
-    expect(result).toMatch(/\d+ 文字省略/);
-  });
-
-  it("デフォルトの maxChars は 50000", () => {
-    const content = "a".repeat(50000);
-    expect(truncateOutput(content)).toBe(content);
-
-    const longContent = "a".repeat(50001);
-    const result = truncateOutput(longContent);
-    expect(result).toContain("省略");
-  });
-
-  it("ちょうど maxChars と同じ長さはそのまま返す", () => {
-    const content = "a".repeat(100);
-    expect(truncateOutput(content, 100)).toBe(content);
-  });
-});
 
 // ─── buildTaskPrompt ───────────────────────────────────────────────────────────
 
@@ -68,7 +17,7 @@ describe("buildTaskPrompt", () => {
       iteration: 1,
       jobBody: "## 説明\nタスクの説明文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      previousOutputs: [],
+      outputFiles: [],
     });
 
     expect(result).toContain("J000001");
@@ -87,7 +36,7 @@ describe("buildTaskPrompt", () => {
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      previousOutputs: [],
+      outputFiles: [],
     });
 
     expect(result).toContain("実装計画を策定する");
@@ -101,13 +50,13 @@ describe("buildTaskPrompt", () => {
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      previousOutputs: [],
+      outputFiles: [],
     });
 
     expect(result).not.toContain("フェーズ説明:");
   });
 
-  it("previousOutputs が空の場合前フェーズの出力セクションが含まれない", () => {
+  it("outputFiles が空の場合前フェーズの出力セクションが含まれない", () => {
     const result = buildTaskPrompt({
       jobId: "J000001",
       title: "テスト",
@@ -115,16 +64,16 @@ describe("buildTaskPrompt", () => {
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      previousOutputs: [],
+      outputFiles: [],
     });
 
     expect(result).not.toContain("前フェーズの出力");
   });
 
-  it("previousOutputs がある場合最後の出力が含まれる", () => {
-    const outputs = [
-      makeNodeOutput("plan", "計画フェーズの出力", 1),
-      makeNodeOutput("code", "コードフェーズの出力", 1),
+  it("outputFiles がある場合ファイルパス参照が含まれる", () => {
+    const files = [
+      makeOutputFileRef("plan", 1),
+      makeOutputFileRef("code", 2),
     ];
 
     const result = buildTaskPrompt({
@@ -134,12 +83,12 @@ describe("buildTaskPrompt", () => {
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      previousOutputs: outputs,
+      outputFiles: files,
     });
 
-    expect(result).toContain("前フェーズの出力");
-    expect(result).toContain("コードフェーズの出力");
-    expect(result).not.toContain("計画フェーズの出力");
+    expect(result).toContain("前フェーズの出力（参照）");
+    expect(result).toContain("1-plan.md");
+    expect(result).toContain("2-code.md");
   });
 
   it("ジョブIDのラベルが含まれる", () => {
@@ -150,7 +99,7 @@ describe("buildTaskPrompt", () => {
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      previousOutputs: [],
+      outputFiles: [],
     });
 
     expect(result).toContain("ジョブID:");
@@ -164,55 +113,12 @@ describe("buildTaskPrompt", () => {
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      previousOutputs: [],
+      outputFiles: [],
       phasePrompt: "テストも必ず書くこと",
     });
 
     expect(result).toContain("## フェーズ指示");
     expect(result).toContain("テストも必ず書くこと");
-  });
-
-  it("includeOutputPhasesで指定フェーズの出力のみ含まれる", () => {
-    const outputs = [
-      makeNodeOutput("plan", "計画の出力", 1),
-      makeNodeOutput("code", "コードの出力", 1),
-      makeNodeOutput("test", "テストの出力", 1),
-    ];
-
-    const result = buildTaskPrompt({
-      jobId: "J000001",
-      title: "テスト",
-      phase: "review",
-      iteration: 1,
-      jobBody: "本文",
-      jobFilePath: ".ccsquad/jobs/J000001.md",
-      previousOutputs: outputs,
-      includeOutputPhases: ["plan", "code"],
-    });
-
-    expect(result).toContain("計画の出力");
-    expect(result).toContain("コードの出力");
-    expect(result).not.toContain("テストの出力");
-  });
-
-  it("includeOutputPhasesが空配列で前フェーズ出力なし", () => {
-    const outputs = [
-      makeNodeOutput("plan", "計画の出力", 1),
-    ];
-
-    const result = buildTaskPrompt({
-      jobId: "J000001",
-      title: "テスト",
-      phase: "code",
-      iteration: 1,
-      jobBody: "本文",
-      jobFilePath: ".ccsquad/jobs/J000001.md",
-      previousOutputs: outputs,
-      includeOutputPhases: [],
-    });
-
-    expect(result).not.toContain("前フェーズの出力");
-    expect(result).not.toContain("計画の出力");
   });
 
   it("ジョブ本文への記録セクションとジョブファイルパスが含まれる", () => {
@@ -223,31 +129,43 @@ describe("buildTaskPrompt", () => {
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      previousOutputs: [],
+      outputFiles: [],
     });
 
     expect(result).toContain("ジョブ本文への記録");
     expect(result).toContain(".ccsquad/jobs/J000001.md");
   });
 
-  it("includeOutputPhases未指定は従来通り最後の出力のみ", () => {
-    const outputs = [
-      makeNodeOutput("plan", "計画の出力", 1),
-      makeNodeOutput("code", "コードの出力", 1),
-    ];
-
+  it("outputFormatが指定されるとジョブ本文記録にフォーマットが含まれる", () => {
     const result = buildTaskPrompt({
       jobId: "J000001",
       title: "テスト",
-      phase: "review",
+      phase: "analyze",
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      previousOutputs: outputs,
+      outputFiles: [],
+      outputFormat: ["## 調査結果", "## 影響範囲"],
     });
 
-    expect(result).toContain("コードの出力");
-    expect(result).not.toContain("計画の出力");
+    expect(result).toContain("## 調査結果");
+    expect(result).toContain("## 影響範囲");
+  });
+
+  it("outputFormatがnullの場合は汎用指示になる", () => {
+    const result = buildTaskPrompt({
+      jobId: "J000001",
+      title: "テスト",
+      phase: "task",
+      iteration: 1,
+      jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
+      outputFiles: [],
+      outputFormat: null,
+    });
+
+    expect(result).toContain("実施した内容の要約");
+    expect(result).toContain("重要な判断とその根拠");
   });
 });
 
@@ -304,6 +222,18 @@ describe("buildResumePrompt", () => {
     expect(result).toContain("実行結果の内容");
   });
 
+  it("research タイプは task-like として扱われる", () => {
+    const result = buildResumePrompt({
+      phase: "analyze",
+      phaseType: "research",
+      iteration: 2,
+      feedback: "調査が不十分",
+    });
+
+    expect(result).toContain("reject");
+    expect(result).toContain("調査が不十分");
+  });
+
   it("phasePromptがフェーズ指示セクションとして含まれる (task)", () => {
     const result = buildResumePrompt({
       phase: "code",
@@ -342,7 +272,8 @@ describe("buildReviewPrompt", () => {
       iteration: 1,
       jobBody: "## 説明\nレビューの説明",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      taskOutput: "タスクの実行結果",
+      taskOutputFile: makeOutputFileRef("code", 2),
+      outputFiles: [makeOutputFileRef("plan", 1), makeOutputFileRef("code", 2)],
     });
 
     expect(result).toContain("J000001");
@@ -350,7 +281,8 @@ describe("buildReviewPrompt", () => {
     expect(result).toContain("review");
     expect(result).toContain("1");
     expect(result).toContain("レビューの説明");
-    expect(result).toContain("タスクの実行結果");
+    expect(result).toContain("レビュー対象");
+    expect(result).toContain("2-code.md");
   });
 
   it("phaseDescription が設定されている場合含まれる", () => {
@@ -362,7 +294,8 @@ describe("buildReviewPrompt", () => {
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      taskOutput: "出力",
+      taskOutputFile: makeOutputFileRef("code", 1),
+      outputFiles: [makeOutputFileRef("code", 1)],
     });
 
     expect(result).toContain("コードレビューを行う");
@@ -376,13 +309,14 @@ describe("buildReviewPrompt", () => {
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      taskOutput: "出力",
+      taskOutputFile: makeOutputFileRef("code", 1),
+      outputFiles: [makeOutputFileRef("code", 1)],
     });
 
     expect(result).not.toContain("フェーズ説明:");
   });
 
-  it("レビュー対象セクションを含む", () => {
+  it("レビュー対象ファイルパスが含まれる", () => {
     const result = buildReviewPrompt({
       jobId: "J000001",
       title: "テスト",
@@ -390,11 +324,28 @@ describe("buildReviewPrompt", () => {
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      taskOutput: "レビュー対象の出力",
+      taskOutputFile: makeOutputFileRef("code", 2),
+      outputFiles: [makeOutputFileRef("plan", 1), makeOutputFileRef("code", 2)],
     });
 
     expect(result).toContain("レビュー対象");
-    expect(result).toContain("レビュー対象の出力");
+    expect(result).toContain("2-code.md");
+  });
+
+  it("レビュー対象以外の出力ファイルが参照セクションに含まれる", () => {
+    const result = buildReviewPrompt({
+      jobId: "J000001",
+      title: "テスト",
+      phase: "review",
+      iteration: 1,
+      jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
+      taskOutputFile: makeOutputFileRef("code", 2),
+      outputFiles: [makeOutputFileRef("plan", 1), makeOutputFileRef("code", 2)],
+    });
+
+    expect(result).toContain("前フェーズの出力（参照）");
+    expect(result).toContain("1-plan.md");
   });
 
   it("ジョブIDのラベルが含まれる", () => {
@@ -405,7 +356,8 @@ describe("buildReviewPrompt", () => {
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      taskOutput: "出力",
+      taskOutputFile: makeOutputFileRef("code", 1),
+      outputFiles: [makeOutputFileRef("code", 1)],
     });
 
     expect(result).toContain("ジョブID:");
@@ -419,7 +371,8 @@ describe("buildReviewPrompt", () => {
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      taskOutput: "出力",
+      taskOutputFile: makeOutputFileRef("code", 1),
+      outputFiles: [makeOutputFileRef("code", 1)],
       phasePrompt: "セキュリティ観点でレビュー",
     });
 
@@ -435,19 +388,15 @@ describe("buildReviewPrompt", () => {
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      taskOutput: "出力",
+      taskOutputFile: makeOutputFileRef("code", 1),
+      outputFiles: [makeOutputFileRef("code", 1)],
     });
 
     expect(result).toContain("ジョブ本文への記録");
     expect(result).toContain(".ccsquad/jobs/J000001.md");
   });
 
-  it("includeOutputPhasesで関連フェーズの出力が含まれる", () => {
-    const outputs = [
-      makeNodeOutput("plan", "計画の出力", 1),
-      makeNodeOutput("code", "コードの出力", 1),
-    ];
-
+  it("outputFiles が taskOutputFile のみの場合、前フェーズの出力（参照）が含まれない", () => {
     const result = buildReviewPrompt({
       jobId: "J000001",
       title: "テスト",
@@ -455,13 +404,116 @@ describe("buildReviewPrompt", () => {
       iteration: 1,
       jobBody: "本文",
       jobFilePath: ".ccsquad/jobs/J000001.md",
-      taskOutput: "コードの出力",
-      previousOutputs: outputs,
-      includeOutputPhases: ["plan", "code"],
+      taskOutputFile: makeOutputFileRef("code", 1),
+      outputFiles: [makeOutputFileRef("code", 1)],
     });
 
-    expect(result).toContain("## 参考: 関連フェーズの出力");
-    expect(result).toContain("計画の出力");
-    expect(result).toContain("## レビュー対象");
+    expect(result).not.toContain("前フェーズの出力（参照）");
+  });
+
+  it("taskOutputFile と同じファイルパスが参照セクションに含まれない", () => {
+    const taskOutputFile = makeOutputFileRef("code", 2);
+    const result = buildReviewPrompt({
+      jobId: "J000001",
+      title: "テスト",
+      phase: "review",
+      iteration: 1,
+      jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
+      taskOutputFile,
+      outputFiles: [makeOutputFileRef("plan", 1), makeOutputFileRef("code", 2)],
+    });
+
+    // plan は参照に含まれるが、taskOutputFile (code #2) は参照セクションに含まれない
+    expect(result).toContain("1-plan.md");
+    expect(result).not.toContain("前フェーズの出力（参照）\n\n過去のフェーズ出力は以下のファイルに保存されています。必要に応じて読み込んでください。\n\n- code (#2)");
+    // 参照セクションに taskOutputFile のパスが含まれないことを明示確認
+    const refsSection = result.split("## 前フェーズの出力（参照）");
+    if (refsSection.length > 1) {
+      expect(refsSection[1]).not.toContain("2-code.md");
+    }
+  });
+
+  it("outputFormat あり → ジョブ本文記録にフォーマットが含まれる", () => {
+    const result = buildReviewPrompt({
+      jobId: "J000001",
+      title: "テスト",
+      phase: "review",
+      iteration: 1,
+      jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
+      taskOutputFile: makeOutputFileRef("code", 1),
+      outputFiles: [makeOutputFileRef("code", 1)],
+      outputFormat: ["## レビュー判定", "## 指摘事項"],
+    });
+
+    expect(result).toContain("## レビュー判定");
+    expect(result).toContain("## 指摘事項");
+  });
+
+  it("outputFormat なし → 汎用指示", () => {
+    const result = buildReviewPrompt({
+      jobId: "J000001",
+      title: "テスト",
+      phase: "review",
+      iteration: 1,
+      jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
+      taskOutputFile: makeOutputFileRef("code", 1),
+      outputFiles: [makeOutputFileRef("code", 1)],
+    });
+
+    expect(result).toContain("実施した内容の要約");
+    expect(result).toContain("重要な判断とその根拠");
+  });
+});
+
+// ─── buildResumePrompt 追加テスト ───────────────────────────────────────────────
+
+describe("buildResumePrompt - plan/code task-like", () => {
+  it('phaseType: "plan" → task-like として reject メッセージを含む', () => {
+    const result = buildResumePrompt({
+      phase: "plan",
+      phaseType: "plan",
+      iteration: 1,
+      feedback: "計画が不十分です",
+    });
+
+    expect(result).toContain("reject");
+    expect(result).toContain("修正してください");
+    expect(result).toContain("計画が不十分です");
+  });
+
+  it('phaseType: "code" → task-like として reject メッセージを含む', () => {
+    const result = buildResumePrompt({
+      phase: "code",
+      phaseType: "code",
+      iteration: 2,
+      feedback: "実装に不備があります",
+    });
+
+    expect(result).toContain("reject");
+    expect(result).toContain("修正してください");
+    expect(result).toContain("実装に不備があります");
+  });
+});
+
+// ─── buildTaskPrompt 追加テスト ─────────────────────────────────────────────────
+
+describe("buildTaskPrompt - outputFormat 空配列", () => {
+  it("outputFormat が空配列 [] → 汎用指示", () => {
+    const result = buildTaskPrompt({
+      jobId: "J000001",
+      title: "テスト",
+      phase: "task",
+      iteration: 1,
+      jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
+      outputFiles: [],
+      outputFormat: [],
+    });
+
+    expect(result).toContain("実施した内容の要約");
+    expect(result).toContain("重要な判断とその根拠");
   });
 });

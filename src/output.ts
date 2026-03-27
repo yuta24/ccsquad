@@ -144,6 +144,33 @@ export class OutputStore {
     return filtered.length > 0 ? filtered[filtered.length - 1] : undefined;
   }
 
+  listFilesForJob(jobId: string): { phase: string; seq: number; filePath: string }[] {
+    const dir = this.jobDir(jobId);
+    if (!existsSync(dir)) {
+      return [];
+    }
+
+    let files: string[];
+    try {
+      files = readdirSync(dir).filter((f) => f.endsWith(".md"));
+    } catch (e) {
+      throw new CcsquadError("io", `Failed to read job directory: ${e}`);
+    }
+
+    return files
+      .map((fileName) => {
+        const seqMatch = fileName.match(/^(\d+)-(.+)\.md$/);
+        if (!seqMatch) return null;
+        return {
+          seq: parseInt(seqMatch[1], 10),
+          phase: seqMatch[2],
+          filePath: join(dir, fileName),
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((a, b) => a.seq - b.seq);
+  }
+
   remove(jobId: string): void {
     const dir = this.jobDir(jobId);
     if (!existsSync(dir)) {

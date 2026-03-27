@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutputStore } from "../src/output.js";
@@ -188,6 +188,61 @@ describe("OutputStore.findLastByPhase", () => {
     const result = store.findLastByPhase("J000001", "code");
     expect(result!.content).toBe("code 3");
     expect(result!.iteration).toBe(3);
+  });
+});
+
+describe("OutputStore.listFilesForJob", () => {
+  it("ジョブディレクトリが存在しないとき空配列を返す", () => {
+    const dir = makeTmpDir();
+    const store = new OutputStore(dir);
+
+    const result = store.listFilesForJob("J999999");
+    expect(result).toEqual([]);
+  });
+
+  it("複数ファイルが存在するとき seq 昇順ソートで返す", () => {
+    const dir = makeTmpDir();
+    const store = new OutputStore(dir);
+    store.save("J000001", makeOutput("plan", 1));
+    store.save("J000001", makeOutput("code", 1));
+    store.save("J000001", makeOutput("review", 1));
+
+    const result = store.listFilesForJob("J000001");
+    expect(result.length).toBe(3);
+    expect(result[0].seq).toBe(1);
+    expect(result[1].seq).toBe(2);
+    expect(result[2].seq).toBe(3);
+  });
+
+  it("各エントリに seq, phase, filePath が正しい", () => {
+    const dir = makeTmpDir();
+    const store = new OutputStore(dir);
+    store.save("J000001", makeOutput("plan", 1));
+    store.save("J000001", makeOutput("code", 1));
+
+    const result = store.listFilesForJob("J000001");
+    expect(result[0].seq).toBe(1);
+    expect(result[0].phase).toBe("plan");
+    expect(result[0].filePath).toContain("1-plan.md");
+    expect(result[1].seq).toBe(2);
+    expect(result[1].phase).toBe("code");
+    expect(result[1].filePath).toContain("2-code.md");
+  });
+
+  it("不正なファイル名は除外される", () => {
+    const dir = makeTmpDir();
+    const store = new OutputStore(dir);
+    store.save("J000001", makeOutput("plan", 1));
+
+    // 不正なファイル名のファイルを直接作成
+    const jobDir = join(dir, "J000001");
+    writeFileSync(join(jobDir, "invalid-no-seq.md"), "content");
+    writeFileSync(join(jobDir, "also-bad.md"), "content");
+
+    const result = store.listFilesForJob("J000001");
+    // 正しいファイルのみ返る（不正なファイル名は除外）
+    expect(result.length).toBe(1);
+    expect(result[0].phase).toBe("plan");
   });
 });
 

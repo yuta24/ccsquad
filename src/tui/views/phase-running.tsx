@@ -414,32 +414,31 @@ export function PhaseRunningView({
     let prompt: string;
     let args: string[];
 
-    if (sessionId) {
-      let feedback: string;
-      if (isTaskLikeType(phaseType)) {
-        const allOutputs = outputStore.loadForJob(jobId);
-        const reviewOutputs = allOutputs.filter((o) => o.phase !== phaseName);
-        const lastReviewOutput = reviewOutputs.length > 0 ? reviewOutputs[reviewOutputs.length - 1] : null;
-        feedback = lastReviewOutput?.content ?? "";
-      } else {
-        const allOutputs = outputStore.loadForJob(jobId);
-        const taskOutputs = allOutputs.filter((o) => o.phase !== phaseName);
-        const lastTaskOutput = taskOutputs.length > 0 ? taskOutputs[taskOutputs.length - 1] : null;
-        feedback = lastTaskOutput?.content ?? "";
-      }
+    const outputFiles = outputStore.listFilesForJob(jobId);
+    const jobFilePath = join(projectRoot, ".ccsquad", "jobs", `${jobId}.md`);
 
-      prompt = buildResumePrompt({ phase: phaseName, phaseType, phasePrompt: phaseConfig.prompt, iteration, feedback });
+    if (sessionId) {
+      // Find the latest output from a different phase as feedback reference
+      const feedbackFiles = outputFiles.filter((f) => f.phase !== phaseName);
+      const lastFeedbackFile = feedbackFiles.length > 0 ? feedbackFiles[feedbackFiles.length - 1] : null;
+      const feedbackRef = lastFeedbackFile ? `以下のファイルを参照してください: \`${lastFeedbackFile.filePath}\`` : "";
+
+      prompt = buildResumePrompt({ phase: phaseName, phaseType, phasePrompt: phaseConfig.prompt, iteration, feedback: feedbackRef });
       args = ["claude", "-p", "--verbose", "--permission-mode", "auto", "--resume", sessionId, "--output-format", "stream-json", prompt];
     } else {
-      const previousOutputs = outputStore.loadForJob(jobId);
 
       if (phaseType === "review") {
-        const taskOutputs = previousOutputs.filter((o) => {
-          const pc = wf?.getPhase(o.phase);
+        // Find the last task-like output file for review
+        const taskOutputFiles = outputFiles.filter((f) => {
+          const pc = wf?.getPhase(f.phase);
           return pc ? isTaskLikeType(pc.type) : false;
         });
-        const lastTaskOutput = taskOutputs.length > 0 ? taskOutputs[taskOutputs.length - 1] : null;
-        const taskOutput = lastTaskOutput?.content ?? "";
+        const lastTaskOutputFile = taskOutputFiles.length > 0 ? taskOutputFiles[taskOutputFiles.length - 1] : null;
+
+        if (!lastTaskOutputFile) {
+          // No task output to review — skip
+          return;
+        }
 
         prompt = buildReviewPrompt({
           jobId,
@@ -449,10 +448,9 @@ export function PhaseRunningView({
           phasePrompt: phaseConfig.prompt,
           iteration,
           jobBody: jobData.body,
-          jobFilePath: join(projectRoot, ".ccsquad", "jobs", `${jobId}.md`),
-          taskOutput,
-          previousOutputs,
-          includeOutputPhases: phaseConfig.context?.include_outputs,
+          jobFilePath,
+          taskOutputFile: lastTaskOutputFile,
+          outputFiles,
           outputFormat: getOutputFormat(phaseConfig),
         });
         args = ["claude", "-p", "--verbose", "--permission-mode", "auto", "--agent", agentName, "--output-format", "stream-json", prompt];
@@ -465,9 +463,8 @@ export function PhaseRunningView({
           phasePrompt: phaseConfig.prompt,
           iteration,
           jobBody: jobData.body,
-          jobFilePath: join(projectRoot, ".ccsquad", "jobs", `${jobId}.md`),
-          previousOutputs,
-          includeOutputPhases: phaseConfig.context?.include_outputs,
+          jobFilePath,
+          outputFiles,
           outputFormat: getOutputFormat(phaseConfig),
         });
         args = ["claude", "-p", "--verbose", "--permission-mode", "auto", "--agent", agentName, "--output-format", "stream-json", prompt];

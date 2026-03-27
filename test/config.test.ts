@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { SquadConfigImpl, parseTransitionCondition } from "../src/config.js";
+import { SquadConfigImpl, parseTransitionCondition, isTaskLikeType, getOutputFormat } from "../src/config.js";
+import type { PhaseConfig } from "../src/config.js";
 import { CcsquadError } from "../src/error.js";
 
 function devWorkflowYaml(): string {
@@ -389,5 +390,153 @@ workflows:
     const plan = dev.getPhase("plan");
     expect(plan?.prompt).toBeUndefined();
     expect(plan?.context).toBeUndefined();
+  });
+});
+
+// ─── isTaskLikeType ────────────────────────────────────────────────────────────
+
+describe("isTaskLikeType", () => {
+  it('"task" → true', () => {
+    expect(isTaskLikeType("task")).toBe(true);
+  });
+
+  it('"research" → true', () => {
+    expect(isTaskLikeType("research")).toBe(true);
+  });
+
+  it('"plan" → true', () => {
+    expect(isTaskLikeType("plan")).toBe(true);
+  });
+
+  it('"code" → true', () => {
+    expect(isTaskLikeType("code")).toBe(true);
+  });
+
+  it('"review" → false', () => {
+    expect(isTaskLikeType("review")).toBe(false);
+  });
+});
+
+// ─── getOutputFormat ───────────────────────────────────────────────────────────
+
+describe("getOutputFormat", () => {
+  function makePhase(type: PhaseConfig["type"], output_format?: PhaseConfig["output_format"]): PhaseConfig {
+    const phase: PhaseConfig = {
+      name: "test",
+      type,
+      on: { completed: "COMPLETE" },
+    };
+    if (output_format !== undefined) {
+      phase.output_format = output_format;
+    }
+    return phase;
+  }
+
+  it('type: "research" で output_format 未設定 → デフォルト値 4件', () => {
+    const result = getOutputFormat(makePhase("research"));
+    expect(Array.isArray(result)).toBe(true);
+    expect(result!.length).toBe(4);
+    expect(result).toContain("## 調査結果");
+  });
+
+  it('type: "task" で output_format 未設定 → null', () => {
+    const result = getOutputFormat(makePhase("task"));
+    expect(result).toBeNull();
+  });
+
+  it("output_format 明示設定 → デフォルトを上書き", () => {
+    const custom = ["## カスタムセクション", "## 追加情報"];
+    const result = getOutputFormat(makePhase("research", custom));
+    expect(result).toEqual(custom);
+  });
+
+  it("output_format: null 明示設定 → null が返る", () => {
+    // YAML パーサーが null を undefined に変換する場合もあるが、
+    // PhaseConfig 直接作成時は null として扱われる
+    const phase = makePhase("research");
+    phase.output_format = null;
+    const result = getOutputFormat(phase);
+    expect(result).toBeNull();
+  });
+});
+
+// ─── YAML パース: output_format 配列 ──────────────────────────────────────────
+
+describe("YAML パース - output_format", () => {
+  it("output_format を配列として YAML に書いたときパースされる", () => {
+    const yaml = `
+workflows:
+  dev:
+    phases:
+      - name: analyze
+        type: research
+        agent: researcher
+        output_format:
+          - "## 調査結果"
+          - "## まとめ"
+        on:
+          completed: COMPLETE
+`;
+    const config = SquadConfigImpl.parse(yaml);
+    const dev = config.getWorkflow("dev")!;
+    const phase = dev.getPhase("analyze");
+    expect(phase?.output_format).toEqual(["## 調査結果", "## まとめ"]);
+  });
+});
+
+// ─── lint（新 PhaseType） ──────────────────────────────────────────────────────
+
+describe("lint - 新 PhaseType", () => {
+  it('type: "research" + agent + completed → エラーなし', () => {
+    const yaml = `
+workflows:
+  test:
+    phases:
+      - name: analyze
+        type: research
+        agent: researcher
+        on:
+          completed: COMPLETE
+`;
+    const config = SquadConfigImpl.parse(yaml);
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBe(0);
+  });
+
+  it('type: "plan" + agent なし → エラー', () => {
+    const yaml = `
+workflows:
+  test:
+    phases:
+      - name: plan
+        type: plan
+        on:
+          completed: COMPLETE
+`;
+    const config = SquadConfigImpl.parse(yaml);
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].message).toContain("agent");
+  });
+
+  it('type: "code" + reviewer あり → エラー', () => {
+    const yaml = `
+workflows:
+  test:
+    phases:
+      - name: code
+        type: code
+        agent: coder
+        reviewer: human
+        on:
+          completed: COMPLETE
+`;
+    const config = SquadConfigImpl.parse(yaml);
+    const diagnostics = config.lint();
+    const errors = diagnostics.filter(d => d.severity === "error");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].message).toContain("reviewer");
   });
 });
