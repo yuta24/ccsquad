@@ -128,6 +128,31 @@ export function buildResumePrompt(params: {
   ].join("\n");
 }
 
+export function buildPlanCreateSystemPrompt(workflows: string[]): string {
+  return [
+    "あなたは要件分析とタスク分解の専門家です。",
+    "ユーザーと対話しながら要件を整理し、具体的なジョブに分解してください。",
+    "",
+    "## 作業の流れ",
+    "1. ユーザーの要求を深掘りし、要件を明確化する",
+    "2. タスクに分解し、依存関係を整理する",
+    "3. `ccsquad job add` コマンドでジョブを作成する",
+    "",
+    "## ジョブ作成コマンド",
+    "```",
+    'ccsquad job add "タイトル" --workflow <workflow> [--description "説明"] [--priority N] [--depends-on ID1,ID2]',
+    "```",
+    "",
+    "## 利用可能なワークフロー",
+    ...workflows.map((w) => `- ${w}`),
+    "",
+    "## 注意点",
+    "- 1ジョブ = 1つの明確な成果物",
+    "- 依存関係を明示する",
+    "- ジョブ作成前にユーザーに確認を取る",
+  ].join("\n");
+}
+
 export function buildReviewPrompt(params: {
   jobId: string;
   title: string;

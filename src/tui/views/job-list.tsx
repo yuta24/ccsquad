@@ -25,12 +25,13 @@ interface JobListViewProps {
   onStartJob: (jobId: string, phase: string) => void;
   onResumeJob: (job: Job, workflowConfig: WorkflowConfig) => void;
   onCreateJob: () => void;
+  onPlanCreate: () => void;
   onQuit: () => void;
 }
 
 export function JobListView({
   store, config, iterationStore,
-  onStartJob, onResumeJob, onCreateJob, onQuit,
+  onStartJob, onResumeJob, onCreateJob, onPlanCreate, onQuit,
 }: JobListViewProps) {
   const [cursor, setCursor, cursorRef] = useSyncedState(0);
   const [jobs, setJobs, jobsRef] = useSyncedState<Job[]>([]);
@@ -159,6 +160,7 @@ export function JobListView({
     }
 
     if (event.name === "n") { onCreateJob(); event.preventDefault(); return; }
+    if (event.name === "p") { onPlanCreate(); event.preventDefault(); return; }
 
     if (event.name === "d") {
       const job = jobsRef.current[cursorRef.current];
@@ -259,7 +261,7 @@ export function JobListView({
 
       <StatusBar items={[
         { key: "↑/k", label: "上" }, { key: "↓/j", label: "下" },
-        { key: "Enter", label: "開始/再開" }, { key: "n", label: "新規作成" },
+        { key: "Enter", label: "開始/再開" }, { key: "n", label: "新規作成" }, { key: "p", label: "プラン" },
         { key: "d", label: "削除" }, { key: "a", label: "中断" },
         { key: "r", label: "更新" }, { key: "Esc", label: "終了" },
       ]} />

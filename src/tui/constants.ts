@@ -40,7 +40,8 @@ export type Screen =
   | { type: "job-list" }
   | { type: "phase-running"; jobId: string; phase: string }
   | { type: "pause-review"; jobId: string; phase: string; info: TransitionInfo }
-  | { type: "job-create" };
+  | { type: "job-create" }
+  | { type: "plan-create" };
 
 // Status bar item
 export interface StatusBarItem {

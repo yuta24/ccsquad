@@ -20,6 +20,7 @@ import { JobListView } from "./views/job-list.js";
 import { PhaseRunningView } from "./views/phase-running.js";
 import { PauseReviewView } from "./views/pause-review.js";
 import { JobCreateView } from "./views/job-create.js";
+import { PlanCreateView } from "./views/plan-create.js";
 
 let rendererInstance: any = null;
 
@@ -114,6 +115,7 @@ function App() {
             if (phase) navigateTo({ type: "phase-running", jobId: job.frontmatter.id, phase });
           }}
           onCreateJob={() => navigateTo({ type: "job-create" })}
+          onPlanCreate={() => navigateTo({ type: "plan-create" })}
           onQuit={handleQuit}
         />
       );
@@ -153,6 +155,15 @@ function App() {
           config={cfg} store={store}
           onCreated={() => navigateTo({ type: "job-list" })}
           onCancel={() => navigateTo({ type: "job-list" })}
+        />
+      );
+
+    case "plan-create":
+      return (
+        <PlanCreateView
+          projectRoot={dirname(configPath)}
+          config={cfg}
+          onDone={() => navigateTo({ type: "job-list" })}
         />
       );
 

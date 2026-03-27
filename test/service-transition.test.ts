@@ -264,12 +264,11 @@ describe("resolveAndExecuteTransition - 自動遷移 (continue)", () => {
 
     const result = resolveAndExecuteTransition(wf, store, iterationStore, "J000001", "completed", "");
 
+    expect(result.type).toBe("continue");
     if (result.type === "continue") {
       expect(result.phaseConfig.name).toBe("code");
       expect(result.phaseConfig.description).toBe("実装");
       expect(result.phaseConfig.agent).toBe("coder");
-    } else {
-      expect(result.type).toBe("continue");
     }
   });
 });
