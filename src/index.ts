@@ -4,7 +4,7 @@ import { Command } from "commander";
 import { createContext } from "./service/context.js";
 import { CcsquadError } from "./error.js";
 import {
-  cmdList, cmdShow, cmdAdd, cmdEdit, cmdRun, cmdTransition,
+  cmdList, cmdShow, cmdAdd, cmdEdit, cmdUpdateSection, cmdRun, cmdTransition,
   cmdApprove, cmdReject, cmdAbort, cmdClose,
   cmdNextAction,
 } from "./commands/job.js";
@@ -54,6 +54,19 @@ jobCmd.command("edit <id>").description("ジョブを編集")
     const ctx = createContext();
     const dependsOn = opts.dependsOn ? opts.dependsOn.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
     cmdEdit(ctx.store, id, opts.title, opts.description, opts.priority !== undefined ? parseInt(opts.priority, 10) || 0 : undefined, dependsOn);
+  });
+
+jobCmd.command("update-section <id> <section>").description("ジョブ本文のセクションを追加/更新")
+  .option("--content <text>", "セクション内容")
+  .option("--file <file>", "ファイルから内容を読み込む")
+  .action((id: string, section: string, opts: { content?: string; file?: string }) => {
+    const ctx = createContext();
+    let content = opts.content ?? "";
+    if (opts.file) {
+      const { readFileSync } = require("node:fs");
+      content = readFileSync(opts.file, "utf-8");
+    }
+    cmdUpdateSection(ctx.store, id, section, content);
   });
 
 jobCmd.command("run <id>").description("ジョブを開始").action((id: string) => {

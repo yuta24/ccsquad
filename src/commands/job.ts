@@ -233,6 +233,48 @@ export function cmdEdit(
   console.log(`ジョブを更新しました: ${id}`);
 }
 
+export function cmdUpdateSection(
+  store: JobStore,
+  id: string,
+  section: string,
+  content: string,
+): void {
+  const job = store.load(id);
+
+  const sectionHeader = `## ${section}`;
+  const phaseLogHeader = "## フェーズログ";
+
+  // Find section boundaries
+  const sectionIdx = job.body.indexOf(sectionHeader);
+  const phaseLogIdx = job.body.indexOf(phaseLogHeader);
+
+  if (sectionIdx !== -1) {
+    // Replace existing section
+    const afterHeader = sectionIdx + sectionHeader.length;
+    // Find next ## heading after this section
+    const nextSection = job.body.indexOf("\n## ", afterHeader);
+    const sectionEnd = nextSection !== -1 ? nextSection : job.body.length;
+    const before = job.body.slice(0, sectionIdx);
+    const after = job.body.slice(sectionEnd);
+    job.body = `${before}${sectionHeader}\n${content}\n${after}`;
+  } else if (phaseLogIdx !== -1) {
+    // Insert before phase log
+    const before = job.body.slice(0, phaseLogIdx);
+    const after = job.body.slice(phaseLogIdx);
+    job.body = `${before}${sectionHeader}\n${content}\n\n${after}`;
+  } else {
+    // Append at end
+    if (job.body.length > 0 && !job.body.endsWith("\n")) {
+      job.body += "\n";
+    }
+    job.body += `\n${sectionHeader}\n${content}\n`;
+  }
+
+  job.frontmatter.updated_at = new Date().toISOString();
+  store.save(job);
+  console.log(`ジョブのセクションを更新しました: ${id} (${section})`);
+}
+
 export function cmdRun(store: JobStore, config: SquadConfig, id: string): void {
   const job = store.load(id);
   const wf = getWorkflow(config, job);

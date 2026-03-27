@@ -23,31 +23,16 @@ export interface OutputFileRef {
   filePath: string;
 }
 
-function buildJobUpdateInstruction(jobFilePath: string, phase: string, outputFormat?: string[] | null): string {
-  const formatLines = outputFormat && outputFormat.length > 0
-    ? [
-        "3. セクションは以下の構成で記載する:",
-        ...outputFormat.map((s) => `   - ${s}`),
-      ]
-    : [
-        "3. セクションには以下を簡潔に記載する:",
-        "   - このフェーズで実施した内容の要約",
-        "   - 重要な判断とその根拠",
-        "   - 次フェーズに引き継ぐべきコンテキスト（発見事項、制約、未解決事項など）",
-      ];
-
+function buildOutputFormatInstruction(outputFormat: string[]): string {
   return [
-    "## ジョブ本文への記録（必須）",
+    "## 出力フォーマット（必須）",
     "",
-    `タスク完了時、以下の手順でジョブファイル \`${jobFilePath}\` の本文を更新してください。`,
+    "あなたの最終出力には以下のセクションを **必ず** 含めてください。",
+    "この出力はジョブの記録として保存され、後続フェーズのコンテキストになります。",
     "",
-    "1. ジョブファイルを読み込む",
-    `2. 「## フェーズログ」セクションの **直前** に「## ${phase}」セクションを追加（既に存在する場合は内容を置換）`,
-    ...formatLines,
-    "4. 各セクションは簡潔かつ具体的に記載する",
-    "5. ファイルを保存する",
+    ...outputFormat.map((s) => `- ${s}`),
     "",
-    "注意: frontmatter や他のセクションは変更しないこと。",
+    "各セクションは見出しで始め、簡潔かつ具体的に記載してください。",
   ].join("\n");
 }
 
@@ -72,11 +57,10 @@ export function buildTaskPrompt(params: {
   phasePrompt?: string;
   iteration: number;
   jobBody: string;
-  jobFilePath: string;
   outputFiles: OutputFileRef[];
   outputFormat?: string[] | null;
 }): string {
-  const { jobId, title, phase, phaseDescription, phasePrompt, iteration, jobBody, jobFilePath, outputFiles, outputFormat } = params;
+  const { jobId, title, phase, phaseDescription, phasePrompt, iteration, jobBody, outputFiles, outputFormat } = params;
 
   const parts: string[] = [
     `ジョブID: ${jobId}`,
@@ -104,8 +88,10 @@ export function buildTaskPrompt(params: {
     parts.push(refsSection);
   }
 
-  parts.push("");
-  parts.push(buildJobUpdateInstruction(jobFilePath, phase, outputFormat));
+  if (outputFormat && outputFormat.length > 0) {
+    parts.push("");
+    parts.push(buildOutputFormatInstruction(outputFormat));
+  }
 
   return parts.join("\n");
 }
@@ -150,12 +136,11 @@ export function buildReviewPrompt(params: {
   phasePrompt?: string;
   iteration: number;
   jobBody: string;
-  jobFilePath: string;
   taskOutputFile: OutputFileRef;
   outputFiles: OutputFileRef[];
   outputFormat?: string[] | null;
 }): string {
-  const { jobId, title, phase, phaseDescription, phasePrompt, iteration, jobBody, jobFilePath, taskOutputFile, outputFiles, outputFormat } = params;
+  const { jobId, title, phase, phaseDescription, phasePrompt, iteration, jobBody, taskOutputFile, outputFiles, outputFormat } = params;
 
   const parts: string[] = [
     `ジョブID: ${jobId}`,
@@ -190,8 +175,10 @@ export function buildReviewPrompt(params: {
     parts.push(refsSection);
   }
 
-  parts.push("");
-  parts.push(buildJobUpdateInstruction(jobFilePath, phase, outputFormat));
+  if (outputFormat && outputFormat.length > 0) {
+    parts.push("");
+    parts.push(buildOutputFormatInstruction(outputFormat));
+  }
 
   return parts.join("\n");
 }

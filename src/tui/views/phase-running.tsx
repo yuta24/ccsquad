@@ -2,7 +2,6 @@ import type { KeyEvent } from "@opentui/core";
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { CliRenderEvents } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/react";
-import { join } from "node:path";
 import { spawn, type IPty } from "bun-pty";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { MutableRefObject } from "react";
@@ -10,6 +9,7 @@ import type { SquadConfig, WorkflowConfig, PhaseType, PhaseConfig } from "../../
 import { parseTransitionCondition, isTaskLikeType, getOutputFormat } from "../../config.js";
 import type { Job } from "../../job.js";
 import type { JobStore } from "../../job.js";
+import { cmdUpdateSection } from "../../commands/job.js";
 import type { IterationStore } from "../../iteration.js";
 import { resolveAndExecuteTransition } from "../../service/transition.js";
 import { parseStreamJsonResult } from "../../result.js";
@@ -415,7 +415,6 @@ export function PhaseRunningView({
     let args: string[];
 
     const outputFiles = outputStore.listFilesForJob(jobId);
-    const jobFilePath = join(projectRoot, ".ccsquad", "jobs", `${jobId}.md`);
 
     if (sessionId) {
       // Find the latest output from a different phase as feedback reference
@@ -448,7 +447,7 @@ export function PhaseRunningView({
           phasePrompt: phaseConfig.prompt,
           iteration,
           jobBody: jobData.body,
-          jobFilePath,
+
           taskOutputFile: lastTaskOutputFile,
           outputFiles,
           outputFormat: getOutputFormat(phaseConfig),
@@ -463,7 +462,7 @@ export function PhaseRunningView({
           phasePrompt: phaseConfig.prompt,
           iteration,
           jobBody: jobData.body,
-          jobFilePath,
+
           outputFiles,
           outputFormat: getOutputFormat(phaseConfig),
         });
@@ -535,6 +534,15 @@ export function PhaseRunningView({
       } catch {
         isProcessingRef.current = false;
         return;
+      }
+
+      // Update job body with agent output
+      if (content) {
+        try {
+          cmdUpdateSection(store, jobId, phaseName, content);
+        } catch {
+          // Non-fatal: proceed with transition even if update fails
+        }
       }
 
       processTransition(result, content);
