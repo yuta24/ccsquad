@@ -3,10 +3,51 @@ import { parse } from "yaml";
 import { CcsquadError } from "./error.js";
 
 export type TransitionCondition = "completed" | "failed" | "rejected" | "approved";
-export type PhaseType = "task" | "review";
+export type PhaseType = "task" | "research" | "plan" | "code" | "review";
 
 const ALL_CONDITIONS: TransitionCondition[] = ["completed", "failed", "rejected", "approved"];
-const ALL_PHASE_TYPES: PhaseType[] = ["task", "review"];
+const ALL_PHASE_TYPES: PhaseType[] = ["task", "research", "plan", "code", "review"];
+
+// task-like types use completed/failed transitions and require agent
+const TASK_LIKE_TYPES: PhaseType[] = ["task", "research", "plan", "code"];
+
+export function isTaskLikeType(type: PhaseType): boolean {
+  return TASK_LIKE_TYPES.includes(type);
+}
+
+// Default output contracts per phase type
+const DEFAULT_OUTPUT_FORMATS: Record<PhaseType, string[] | null> = {
+  task: null,  // generic, no contract
+  research: [
+    "## 調査結果",
+    "## 影響範囲",
+    "## 制約・リスク",
+    "## 未解決事項",
+  ],
+  plan: [
+    "## 目的",
+    "## 設計方針",
+    "## タスク一覧",
+    "## 受け入れ条件",
+  ],
+  code: [
+    "## 実装内容",
+    "## 変更ファイル一覧",
+    "## テスト結果",
+  ],
+  review: [
+    "## レビュー判定",
+    "## 指摘事項",
+    "## 改善提案",
+  ],
+};
+
+export function getOutputFormat(phase: PhaseConfig): string[] | null {
+  if (phase.output_format !== undefined) {
+    return phase.output_format;
+  }
+  return DEFAULT_OUTPUT_FORMATS[phase.type];
+}
 
 export function parseTransitionCondition(s: string): TransitionCondition {
   if (ALL_CONDITIONS.includes(s as TransitionCondition)) {
@@ -27,6 +68,7 @@ export interface PhaseConfig {
   reviewer?: string;
   prompt?: string;
   context?: PhaseContext;
+  output_format?: string[] | null;
   on: Partial<Record<TransitionCondition, string>>;
 }
 
@@ -112,7 +154,7 @@ class WorkflowConfigImpl implements WorkflowConfig {
           severity: "error",
           workflow: workflowName,
           phase: phase.name,
-          message: `type '${phase.type}' が不正です (task または review を指定してください)`,
+          message: `type '${phase.type}' が不正です (${ALL_PHASE_TYPES.join(", ")} を指定してください)`,
         });
         continue;
       }
@@ -164,7 +206,7 @@ class WorkflowConfigImpl implements WorkflowConfig {
           });
         }
       } else {
-        // Task phase: agent required, reviewer not allowed
+        // Task-like phase (task, research, plan, code): agent required, reviewer not allowed
         if (!phase.agent) {
           diagnostics.push({
             severity: "error",
@@ -271,6 +313,7 @@ class SquadConfigImpl implements SquadConfig {
           reviewer: p.reviewer as string | undefined,
           prompt: p.prompt as string | undefined,
           context: p.context as PhaseContext | undefined,
+          output_format: p.output_format != null ? (p.output_format as string[]) : undefined,
           on: (p.on as Partial<Record<TransitionCondition, string>>) ?? {},
         }));
       } else {

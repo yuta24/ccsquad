@@ -2,11 +2,12 @@ import type { KeyEvent } from "@opentui/core";
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { CliRenderEvents } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/react";
+import { join } from "node:path";
 import { spawn, type IPty } from "bun-pty";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { MutableRefObject } from "react";
 import type { SquadConfig, WorkflowConfig, PhaseType, PhaseConfig } from "../../config.js";
-import { parseTransitionCondition } from "../../config.js";
+import { parseTransitionCondition, isTaskLikeType, getOutputFormat } from "../../config.js";
 import type { Job } from "../../job.js";
 import type { JobStore } from "../../job.js";
 import type { IterationStore } from "../../iteration.js";
@@ -415,7 +416,7 @@ export function PhaseRunningView({
 
     if (sessionId) {
       let feedback: string;
-      if (phaseType === "task") {
+      if (isTaskLikeType(phaseType)) {
         const allOutputs = outputStore.loadForJob(jobId);
         const reviewOutputs = allOutputs.filter((o) => o.phase !== phaseName);
         const lastReviewOutput = reviewOutputs.length > 0 ? reviewOutputs[reviewOutputs.length - 1] : null;
@@ -435,7 +436,7 @@ export function PhaseRunningView({
       if (phaseType === "review") {
         const taskOutputs = previousOutputs.filter((o) => {
           const pc = wf?.getPhase(o.phase);
-          return pc?.type === "task";
+          return pc ? isTaskLikeType(pc.type) : false;
         });
         const lastTaskOutput = taskOutputs.length > 0 ? taskOutputs[taskOutputs.length - 1] : null;
         const taskOutput = lastTaskOutput?.content ?? "";
@@ -448,9 +449,11 @@ export function PhaseRunningView({
           phasePrompt: phaseConfig.prompt,
           iteration,
           jobBody: jobData.body,
+          jobFilePath: join(projectRoot, ".ccsquad", "jobs", `${jobId}.md`),
           taskOutput,
           previousOutputs,
           includeOutputPhases: phaseConfig.context?.include_outputs,
+          outputFormat: getOutputFormat(phaseConfig),
         });
         args = ["claude", "-p", "--verbose", "--permission-mode", "auto", "--agent", agentName, "--output-format", "stream-json", prompt];
       } else {
@@ -462,8 +465,10 @@ export function PhaseRunningView({
           phasePrompt: phaseConfig.prompt,
           iteration,
           jobBody: jobData.body,
+          jobFilePath: join(projectRoot, ".ccsquad", "jobs", `${jobId}.md`),
           previousOutputs,
           includeOutputPhases: phaseConfig.context?.include_outputs,
+          outputFormat: getOutputFormat(phaseConfig),
         });
         args = ["claude", "-p", "--verbose", "--permission-mode", "auto", "--agent", agentName, "--output-format", "stream-json", prompt];
       }
@@ -516,7 +521,7 @@ export function PhaseRunningView({
         content = "";
       }
 
-      const result = phaseType === "task"
+      const result = isTaskLikeType(phaseType)
         ? (exitCode === 0 ? "completed" : "failed")
         : (exitCode === 0 ? "approved" : "rejected");
 

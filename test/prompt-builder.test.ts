@@ -67,6 +67,7 @@ describe("buildTaskPrompt", () => {
       phase: "plan",
       iteration: 1,
       jobBody: "## 説明\nタスクの説明文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       previousOutputs: [],
     });
 
@@ -85,6 +86,7 @@ describe("buildTaskPrompt", () => {
       phaseDescription: "実装計画を策定する",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       previousOutputs: [],
     });
 
@@ -98,6 +100,7 @@ describe("buildTaskPrompt", () => {
       phase: "plan",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       previousOutputs: [],
     });
 
@@ -111,6 +114,7 @@ describe("buildTaskPrompt", () => {
       phase: "plan",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       previousOutputs: [],
     });
 
@@ -129,6 +133,7 @@ describe("buildTaskPrompt", () => {
       phase: "review",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       previousOutputs: outputs,
     });
 
@@ -144,6 +149,7 @@ describe("buildTaskPrompt", () => {
       phase: "plan",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       previousOutputs: [],
     });
 
@@ -157,6 +163,7 @@ describe("buildTaskPrompt", () => {
       phase: "code",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       previousOutputs: [],
       phasePrompt: "テストも必ず書くこと",
     });
@@ -178,6 +185,7 @@ describe("buildTaskPrompt", () => {
       phase: "review",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       previousOutputs: outputs,
       includeOutputPhases: ["plan", "code"],
     });
@@ -198,12 +206,28 @@ describe("buildTaskPrompt", () => {
       phase: "code",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       previousOutputs: outputs,
       includeOutputPhases: [],
     });
 
     expect(result).not.toContain("前フェーズの出力");
     expect(result).not.toContain("計画の出力");
+  });
+
+  it("ジョブ本文への記録セクションとジョブファイルパスが含まれる", () => {
+    const result = buildTaskPrompt({
+      jobId: "J000001",
+      title: "テスト",
+      phase: "plan",
+      iteration: 1,
+      jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
+      previousOutputs: [],
+    });
+
+    expect(result).toContain("ジョブ本文への記録");
+    expect(result).toContain(".ccsquad/jobs/J000001.md");
   });
 
   it("includeOutputPhases未指定は従来通り最後の出力のみ", () => {
@@ -218,6 +242,7 @@ describe("buildTaskPrompt", () => {
       phase: "review",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       previousOutputs: outputs,
     });
 
@@ -316,6 +341,7 @@ describe("buildReviewPrompt", () => {
       phase: "review",
       iteration: 1,
       jobBody: "## 説明\nレビューの説明",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       taskOutput: "タスクの実行結果",
     });
 
@@ -335,6 +361,7 @@ describe("buildReviewPrompt", () => {
       phaseDescription: "コードレビューを行う",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       taskOutput: "出力",
     });
 
@@ -348,6 +375,7 @@ describe("buildReviewPrompt", () => {
       phase: "review",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       taskOutput: "出力",
     });
 
@@ -361,6 +389,7 @@ describe("buildReviewPrompt", () => {
       phase: "review",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       taskOutput: "レビュー対象の出力",
     });
 
@@ -375,6 +404,7 @@ describe("buildReviewPrompt", () => {
       phase: "review",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       taskOutput: "出力",
     });
 
@@ -388,12 +418,28 @@ describe("buildReviewPrompt", () => {
       phase: "review",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       taskOutput: "出力",
       phasePrompt: "セキュリティ観点でレビュー",
     });
 
     expect(result).toContain("## フェーズ指示");
     expect(result).toContain("セキュリティ観点でレビュー");
+  });
+
+  it("ジョブ本文への記録セクションとジョブファイルパスが含まれる", () => {
+    const result = buildReviewPrompt({
+      jobId: "J000001",
+      title: "テスト",
+      phase: "review",
+      iteration: 1,
+      jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
+      taskOutput: "出力",
+    });
+
+    expect(result).toContain("ジョブ本文への記録");
+    expect(result).toContain(".ccsquad/jobs/J000001.md");
   });
 
   it("includeOutputPhasesで関連フェーズの出力が含まれる", () => {
@@ -408,6 +454,7 @@ describe("buildReviewPrompt", () => {
       phase: "review",
       iteration: 1,
       jobBody: "本文",
+      jobFilePath: ".ccsquad/jobs/J000001.md",
       taskOutput: "コードの出力",
       previousOutputs: outputs,
       includeOutputPhases: ["plan", "code"],

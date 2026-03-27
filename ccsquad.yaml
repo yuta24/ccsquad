@@ -3,7 +3,7 @@ workflows:
     max_iterations: 10
     phases:
       - name: code
-        type: task
+        type: code
         description: コードを実装する
         agent: coder
         on:
@@ -21,14 +21,14 @@ workflows:
     max_iterations: 5
     phases:
       - name: analyze
-        type: task
+        type: research
         description: タスクの要件を調査し、コードベースを探索して影響範囲を把握する
         agent: requirements-decomposer
         on:
           completed: decompose
           failed: ABORT
       - name: decompose
-        type: task
+        type: plan
         description: 調査結果をもとにタスクを分解し、個別のジョブを作成する
         agent: requirements-decomposer
         on:
@@ -42,7 +42,7 @@ workflows:
           approved: generate
           rejected: decompose
       - name: generate
-        type: task
+        type: code
         description: 分解されたジョブを作成する
         agent: requirements-decomposer
         on:
@@ -53,14 +53,14 @@ workflows:
     max_iterations: 10
     phases:
       - name: investigate
-        type: task
+        type: research
         description: 原因を調査する
         agent: coder
         on:
           completed: fix
           failed: ABORT
       - name: fix
-        type: task
+        type: code
         description: 修正を実施する
         agent: coder
         on:

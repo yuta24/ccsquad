@@ -1,6 +1,39 @@
+import type { PhaseConfig } from "../config.js";
+import { isTaskLikeType } from "../config.js";
 import type { NodeOutput } from "../output.js";
 
 const DEFAULT_MAX_CHARS = 50000;
+
+function buildOutputFormatInstruction(contract: string[]): string {
+  const sections = contract.map((s) => `- ${s}`).join("\n");
+  return [
+    "## 出力フォーマット（必須）",
+    "",
+    "あなたの出力には以下のセクションを **必ず** 含めてください:",
+    "",
+    sections,
+    "",
+    "各セクションは見出しで始め、簡潔かつ具体的に記載してください。",
+  ].join("\n");
+}
+
+function buildJobUpdateInstruction(jobFilePath: string, phase: string): string {
+  return [
+    "## ジョブ本文への記録（必須）",
+    "",
+    `タスク完了時、以下の手順でジョブファイル \`${jobFilePath}\` の本文を更新してください。`,
+    "",
+    "1. ジョブファイルを読み込む",
+    `2. 「## フェーズログ」セクションの **直前** に「## ${phase}」セクションを追加（既に存在する場合は内容を置換）`,
+    "3. セクションには以下を簡潔に記載する:",
+    "   - このフェーズで実施した内容の要約",
+    "   - 重要な判断とその根拠",
+    "   - 次フェーズに引き継ぐべきコンテキスト（発見事項、制約、未解決事項など）",
+    "4. ファイルを保存する",
+    "",
+    "注意: frontmatter や他のセクションは変更しないこと。",
+  ].join("\n");
+}
 
 export function truncateOutput(content: string, maxChars: number = DEFAULT_MAX_CHARS): string {
   if (content.length <= maxChars) {
@@ -25,10 +58,12 @@ export function buildTaskPrompt(params: {
   phasePrompt?: string;
   iteration: number;
   jobBody: string;
+  jobFilePath: string;
   previousOutputs: NodeOutput[];
   includeOutputPhases?: string[];
+  outputFormat?: string[] | null;
 }): string {
-  const { jobId, title, phase, phaseDescription, phasePrompt, iteration, jobBody, previousOutputs, includeOutputPhases } = params;
+  const { jobId, title, phase, phaseDescription, phasePrompt, iteration, jobBody, jobFilePath, previousOutputs, includeOutputPhases, outputFormat } = params;
 
   const parts: string[] = [
     `ジョブID: ${jobId}`,
@@ -66,19 +101,27 @@ export function buildTaskPrompt(params: {
     }
   }
 
+  if (outputFormat && outputFormat.length > 0) {
+    parts.push("");
+    parts.push(buildOutputFormatInstruction(outputFormat));
+  }
+
+  parts.push("");
+  parts.push(buildJobUpdateInstruction(jobFilePath, phase));
+
   return parts.join("\n");
 }
 
 export function buildResumePrompt(params: {
   phase: string;
-  phaseType: "task" | "review";
+  phaseType: string;
   phasePrompt?: string;
   iteration: number;
   feedback: string;
 }): string {
   const { phaseType, phasePrompt, iteration, feedback } = params;
 
-  if (phaseType === "task") {
+  if (isTaskLikeType(phaseType as import("../config.js").PhaseType)) {
     return [
       "以下の理由で reject されました。修正してください。",
       "",
@@ -109,11 +152,13 @@ export function buildReviewPrompt(params: {
   phasePrompt?: string;
   iteration: number;
   jobBody: string;
+  jobFilePath: string;
   taskOutput: string;
   previousOutputs?: NodeOutput[];
   includeOutputPhases?: string[];
+  outputFormat?: string[] | null;
 }): string {
-  const { jobId, title, phase, phaseDescription, phasePrompt, iteration, jobBody, taskOutput, previousOutputs, includeOutputPhases } = params;
+  const { jobId, title, phase, phaseDescription, phasePrompt, iteration, jobBody, jobFilePath, taskOutput, previousOutputs, includeOutputPhases, outputFormat } = params;
 
   const parts: string[] = [
     `ジョブID: ${jobId}`,
@@ -153,6 +198,14 @@ export function buildReviewPrompt(params: {
   parts.push("");
   parts.push("## レビュー対象");
   parts.push(taskOutput);
+
+  if (outputFormat && outputFormat.length > 0) {
+    parts.push("");
+    parts.push(buildOutputFormatInstruction(outputFormat));
+  }
+
+  parts.push("");
+  parts.push(buildJobUpdateInstruction(jobFilePath, phase));
 
   return parts.join("\n");
 }

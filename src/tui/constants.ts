@@ -31,7 +31,7 @@ export interface TransitionInfo {
   description?: string;
   agent?: string;
   reviewer?: string;
-  phaseType?: "task" | "review";
+  phaseType?: string;
   reason?: "max_iterations";
   sessionId?: string;
 }
