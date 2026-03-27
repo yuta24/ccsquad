@@ -6,7 +6,7 @@ description: |
 tools: Read, Write, Edit, Glob, Grep, Bash, Agent
 skills:
   - memory
-model: sonnet
+model: opus
 ---
 
 # Coder エージェント

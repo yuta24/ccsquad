@@ -23,14 +23,14 @@ workflows:
       - name: analyze
         type: task
         description: タスクの要件を調査し、コードベースを探索して影響範囲を把握する
-        agent: coder
+        agent: requirements-decomposer
         on:
           completed: decompose
           failed: ABORT
       - name: decompose
         type: task
         description: 調査結果をもとにタスクを分解し、個別のジョブを作成する
-        agent: coder
+        agent: requirements-decomposer
         on:
           completed: review
           failed: analyze
@@ -43,8 +43,8 @@ workflows:
           rejected: decompose
       - name: generate
         type: task
-        description:  分解されたジョブを作成する
-        agent: coder
+        description: 分解されたジョブを作成する
+        agent: requirements-decomposer
         on:
           completed: COMPLETE
           failed: ABORT

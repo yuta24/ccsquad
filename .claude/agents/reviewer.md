@@ -6,7 +6,7 @@ description: |
 tools: Read, Glob, Grep, Bash
 skills:
   - memory
-model: sonnet
+model: opus
 ---
 
 # Reviewer エージェント
