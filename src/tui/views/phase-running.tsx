@@ -18,6 +18,7 @@ import type { DisplayLine } from "../../infra/stream-parser.js";
 import { OutputLine } from "../components/output-line.js";
 import { StatusBar } from "../components/status-bar.js";
 import { InlineReview } from "./inline-review.js";
+import type { ReviewMode } from "./inline-review.js";
 import type { TransitionInfo, StatusBarItem } from "../constants.js";
 import {
   ATTR_BOLD, COLOR_CYAN, COLOR_GREEN, COLOR_RED, COLOR_DARK_GRAY, COLOR_WHITE,
@@ -55,6 +56,7 @@ export function PhaseRunningView({
   const [execState, setExecState, execStateRef] = useSyncedState<ExecutionState>("idle");
   const [focusPane, setFocusPane, focusPaneRef] = useSyncedState<FocusPane>("left");
   const [pauseInfo, setPauseInfo, pauseInfoRef] = useSyncedState<TransitionInfo | null>(null);
+  const [reviewMode, setReviewMode] = useState<ReviewMode>("browse");
   const [statusMsg, setStatusMsg] = useState("");
 
   // ── Start a phase ──
@@ -299,10 +301,24 @@ export function PhaseRunningView({
     const isAgentReview = info.phaseType === "review" && info.reviewer !== "human";
 
     if (isHumanReview) {
+      if (reviewMode === "browse") {
+        return [
+          { key: "Enter", label: "判断へ" },
+          { key: "Tab", label: "ペイン切替" },
+          { key: "Esc", label: "一覧に戻る" },
+        ];
+      }
+      if (reviewMode === "decide") {
+        return [
+          { key: "a", label: "承認" },
+          { key: "x", label: "却下" },
+          { key: "Esc", label: "閲覧に戻る" },
+        ];
+      }
+      // feedback
       return [
-        { key: "Enter", label: "判断へ" },
-        { key: "Tab", label: "ペイン切替" },
-        { key: "Esc", label: "一覧に戻る" },
+        { key: "Ctrl+Enter", label: "却下を確定" },
+        { key: "Esc", label: "判断に戻る" },
       ];
     }
     if (isAgentReview) {
@@ -319,7 +335,7 @@ export function PhaseRunningView({
       { key: "Tab", label: "ペイン切替" },
       { key: "Esc", label: "一覧に戻る" },
     ];
-  }, [execState, pauseInfo]);
+  }, [execState, pauseInfo, reviewMode]);
 
   // ── Render ──
 
@@ -380,6 +396,7 @@ export function PhaseRunningView({
               onReject={handleReject}
               onContinue={handleContinue}
               onEscape={onDone}
+              onReviewModeChange={setReviewMode}
             />
           )}
 

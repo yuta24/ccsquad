@@ -132,6 +132,15 @@ export class PhaseExecutor {
           return;
         }
 
+        // Update job body with agent output (same as old phase-running.tsx behavior)
+        if (exitInfo.content) {
+          try {
+            this.updateJobSection(jobId, phaseName, exitInfo.content);
+          } catch {
+            // Non-fatal: proceed with transition even if update fails
+          }
+        }
+
         try {
           const condition = parseTransitionCondition(resultCondition);
           const txResult = this.jobService.transition(jobId, condition, exitInfo.content);
@@ -145,5 +154,36 @@ export class PhaseExecutor {
     }
 
     return execution;
+  }
+
+  private updateJobSection(jobId: string, section: string, content: string): void {
+    const job = this.ctx.jobStore.load(jobId);
+
+    const sectionHeader = `## ${section}`;
+    const phaseLogHeader = "## フェーズログ";
+
+    const sectionIdx = job.body.indexOf(sectionHeader);
+    const phaseLogIdx = job.body.indexOf(phaseLogHeader);
+
+    if (sectionIdx !== -1) {
+      const afterHeader = sectionIdx + sectionHeader.length;
+      const nextSection = job.body.indexOf("\n## ", afterHeader);
+      const sectionEnd = nextSection !== -1 ? nextSection : job.body.length;
+      const before = job.body.slice(0, sectionIdx);
+      const after = job.body.slice(sectionEnd);
+      job.body = `${before}${sectionHeader}\n${content}\n${after}`;
+    } else if (phaseLogIdx !== -1) {
+      const before = job.body.slice(0, phaseLogIdx);
+      const after = job.body.slice(phaseLogIdx);
+      job.body = `${before}${sectionHeader}\n${content}\n\n${after}`;
+    } else {
+      if (job.body.length > 0 && !job.body.endsWith("\n")) {
+        job.body += "\n";
+      }
+      job.body += `\n${sectionHeader}\n${content}\n`;
+    }
+
+    job.frontmatter.updated_at = new Date().toISOString();
+    this.ctx.jobStore.save(job);
   }
 }

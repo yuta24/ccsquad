@@ -1,7 +1,7 @@
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { useCallback } from "react";
-import type { TransitionInfo, StatusBarItem } from "../constants.js";
+import type { TransitionInfo } from "../constants.js";
 import {
   ATTR_BOLD, COLOR_WHITE, COLOR_GRAY, COLOR_CYAN, COLOR_YELLOW,
   COLOR_GREEN, COLOR_RED,
@@ -10,17 +10,26 @@ import { useSyncedState } from "../hooks/use-synced-state.js";
 
 type ReviewMode = "browse" | "decide" | "feedback";
 
+export type { ReviewMode };
+
 interface InlineReviewProps {
   info: TransitionInfo;
   onApprove: () => void;
   onReject: (feedback?: string) => void;
   onContinue: () => void;
   onEscape: () => void;
+  onReviewModeChange?: (mode: ReviewMode) => void;
 }
 
-export function InlineReview({ info, onApprove, onReject, onContinue, onEscape }: InlineReviewProps) {
-  const [reviewMode, setReviewMode, reviewModeRef] = useSyncedState<ReviewMode>("browse");
+export function InlineReview({ info, onApprove, onReject, onContinue, onEscape, onReviewModeChange }: InlineReviewProps) {
+  const [reviewMode, setReviewModeRaw, reviewModeRef] = useSyncedState<ReviewMode>("browse");
   const [feedbackText, setFeedbackText, feedbackTextRef] = useSyncedState("");
+
+  const setReviewMode = useCallback((mode: ReviewMode | ((prev: ReviewMode) => ReviewMode)) => {
+    setReviewModeRaw(mode);
+    const resolved = typeof mode === "function" ? mode(reviewModeRef.current) : mode;
+    onReviewModeChange?.(resolved);
+  }, [onReviewModeChange, reviewModeRef]);
 
   const isHumanReview = info.phaseType === "review" && info.reviewer === "human";
   const isAgentReview = info.phaseType === "review" && info.reviewer !== "human";
@@ -133,45 +142,4 @@ export function InlineReview({ info, onApprove, onReject, onContinue, onEscape }
       )}
     </box>
   );
-}
-
-function getReviewStatusBarItems(info: TransitionInfo, reviewMode: ReviewMode): StatusBarItem[] {
-  const isHumanReview = info.phaseType === "review" && info.reviewer === "human";
-  const isAgentReview = info.phaseType === "review" && info.reviewer !== "human";
-
-  if (isHumanReview) {
-    if (reviewMode === "browse") {
-      return [
-        { key: "Enter", label: "判断へ" },
-        { key: "Tab", label: "ペイン切替" },
-        { key: "Esc", label: "一覧に戻る" },
-      ];
-    }
-    if (reviewMode === "decide") {
-      return [
-        { key: "a", label: "承認" },
-        { key: "x", label: "却下" },
-        { key: "Esc", label: "閲覧に戻る" },
-      ];
-    }
-    return [
-      { key: "Ctrl+Enter", label: "却下を確定" },
-      { key: "Esc", label: "判断に戻る" },
-    ];
-  }
-  if (isAgentReview) {
-    return [
-      { key: "r/Enter", label: "レビューエージェント実行" },
-      { key: "a", label: "直接承認" },
-      { key: "x", label: "直接却下" },
-      { key: "Tab", label: "ペイン切替" },
-      { key: "Esc", label: "一覧に戻る" },
-    ];
-  }
-  // max_iterations
-  return [
-    { key: "Enter", label: "次フェーズ実行" },
-    { key: "Tab", label: "ペイン切替" },
-    { key: "Esc", label: "一覧に戻る" },
-  ];
 }
