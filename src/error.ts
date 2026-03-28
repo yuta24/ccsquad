@@ -1,4 +1,4 @@
-export type ErrorKind = "io" | "serialization" | "config" | "job" | "workflow" | "memory";
+export type ErrorKind = "io" | "serialization" | "config" | "job" | "workflow";
 
 export class CcsquadError extends Error {
   constructor(

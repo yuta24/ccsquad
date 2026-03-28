@@ -1,6 +1,6 @@
 import { CcsquadError } from "../error.js";
 import type { Job, WorkflowConfig, PhaseConfig, TransitionCondition } from "./types.js";
-import { getPhase, resolveTransition, maxIterations, validateConditionForPhase } from "./workflow.js";
+import { getPhase, resolveTransition, validateConditionForPhase } from "./workflow.js";
 
 export type TransitionDecision =
   | { action: "complete"; newStatus: "completed" }
@@ -12,7 +12,6 @@ export interface TransitionInput {
   job: Job;
   workflow: WorkflowConfig;
   condition: TransitionCondition;
-  currentIteration: number;
 }
 
 /**
@@ -20,7 +19,7 @@ export interface TransitionInput {
  * No I/O, no saves, no side effects.
  */
 export function computeTransition(input: TransitionInput): TransitionDecision {
-  const { job, workflow, condition, currentIteration } = input;
+  const { job, workflow, condition } = input;
 
   const phaseName = job.frontmatter.current_phase;
   if (!phaseName) {
@@ -58,12 +57,12 @@ export function computeTransition(input: TransitionInput): TransitionDecision {
   }
 
   // Max iterations check
-  if (currentIteration >= maxIterations(workflow)) {
+  if (job.frontmatter.iteration >= job.frontmatter.max_iterations) {
     return { action: "pause", nextPhase: next, nextPhaseConfig, reason: "max_iterations" };
   }
 
-  // Human review check
-  if (nextPhaseConfig.type === "review" && nextPhaseConfig.reviewer === "human") {
+  // Human review check (review phase is always a pause point)
+  if (nextPhaseConfig.type === "review") {
     return { action: "pause", nextPhase: next, nextPhaseConfig, reason: "human_review" };
   }
 

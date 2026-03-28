@@ -9,12 +9,13 @@ function serializeFrontmatter(fm: JobFrontmatter): string {
   const obj: Record<string, unknown> = {
     id: fm.id,
     title: fm.title,
-    workflow: fm.workflow,
     status: fm.status,
   };
   if (fm.current_phase !== undefined) {
     obj.current_phase = fm.current_phase;
   }
+  obj.iteration = fm.iteration;
+  obj.max_iterations = fm.max_iterations;
   obj.priority = fm.priority;
   if ((fm.depends_on ?? []).length > 0) {
     obj.depends_on = fm.depends_on;
@@ -109,12 +110,13 @@ export class JobStore {
     if (typeof raw["title"] !== "string") {
       throw new CcsquadError("serialization", "frontmatter が不正です: title が文字列ではありません");
     }
-    if (typeof raw["workflow"] !== "string") {
-      throw new CcsquadError("serialization", "frontmatter が不正です: workflow が文字列ではありません");
-    }
     if (typeof raw["status"] !== "string") {
       throw new CcsquadError("serialization", "frontmatter が不正です: status が文字列ではありません");
     }
+
+    // Apply defaults for iteration fields
+    if (raw["iteration"] === undefined) raw["iteration"] = 0;
+    if (raw["max_iterations"] === undefined) raw["max_iterations"] = 10;
 
     const fm = parsed as JobFrontmatter;
     return { frontmatter: fm, body };

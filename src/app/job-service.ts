@@ -1,6 +1,6 @@
 import { CcsquadError } from "../error.js";
 import type { Job, TransitionCondition, PhaseConfig, WorkflowConfig } from "../domain/types.js";
-import { initialPhase, getPhase } from "../domain/workflow.js";
+import { initialPhase, parseWorkflowFromBody, generateWorkflowSection } from "../domain/workflow.js";
 import { computeTransition } from "../domain/state-machine.js";
 import type { TransitionDecision } from "../domain/state-machine.js";
 import { buildPhaseLogEntry, appendPhaseLog } from "../domain/phase-log.js";
@@ -14,42 +14,40 @@ export type TransitionResult =
 export class JobService {
   constructor(private ctx: ProjectContext) {}
 
-  private getWorkflow(name: string): WorkflowConfig {
-    const wf = this.ctx.workflows[name];
-    if (!wf) {
-      throw new CcsquadError("config", `ワークフロー '${name}' が見つかりません`);
-    }
-    return wf;
-  }
-
   private loadJob(jobId: string): Job {
     const job = this.ctx.jobStore.load(jobId);
     job.frontmatter.depends_on = job.frontmatter.depends_on ?? [];
     return job;
   }
 
+  private getWorkflowForJob(job: Job): WorkflowConfig {
+    return parseWorkflowFromBody(job.body);
+  }
+
   create(
     title: string,
-    workflow: string,
-    opts?: { description?: string; priority?: number; dependsOn?: string[] },
+    workflowConfig: WorkflowConfig,
+    opts?: { description?: string; priority?: number; dependsOn?: string[]; maxIterations?: number },
   ): Job {
-    // Validate workflow exists
-    this.getWorkflow(workflow);
-
     const id = this.ctx.jobStore.nextId();
     const now = new Date().toISOString();
+
+    const workflowBody = generateWorkflowSection(workflowConfig);
+    const descBody = opts?.description ? `## 説明\n${opts.description}\n\n` : "";
+
     const job: Job = {
       frontmatter: {
         id,
         title,
-        workflow,
         status: "pending",
+        iteration: 0,
+        max_iterations: opts?.maxIterations ?? 10,
         priority: opts?.priority ?? 0,
         depends_on: opts?.dependsOn ?? [],
         created_at: now,
         updated_at: now,
       },
-      body: opts?.description ? `## 説明\n${opts.description}\n` : "",
+      body: descBody + workflowBody,
     };
     this.ctx.jobStore.save(job);
     return job;
@@ -75,25 +73,21 @@ export class JobService {
       }
     }
 
-    const wf = this.getWorkflow(job.frontmatter.workflow);
+    const wf = this.getWorkflowForJob(job);
     const initial = initialPhase(wf);
     job.frontmatter.status = "running";
     job.frontmatter.current_phase = initial.name;
+    job.frontmatter.iteration = 0;
     job.frontmatter.updated_at = new Date().toISOString();
     this.ctx.jobStore.save(job);
     return job;
   }
 
-  /**
-   * The single, unified transition method.
-   * Used by both CLI and TUI.
-   */
   transition(jobId: string, condition: TransitionCondition, message: string): TransitionResult {
     const job = this.loadJob(jobId);
-    const wf = this.getWorkflow(job.frontmatter.workflow);
-    const currentIteration = this.ctx.iterationStore.get(jobId);
+    const wf = this.getWorkflowForJob(job);
 
-    const decision = computeTransition({ job, workflow: wf, condition, currentIteration });
+    const decision = computeTransition({ job, workflow: wf, condition });
     const phaseName = job.frontmatter.current_phase!;
 
     return this.applyDecision(job, phaseName, condition, message, decision);
@@ -116,49 +110,16 @@ export class JobService {
 
     job.frontmatter.status = "aborted";
     job.frontmatter.current_phase = undefined;
+    job.frontmatter.iteration = 0;
     job.frontmatter.updated_at = new Date().toISOString();
     this.ctx.jobStore.save(job);
-    this.ctx.iterationStore.remove(jobId);
-    return job;
-  }
-
-  close(jobId: string, opts?: { force?: boolean }): Job {
-    const job = this.loadJob(jobId);
-
-    if (job.frontmatter.status === "closed") {
-      throw new CcsquadError(
-        "job",
-        `ジョブ '${jobId}' は既にクローズされています`,
-      );
-    }
-
-    if (!opts?.force) {
-      const dependents = this.findDependents(jobId);
-      if (dependents.length > 0) {
-        throw new CcsquadError(
-          "job",
-          `ジョブ '${jobId}' は他のジョブ (${dependents.join(", ")}) から依存されています。強制的にクローズするには --force を指定してください`,
-        );
-      }
-    }
-
-    if (job.frontmatter.status === "running" && job.frontmatter.current_phase !== undefined) {
-      const entry = buildPhaseLogEntry(job.frontmatter.current_phase, "closed", "CLOSE", "手動クローズ");
-      job.body = appendPhaseLog(job.body, entry);
-    }
-
-    job.frontmatter.status = "closed";
-    job.frontmatter.current_phase = undefined;
-    job.frontmatter.updated_at = new Date().toISOString();
-    this.ctx.jobStore.save(job);
-    this.ctx.iterationStore.remove(jobId);
     return job;
   }
 
   findDependents(jobId: string): string[] {
     const allJobs = this.ctx.jobStore.listAll();
     return allJobs
-      .filter((j) => j.frontmatter.status !== "closed" && (j.frontmatter.depends_on ?? []).includes(jobId))
+      .filter((j) => (j.frontmatter.depends_on ?? []).includes(jobId))
       .map((j) => j.frontmatter.id);
   }
 
@@ -198,25 +159,22 @@ export class JobService {
         job.frontmatter.current_phase = undefined;
         job.frontmatter.updated_at = new Date().toISOString();
         this.ctx.jobStore.save(job);
-        this.ctx.iterationStore.remove(jobId);
         return { type: "done", jobId, status: targetStatus };
       }
 
       case "pause": {
         if (decision.reason === "max_iterations") {
-          // Record log but don't advance phase
           const entry = buildPhaseLogEntry(phaseName, condition, decision.nextPhase, message);
           job.body = appendPhaseLog(job.body, entry);
           job.frontmatter.updated_at = new Date().toISOString();
           this.ctx.jobStore.save(job);
         } else {
-          // human_review: advance phase normally
           const entry = buildPhaseLogEntry(phaseName, condition, decision.nextPhase, message);
           job.body = appendPhaseLog(job.body, entry);
           job.frontmatter.current_phase = decision.nextPhase;
+          job.frontmatter.iteration += 1;
           job.frontmatter.updated_at = new Date().toISOString();
           this.ctx.jobStore.save(job);
-          this.ctx.iterationStore.increment(jobId);
         }
         return {
           type: "pause",
@@ -231,9 +189,9 @@ export class JobService {
         const entry = buildPhaseLogEntry(phaseName, condition, decision.nextPhase, message);
         job.body = appendPhaseLog(job.body, entry);
         job.frontmatter.current_phase = decision.nextPhase;
+        job.frontmatter.iteration += 1;
         job.frontmatter.updated_at = new Date().toISOString();
         this.ctx.jobStore.save(job);
-        this.ctx.iterationStore.increment(jobId);
         return {
           type: "continue",
           jobId,

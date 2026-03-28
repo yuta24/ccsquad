@@ -4,9 +4,8 @@ import type {
   PhaseConfig,
   PhaseType,
   TransitionCondition,
-  Diagnostic,
 } from "./types.js";
-import { ALL_CONDITIONS, ALL_PHASE_TYPES, TASK_LIKE_TYPES } from "./types.js";
+import { ALL_CONDITIONS, ALL_PHASE_TYPES } from "./types.js";
 
 // ── Query functions ──
 
@@ -40,22 +39,7 @@ export function resolveTransition(
   return next;
 }
 
-export function maxIterations(wf: WorkflowConfig): number {
-  return wf.max_iterations ?? 10;
-}
-
 // ── Utilities ──
-
-export function isTaskLikeType(type: PhaseType): boolean {
-  return TASK_LIKE_TYPES.includes(type);
-}
-
-export function getOutputFormat(phase: PhaseConfig): string[] | null {
-  if (phase.output_format !== undefined) {
-    return phase.output_format;
-  }
-  return DEFAULT_OUTPUT_FORMATS[phase.type];
-}
 
 export function parseTransitionCondition(s: string): TransitionCondition {
   if (ALL_CONDITIONS.includes(s as TransitionCondition)) {
@@ -63,18 +47,6 @@ export function parseTransitionCondition(s: string): TransitionCondition {
   }
   throw new CcsquadError("workflow", `不明な遷移条件です: ${s}`);
 }
-
-// ── Default output formats ──
-
-const DEFAULT_OUTPUT_FORMATS: Record<PhaseType, string[] | null> = {
-  task: null,
-  research: ["## 調査結果", "## 影響範囲", "## 制約・リスク", "## 未解決事項"],
-  plan: ["## 目的", "## 設計方針", "## タスク一覧", "## 受け入れ条件"],
-  code: ["## 実装内容", "## 変更ファイル一覧", "## テスト結果"],
-  review: ["## レビュー判定", "## 指摘事項", "## 改善提案"],
-};
-
-// ── Validation ──
 
 export function validateConditionForPhase(
   phaseType: PhaseType,
@@ -89,97 +61,81 @@ export function validateConditionForPhase(
   }
 }
 
-// ── Lint ──
+// ── Workflow parser (from job body) ──
 
-export function lint(wf: WorkflowConfig, workflowName: string): Diagnostic[] {
-  const diagnostics: Diagnostic[] = [];
-
-  if (wf.phases.length === 0) {
-    diagnostics.push({ severity: "error", workflow: workflowName, message: "フェーズが定義されていません" });
-    return diagnostics;
+export function parseWorkflowFromBody(body: string): WorkflowConfig {
+  const section = extractWorkflowSection(body);
+  if (!section) {
+    throw new CcsquadError("workflow", "ジョブに Workflow セクションが定義されていません");
   }
 
-  const phaseNames = new Set(wf.phases.map((p) => p.name));
+  const phases: PhaseConfig[] = [];
+  const lines = section.split("\n").filter((l) => l.trim().startsWith("-"));
 
+  for (const line of lines) {
+    // "- research: plan -> completed:design, failed:ABORT"
+    const content = line.replace(/^-\s*/, "").trim();
+    const arrowMatch = content.split(/\s*(?:→|->)\s*/);
+    if (arrowMatch.length !== 2) {
+      throw new CcsquadError("workflow", `不正なフェーズ定義です: ${line.trim()}`);
+    }
+    const [nameType, transitionsStr] = arrowMatch;
+    const colonIdx = nameType.indexOf(":");
+    if (colonIdx === -1) {
+      throw new CcsquadError("workflow", `フェーズ名とタイプの区切り ':' がありません: ${nameType}`);
+    }
+    const name = nameType.slice(0, colonIdx).trim();
+    const type = nameType.slice(colonIdx + 1).trim();
+
+    if (!ALL_PHASE_TYPES.includes(type as PhaseType)) {
+      throw new CcsquadError("workflow", `不正なフェーズタイプ: ${type} (${ALL_PHASE_TYPES.join(", ")} を指定してください)`);
+    }
+
+    const on: Partial<Record<TransitionCondition, string>> = {};
+    for (const pair of transitionsStr.split(",")) {
+      const trimmed = pair.trim();
+      const pairColonIdx = trimmed.indexOf(":");
+      if (pairColonIdx === -1) {
+        throw new CcsquadError("workflow", `遷移ルールの形式が不正です: ${trimmed}`);
+      }
+      const cond = trimmed.slice(0, pairColonIdx).trim();
+      const target = trimmed.slice(pairColonIdx + 1).trim();
+      if (!ALL_CONDITIONS.includes(cond as TransitionCondition)) {
+        throw new CcsquadError("workflow", `不明な遷移条件です: ${cond}`);
+      }
+      on[cond as TransitionCondition] = target;
+    }
+
+    phases.push({ name, type: type as PhaseType, on });
+  }
+
+  if (phases.length === 0) {
+    throw new CcsquadError("workflow", "Workflow セクションにフェーズが定義されていません");
+  }
+
+  return { phases };
+}
+
+export function generateWorkflowSection(wf: WorkflowConfig): string {
+  let result = "## Workflow\n\n";
   for (const phase of wf.phases) {
-    if (!ALL_PHASE_TYPES.includes(phase.type)) {
-      diagnostics.push({
-        severity: "error",
-        workflow: workflowName,
-        phase: phase.name,
-        message: `type '${phase.type}' が不正です (${ALL_PHASE_TYPES.join(", ")} を指定してください)`,
-      });
-      continue;
-    }
-
-    for (const next of Object.values(phase.on)) {
-      if (next !== "COMPLETE" && next !== "ABORT" && !phaseNames.has(next)) {
-        diagnostics.push({
-          severity: "error",
-          workflow: workflowName,
-          phase: phase.name,
-          message: `遷移先 '${next}' が存在しません`,
-        });
-      }
-    }
-
-    if (phase.type === "review") {
-      if (!phase.reviewer) {
-        diagnostics.push({ severity: "error", workflow: workflowName, phase: phase.name, message: "reviewer が設定されていません" });
-      }
-      if (phase.agent) {
-        diagnostics.push({ severity: "error", workflow: workflowName, phase: phase.name, message: "agent は設定できません" });
-      }
-      if (!phase.on["approved"]) {
-        diagnostics.push({ severity: "error", workflow: workflowName, phase: phase.name, message: "'approved' ルールがありません" });
-      }
-      if (!phase.on["rejected"]) {
-        diagnostics.push({ severity: "error", workflow: workflowName, phase: phase.name, message: "'rejected' ルールがありません" });
-      }
-    } else {
-      if (!phase.agent) {
-        diagnostics.push({ severity: "error", workflow: workflowName, phase: phase.name, message: "agent が設定されていません" });
-      }
-      if (phase.reviewer) {
-        diagnostics.push({ severity: "error", workflow: workflowName, phase: phase.name, message: "reviewer は設定できません" });
-      }
-      if (!phase.on["completed"]) {
-        diagnostics.push({ severity: "error", workflow: workflowName, phase: phase.name, message: "'completed' ルールがありません" });
-      }
-      if (!phase.on["failed"]) {
-        diagnostics.push({ severity: "warning", workflow: workflowName, phase: phase.name, message: "'failed' ルールがありません" });
-      }
-    }
+    const transitions = Object.entries(phase.on)
+      .map(([cond, target]) => `${cond}:${target}`)
+      .join(", ");
+    result += `- ${phase.name}: ${phase.type} -> ${transitions}\n`;
   }
+  return result;
+}
 
-  // Detect unreachable phases
-  const initial = wf.phases[0];
-  const reachable = new Set<string>();
-  const stack = [initial.name];
-  while (stack.length > 0) {
-    const phaseName = stack.pop()!;
-    if (reachable.has(phaseName)) continue;
-    reachable.add(phaseName);
-    const phase = getPhase(wf, phaseName);
-    if (phase) {
-      for (const next of Object.values(phase.on)) {
-        if (next !== "COMPLETE" && next !== "ABORT") {
-          stack.push(next);
-        }
-      }
-    }
+function extractWorkflowSection(body: string): string | null {
+  const header = /^## Workflow\s*$/m;
+  const match = body.match(header);
+  if (!match || match.index === undefined) return null;
+
+  const start = match.index + match[0].length;
+  const nextHeader = body.indexOf("\n## ", start);
+  if (nextHeader !== -1) {
+    return body.slice(start, nextHeader);
   }
-
-  for (const phase of wf.phases) {
-    if (!reachable.has(phase.name)) {
-      diagnostics.push({
-        severity: "warning",
-        workflow: workflowName,
-        phase: phase.name,
-        message: "到達不能なフェーズです",
-      });
-    }
-  }
-
-  return diagnostics;
+  return body.slice(start);
 }

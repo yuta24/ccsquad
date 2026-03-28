@@ -14,57 +14,41 @@ ccsquad CLI のジョブ管理機能を操作するスキル。ジョブはス�
 ## 前提条件
 
 - `ccsquad` CLI バイナリがパスに存在すること
-- プロジェクトルートに `ccsquad.yaml` が存在すること
 
-## ワークフロー設定 (ccsquad.yaml)
+## ワークフローの定義
 
-ワークフローは `ccsquad.yaml` で定義する。各フェーズには `type` を指定し、遷移先は `on:` で明示的に指定する。
-
-```yaml
-workflows:
-  dev:
-    description: 開発ワークフロー
-    max_iterations: 10
-    phases:
-      - name: code
-        type: task
-        description: コードを実装する
-        agent: coder
-        on:
-          completed: review
-          failed: code
-      - name: review
-        type: review
-        description: コードレビューを行う
-        reviewer: human
-        on:
-          approved: COMPLETE
-          rejected: code
-```
+ワークフローはジョブ作成時にインラインで指定する。事前定義ファイルは不要。
 
 ### フェーズタイプ
 
-- **task**: エージェントが作業を実行するフェーズ。`agent` が必須。遷移条件は `completed` / `failed`。
-- **review**: レビューを行うフェーズ。`reviewer` が必須（`human` または エージェント名）。遷移条件は `approved` / `rejected`。
+- **plan**: 調査・計画・タスク分解を行うフェーズ。遷移条件は `completed` / `failed`。
+- **execute**: コーディング・タスク実行を行うフェーズ。遷移条件は `completed` / `failed`。
+- **review**: コードレビュー・動作確認を行うフェーズ。遷移条件は `approved` / `rejected`。
 
 ### ワークフローの規約
 
-- `phases` 配列の最初の要素が開始フェーズになる
-- `type: task` フェーズ: `agent` 必須、`on.completed` 必須
-- `type: review` フェーズ: `reviewer` 必須、`on.approved` と `on.rejected` 必須
+- フェーズの最初の要素が開始フェーズになる
 - 特殊値: `COMPLETE`(成功終了)、`ABORT`(失敗終了)
-- `on.failed` はオプション（定義しない場合、failed での遷移はエラーになる）
+- review フェーズへの遷移は常に一時停止する（人間の判断を待つ）
 
 ## CLI コマンド
 
 ### ジョブの作成
 
 ```bash
-ccsquad job add "タイトル" --workflow <ワークフロー名> [--description "説明"] [--priority N] [--depends-on ID1,ID2]
+ccsquad job add "タイトル" \
+  --phases "research:plan,design:plan,code:execute,review:review,verify:review" \
+  --transitions "research:completed>design,research:failed>ABORT,design:completed>code,design:failed>ABORT,code:completed>review,code:failed>design,review:approved>verify,review:rejected>code,verify:approved>COMPLETE,verify:rejected>code" \
+  [--description "説明"] \
+  [--priority N] \
+  [--depends-on ID1,ID2] \
+  [--max-iterations N]
 ```
 
-- `--workflow` は必須。`ccsquad.yaml` に定義されたワークフロー名を指定する。
+- `--phases` は必須。`name:type` のカンマ区切りで指定する。
+- `--transitions` は必須。`phase:condition>target` のカンマ区切りで指定する。
 - `--depends-on` で依存ジョブを指定できる。循環依存はエラーになる。
+- `--max-iterations` でイテレーション上限を設定（デフォルト: 10）。
 
 ### ジョブの一覧
 
@@ -78,16 +62,6 @@ ccsquad job list
 ccsquad job show <ID>
 ccsquad job show <ID> --format json
 ```
-
-- `--format json` でマシンリーダブルな出力を得られる。現フェーズの設定（type, agent, reviewer）も含まれる。
-
-### ジョブの編集
-
-```bash
-ccsquad job edit <ID> [--title "新タイトル"] [--description "新説明"] [--priority N] [--depends-on ID1,ID2]
-```
-
-- `status` や `current_phase` は変更不可（エンジンが管理するフィールド）。
 
 ### ジョブの開始
 
@@ -106,7 +80,7 @@ ccsquad job transition <ID> <completed|failed> [--message "メッセージ"]
 ```
 
 - review フェーズでは使用不可（`approve`/`reject` を使う）。
-- 対応する `on` ルールがなければエラー。
+- 対応する遷移ルールがなければエラー。
 
 ### レビュー承認/却下
 
@@ -116,7 +90,6 @@ ccsquad job reject <ID> --message "却下理由"
 ```
 
 - review フェーズでのみ使用可。
-- `reject` は `--message` が必須。
 
 ### ジョブの中断
 
@@ -147,9 +120,10 @@ ccsquad job abort <ID>
 ---
 id: J000001
 title: 認証機能の実装
-workflow: dev
 status: running
 current_phase: code
+iteration: 2
+max_iterations: 10
 priority: 5
 depends_on: [J000001, J000002]
 created_at: 2026-03-24T09:00:00Z
@@ -158,7 +132,17 @@ updated_at: 2026-03-24T11:00:00Z
 ## 説明
 JWT ベースの認証機能を実装する。
 
+## Workflow
+
+- research: plan -> completed:design, failed:ABORT
+- design: plan -> completed:code, failed:ABORT
+- code: execute -> completed:review, failed:design
+- review: review -> approved:verify, rejected:code
+- verify: review -> approved:COMPLETE, rejected:code
+
 ## フェーズログ
-### code (completed → review) - 2026-03-24T10:00:00Z
-実装完了。
+### research (completed → design) - 2026-03-24T09:30:00Z
+調査完了。
+### design (completed → code) - 2026-03-24T10:00:00Z
+設計完了。
 ```

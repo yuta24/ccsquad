@@ -2,41 +2,17 @@ import { describe, it, expect } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseConfig } from "../src/infra/config-loader.js";
 import type { JobStatus, Job } from "../src/domain/types.js";
 import { JobStore } from "../src/infra/job-store.js";
-import { IterationStore } from "../src/infra/iteration-store.js";
 import { OutputStore } from "../src/infra/output-store.js";
-import { EntryStore } from "../src/infra/entry-store.js";
 import { JobService, checkCircularDependency } from "../src/app/job-service.js";
 import type { ProjectContext } from "../src/app/project-context.js";
 
-const DEV_CONFIG_YAML = `
-workflows:
-  dev:
-    description: 開発ワークフロー
-    phases:
-      - name: plan
-        type: task
-        description: 計画
-        agent: planner
-        on:
-          completed: code
-          failed: ABORT
-      - name: code
-        type: task
-        description: 実装
-        agent: coder
-        on:
-          completed: review
-          failed: plan
-      - name: review
-        type: review
-        description: レビュー
-        reviewer: human
-        on:
-          approved: COMPLETE
-          rejected: code
+const DEV_WORKFLOW_BODY = `## Workflow
+
+- plan: plan -> completed:code, failed:ABORT
+- code: execute -> completed:review, failed:plan
+- review: review -> approved:COMPLETE, rejected:code
 `;
 
 function makeJob(id: string, status: JobStatus): Job {
@@ -45,35 +21,30 @@ function makeJob(id: string, status: JobStatus): Job {
     frontmatter: {
       id,
       title: "テスト",
-      workflow: "dev",
       status,
+      iteration: 0,
+      max_iterations: 10,
       priority: 0,
       depends_on: [],
       created_at: now,
       updated_at: now,
     },
-    body: "",
+    body: DEV_WORKFLOW_BODY,
   };
 }
 
 function setup(): { ctx: ProjectContext; jobService: JobService } {
   const dir = mkdtempSync(join(tmpdir(), "ccsquad-engine-test-"));
   const jobsDir = join(dir, "jobs");
-  const memoryDir = join(dir, "memory");
   const outputsDir = join(dir, "outputs");
   const store = new JobStore(jobsDir);
   store.ensureDir();
-  const workflows = parseConfig(DEV_CONFIG_YAML);
   const ctx: ProjectContext = {
-    workflows,
     jobStore: store,
-    iterationStore: new IterationStore(dir),
-    entryStore: new EntryStore(memoryDir),
     outputStore: new OutputStore(outputsDir),
     projectRoot: dir,
     squadDir: dir,
     jobsDir,
-    memoryDir,
     outputsDir,
   };
   const jobService = new JobService(ctx);
@@ -242,108 +213,27 @@ describe("JobService (replaces WorkflowEngine)", () => {
     expect(job.frontmatter.status).toBe("aborted");
   });
 
-  it("test_close_running_job", () => {
+  it("test_iteration_increments_on_continue", () => {
     const { ctx, jobService } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
     jobService.start("J000001");
 
-    const job = jobService.close("J000001");
-    expect(job.frontmatter.status).toBe("closed");
-    expect(job.frontmatter.current_phase).toBeUndefined();
-    expect(job.body).toContain("手動クローズ");
+    expect(ctx.jobStore.load("J000001").frontmatter.iteration).toBe(0);
+
+    jobService.transition("J000001", "completed", "");
+
+    expect(ctx.jobStore.load("J000001").frontmatter.iteration).toBe(1);
   });
 
-  it("test_close_pending_job", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "pending"));
-
-    const job = jobService.close("J000001");
-    expect(job.frontmatter.status).toBe("closed");
-  });
-
-  it("test_close_failed_job", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "failed"));
-
-    const job = jobService.close("J000001");
-    expect(job.frontmatter.status).toBe("closed");
-  });
-
-  it("test_close_aborted_job", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "aborted"));
-
-    const job = jobService.close("J000001");
-    expect(job.frontmatter.status).toBe("closed");
-  });
-
-  it("test_close_completed_job", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "completed"));
-
-    const job = jobService.close("J000001");
-    expect(job.frontmatter.status).toBe("closed");
-  });
-
-  it("test_close_already_closed_job_returns_error", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "closed"));
-
-    expect(() => jobService.close("J000001")).toThrow("既にクローズ");
-  });
-
-  it("test_close_removes_iteration", () => {
+  it("test_abort_resets_iteration", () => {
     const { ctx, jobService } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
     jobService.start("J000001");
-    ctx.iterationStore.increment("J000001");
-    expect(ctx.iterationStore.get("J000001")).toBe(1);
-
-    jobService.close("J000001", { force: true });
-    expect(ctx.iterationStore.get("J000001")).toBe(0);
-  });
-
-  it("test_abort_removes_iteration", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "pending"));
-    jobService.start("J000001");
-    ctx.iterationStore.increment("J000001");
-    expect(ctx.iterationStore.get("J000001")).toBe(1);
+    jobService.transition("J000001", "completed", "");
+    expect(ctx.jobStore.load("J000001").frontmatter.iteration).toBe(1);
 
     jobService.abort("J000001");
-    expect(ctx.iterationStore.get("J000001")).toBe(0);
-  });
-
-  it("test_close_blocks_when_dependents_exist", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "completed"));
-    const job2 = makeJob("J000002", "pending");
-    job2.frontmatter.depends_on = ["J000001"];
-    ctx.jobStore.save(job2);
-
-    expect(() => jobService.close("J000001")).toThrow("依存されています");
-  });
-
-  it("test_close_force_succeeds_with_dependents", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "completed"));
-    const job2 = makeJob("J000002", "pending");
-    job2.frontmatter.depends_on = ["J000001"];
-    ctx.jobStore.save(job2);
-
-    const job = jobService.close("J000001", { force: true });
-    expect(job.frontmatter.status).toBe("closed");
-  });
-
-  it("test_close_ignores_closed_dependents", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "completed"));
-    const job2 = makeJob("J000002", "closed");
-    job2.frontmatter.depends_on = ["J000001"];
-    ctx.jobStore.save(job2);
-
-    const job = jobService.close("J000001");
-    expect(job.frontmatter.status).toBe("closed");
+    expect(ctx.jobStore.load("J000001").frontmatter.iteration).toBe(0);
   });
 });
 

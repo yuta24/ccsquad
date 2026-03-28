@@ -1,47 +1,48 @@
-import { mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
-import type { WorkflowConfig } from "../domain/types.js";
-import { findConfigPathOrThrow, loadConfig } from "../infra/config-loader.js";
+import { mkdirSync, existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { JobStore } from "../infra/job-store.js";
-import { IterationStore } from "../infra/iteration-store.js";
-import { EntryStore } from "../infra/entry-store.js";
 import { OutputStore } from "../infra/output-store.js";
 
 export interface ProjectContext {
-  workflows: Record<string, WorkflowConfig>;
   jobStore: JobStore;
-  iterationStore: IterationStore;
-  entryStore: EntryStore;
   outputStore: OutputStore;
   projectRoot: string;
   squadDir: string;
   jobsDir: string;
-  memoryDir: string;
   outputsDir: string;
 }
 
-export function createProjectContext(configPath?: string): ProjectContext {
-  const resolvedPath = configPath ?? findConfigPathOrThrow();
-  const workflows = loadConfig(resolvedPath);
-  const projectRoot = dirname(resolvedPath);
+export function createProjectContext(): ProjectContext {
+  const projectRoot = findProjectRoot();
   const squadDir = join(projectRoot, ".ccsquad");
   const jobsDir = join(squadDir, "jobs");
-  const memoryDir = join(squadDir, "memory", "entries");
   const outputsDir = join(squadDir, "outputs");
   mkdirSync(jobsDir, { recursive: true });
-  mkdirSync(memoryDir, { recursive: true });
   mkdirSync(outputsDir, { recursive: true });
 
   return {
-    workflows,
     jobStore: new JobStore(jobsDir),
-    iterationStore: new IterationStore(squadDir),
-    entryStore: new EntryStore(memoryDir),
     outputStore: new OutputStore(outputsDir),
     projectRoot,
     squadDir,
     jobsDir,
-    memoryDir,
     outputsDir,
   };
+}
+
+function findProjectRoot(): string {
+  if (process.env.CCSQUAD_ROOT) {
+    return resolve(process.env.CCSQUAD_ROOT);
+  }
+
+  let dir = process.cwd();
+  while (true) {
+    if (existsSync(join(dir, ".ccsquad"))) return dir;
+    if (existsSync(join(dir, ".git"))) return dir;
+    const parent = resolve(dir, "..");
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  return process.cwd();
 }
