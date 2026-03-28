@@ -118,10 +118,11 @@ export class JobService {
     job.frontmatter.current_phase = undefined;
     job.frontmatter.updated_at = new Date().toISOString();
     this.ctx.jobStore.save(job);
+    this.ctx.iterationStore.remove(jobId);
     return job;
   }
 
-  close(jobId: string): Job {
+  close(jobId: string, opts?: { force?: boolean }): Job {
     const job = this.loadJob(jobId);
 
     if (job.frontmatter.status === "closed") {
@@ -129,6 +130,16 @@ export class JobService {
         "job",
         `ジョブ '${jobId}' は既にクローズされています`,
       );
+    }
+
+    if (!opts?.force) {
+      const dependents = this.findDependents(jobId);
+      if (dependents.length > 0) {
+        throw new CcsquadError(
+          "job",
+          `ジョブ '${jobId}' は他のジョブ (${dependents.join(", ")}) から依存されています。強制的にクローズするには --force を指定してください`,
+        );
+      }
     }
 
     if (job.frontmatter.status === "running" && job.frontmatter.current_phase !== undefined) {
@@ -140,7 +151,15 @@ export class JobService {
     job.frontmatter.current_phase = undefined;
     job.frontmatter.updated_at = new Date().toISOString();
     this.ctx.jobStore.save(job);
+    this.ctx.iterationStore.remove(jobId);
     return job;
+  }
+
+  findDependents(jobId: string): string[] {
+    const allJobs = this.ctx.jobStore.listAll();
+    return allJobs
+      .filter((j) => j.frontmatter.status !== "closed" && (j.frontmatter.depends_on ?? []).includes(jobId))
+      .map((j) => j.frontmatter.id);
   }
 
   list(): Job[] {

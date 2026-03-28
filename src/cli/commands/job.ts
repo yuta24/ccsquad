@@ -252,9 +252,9 @@ export function cmdAbort(ctx: ProjectContext, id: string): void {
   console.log(`ジョブを中断しました: ${id}`);
 }
 
-export function cmdClose(ctx: ProjectContext, id: string): void {
+export function cmdClose(ctx: ProjectContext, id: string, force: boolean = false): void {
   const jobService = new JobService(ctx);
-  jobService.close(id);
+  jobService.close(id, { force });
   console.log(`ジョブをクローズしました: ${id}`);
 }
 

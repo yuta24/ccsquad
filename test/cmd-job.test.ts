@@ -373,6 +373,26 @@ describe("cmdClose", () => {
     ctx.jobStore.save(makeJob("J000001", "closed"));
     expect(() => cmdClose(ctx, "J000001")).toThrow("既にクローズ");
   });
+
+  it("test_close_blocks_when_dependents_exist", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "completed"));
+    const job2 = makeJob("J000002", "pending");
+    job2.frontmatter.depends_on = ["J000001"];
+    ctx.jobStore.save(job2);
+    expect(() => cmdClose(ctx, "J000001")).toThrow("依存されています");
+  });
+
+  it("test_close_force_succeeds_with_dependents", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "completed"));
+    const job2 = makeJob("J000002", "pending");
+    job2.frontmatter.depends_on = ["J000001"];
+    ctx.jobStore.save(job2);
+    cmdClose(ctx, "J000001", true);
+    const job = ctx.jobStore.load("J000001");
+    expect(job.frontmatter.status).toBe("closed");
+  });
 });
 
 // ─── cmdList ─────────────────────────────────────────────────────────────────

@@ -291,6 +291,60 @@ describe("JobService (replaces WorkflowEngine)", () => {
 
     expect(() => jobService.close("J000001")).toThrow("既にクローズ");
   });
+
+  it("test_close_removes_iteration", () => {
+    const { ctx, jobService } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    jobService.start("J000001");
+    ctx.iterationStore.increment("J000001");
+    expect(ctx.iterationStore.get("J000001")).toBe(1);
+
+    jobService.close("J000001", { force: true });
+    expect(ctx.iterationStore.get("J000001")).toBe(0);
+  });
+
+  it("test_abort_removes_iteration", () => {
+    const { ctx, jobService } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    jobService.start("J000001");
+    ctx.iterationStore.increment("J000001");
+    expect(ctx.iterationStore.get("J000001")).toBe(1);
+
+    jobService.abort("J000001");
+    expect(ctx.iterationStore.get("J000001")).toBe(0);
+  });
+
+  it("test_close_blocks_when_dependents_exist", () => {
+    const { ctx, jobService } = setup();
+    ctx.jobStore.save(makeJob("J000001", "completed"));
+    const job2 = makeJob("J000002", "pending");
+    job2.frontmatter.depends_on = ["J000001"];
+    ctx.jobStore.save(job2);
+
+    expect(() => jobService.close("J000001")).toThrow("依存されています");
+  });
+
+  it("test_close_force_succeeds_with_dependents", () => {
+    const { ctx, jobService } = setup();
+    ctx.jobStore.save(makeJob("J000001", "completed"));
+    const job2 = makeJob("J000002", "pending");
+    job2.frontmatter.depends_on = ["J000001"];
+    ctx.jobStore.save(job2);
+
+    const job = jobService.close("J000001", { force: true });
+    expect(job.frontmatter.status).toBe("closed");
+  });
+
+  it("test_close_ignores_closed_dependents", () => {
+    const { ctx, jobService } = setup();
+    ctx.jobStore.save(makeJob("J000001", "completed"));
+    const job2 = makeJob("J000002", "closed");
+    job2.frontmatter.depends_on = ["J000001"];
+    ctx.jobStore.save(job2);
+
+    const job = jobService.close("J000001");
+    expect(job.frontmatter.status).toBe("closed");
+  });
 });
 
 describe("JobService.getStatus", () => {

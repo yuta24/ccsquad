@@ -94,9 +94,11 @@ jobCmd.command("abort <id>").description("ジョブを中断").action((id: strin
   cmdAbort(createProjectContext(), id);
 });
 
-jobCmd.command("close <id>").description("ジョブをクローズ").action((id: string) => {
-  cmdClose(createProjectContext(), id);
-});
+jobCmd.command("close <id>").description("ジョブをクローズ")
+  .option("--force", "依存ジョブがあっても強制的にクローズ", false)
+  .action((id: string, opts: { force: boolean }) => {
+    cmdClose(createProjectContext(), id, opts.force);
+  });
 
 jobCmd.command("next-action <id>").description("サブエージェント完了後の次アクション判定")
   .requiredOption("--result <result>", "遷移条件")
