@@ -19,7 +19,11 @@ import type { ProjectContext } from "../src/app/project-context.js";
 const PHASES = "plan:plan,code:execute,review:review";
 const TRANSITIONS = "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code";
 
-const WORKFLOW_BODY = `## Workflow
+const WORKFLOW_BODY = `## Acceptance Criteria
+
+- [ ] テスト基準
+
+## Workflow
 
 - plan: plan -> completed:code, failed:ABORT
 - code: execute -> completed:review, failed:plan

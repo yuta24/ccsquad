@@ -8,14 +8,22 @@ import { JobService } from "../src/app/job-service.js";
 import { validateConditionForPhase } from "../src/domain/workflow.js";
 import type { ProjectContext } from "../src/app/project-context.js";
 
-const WORKFLOW_BODY = `## Workflow
+const WORKFLOW_BODY = `## Acceptance Criteria
+
+- [ ] テスト基準
+
+## Workflow
 
 - plan: plan -> completed:code, failed:ABORT
 - code: execute -> completed:review, failed:plan
 - review: review -> approved:COMPLETE, rejected:code
 `;
 
-const WORKFLOW_BODY_MAX3 = `## Workflow
+const WORKFLOW_BODY_MAX3 = `## Acceptance Criteria
+
+- [ ] テスト基準
+
+## Workflow
 
 - plan: plan -> completed:code, failed:ABORT
 - code: execute -> completed:review, failed:plan

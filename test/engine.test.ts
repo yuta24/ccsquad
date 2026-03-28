@@ -7,7 +7,18 @@ import { JobStore } from "../src/infra/job-store.js";
 import { JobService, checkCircularDependency } from "../src/app/job-service.js";
 import type { ProjectContext } from "../src/app/project-context.js";
 
-const DEV_WORKFLOW_BODY = `## Workflow
+const DEV_WORKFLOW_BODY = `## Acceptance Criteria
+
+- [ ] テスト基準
+
+## Workflow
+
+- plan: plan -> completed:code, failed:ABORT
+- code: execute -> completed:review, failed:plan
+- review: review -> approved:COMPLETE, rejected:code
+`;
+
+const DEV_WORKFLOW_BODY_NO_AC = `## Workflow
 
 - plan: plan -> completed:code, failed:ABORT
 - code: execute -> completed:review, failed:plan
@@ -219,6 +230,28 @@ describe("JobService (replaces WorkflowEngine)", () => {
     jobService.transition("J000001", "completed", "");
 
     expect(ctx.jobStore.load("J000001").frontmatter.iteration).toBe(1);
+  });
+
+  it("test_transition_to_execute_without_ac_throws", () => {
+    const { ctx, jobService } = setup();
+    const job = makeJob("J000001", "pending");
+    job.body = DEV_WORKFLOW_BODY_NO_AC;
+    ctx.jobStore.save(job);
+    jobService.start("J000001");
+
+    // plan -> completed -> code should fail without AC
+    expect(() => jobService.transition("J000001", "completed", "計画完了")).toThrow("Acceptance Criteria");
+  });
+
+  it("test_transition_to_execute_with_ac_succeeds", () => {
+    const { ctx, jobService } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    jobService.start("J000001");
+
+    // plan -> completed -> code should succeed with AC
+    const result = jobService.transition("J000001", "completed", "計画完了");
+    expect(result.type).toBe("continue");
+    if (result.type === "continue") expect(result.nextPhase).toBe("code");
   });
 
   it("test_abort_resets_iteration", () => {

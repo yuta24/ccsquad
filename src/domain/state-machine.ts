@@ -14,6 +14,8 @@ export interface TransitionInput {
   condition: TransitionCondition;
 }
 
+const AC_HEADING_RE = /^##\s+Acceptance\s+Criteria/mi;
+
 /**
  * Pure function: given current state, compute the transition decision.
  * No I/O, no saves, no side effects.
@@ -54,6 +56,14 @@ export function computeTransition(input: TransitionInput): TransitionDecision {
   const nextPhaseConfig = getPhase(workflow, next);
   if (!nextPhaseConfig) {
     throw new CcsquadError("workflow", `遷移先フェーズ '${next}' がワークフローに定義されていません`);
+  }
+
+  // Acceptance Criteria guard: block transition into execute phase without AC
+  if (nextPhaseConfig.type === "execute" && !AC_HEADING_RE.test(job.body)) {
+    throw new CcsquadError(
+      "workflow",
+      `execute フェーズ '${next}' への遷移には Acceptance Criteria が必要です。ジョブ body に '## Acceptance Criteria' セクションを追加してください`,
+    );
   }
 
   // Max iterations check
