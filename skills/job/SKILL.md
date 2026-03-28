@@ -99,6 +99,34 @@ ccsquad job abort <ID>
 
 - `pending` または `running` のジョブを `aborted` にする。
 
+## 受入基準（Acceptance Criteria）の運用
+
+ジョブの body には `## Acceptance Criteria` セクションを必ず含める。
+これにより「何をもって完了とするか」を実装前に合意し、レビューの判断基準を明確にする。
+
+### タイミング
+
+- **ジョブ作成時**: `--description` に初期の受入基準を含める。この時点では粗い粒度でよい。
+- **plan フェーズ完了時**: 受入基準を具体的なチェックリストに更新してから transition する。execute フェーズに入る前に基準が曖昧なままであってはならない。
+
+### フォーマット
+
+ジョブ body に以下の形式で記載する:
+
+```markdown
+## Acceptance Criteria
+
+- [ ] 基準1: 具体的な完了条件
+- [ ] 基準2: 具体的な完了条件
+- [ ] 基準3: 具体的な完了条件
+```
+
+### ルール
+
+- execute フェーズに遷移する前に、`## Acceptance Criteria` が具体的に定義されていること。
+- review フェーズでは Acceptance Criteria の各項目を検証し、すべて満たされていることを確認する。
+- reject 時は、どの基準が未達かを `--message` に明記する。
+
 ## ジョブのライフサイクル
 
 ```
@@ -131,6 +159,13 @@ updated_at: 2026-03-24T11:00:00Z
 ---
 ## 説明
 JWT ベースの認証機能を実装する。
+
+## Acceptance Criteria
+
+- [ ] POST /auth/login でJWTトークンを返す
+- [ ] トークンの有効期限が設定されている
+- [ ] 認証ミドルウェアが保護エンドポイントに適用されている
+- [ ] 無効なトークンで401が返る
 
 ## Workflow
 
