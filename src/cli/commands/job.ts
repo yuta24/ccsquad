@@ -6,6 +6,7 @@ import type { ProjectContext } from "../../app/project-context.js";
 import { JobService, checkCircularDependency } from "../../app/job-service.js";
 import type { TransitionResult } from "../../app/job-service.js";
 import { truncate } from "../../util.js";
+import { computeMetrics, formatMetricsText, formatMetricsJson } from "../../domain/metrics.js";
 
 function printTransitionResult(result: TransitionResult): void {
   switch (result.type) {
@@ -206,4 +207,26 @@ export function cmdAbort(ctx: ProjectContext, id: string): void {
   const jobService = new JobService(ctx);
   jobService.abort(id);
   console.log(`ジョブを中断しました: ${id}`);
+}
+
+export function cmdSummary(ctx: ProjectContext, id: string, format: "text" | "json"): void {
+  const job = ctx.jobStore.load(id);
+  const metrics = computeMetrics(job);
+
+  if (metrics === null) {
+    if (format === "json") {
+      console.log(JSON.stringify({ id: job.frontmatter.id, error: "フェーズログがありません" }, null, 2));
+    } else {
+      console.log(`${job.frontmatter.id}: ${job.frontmatter.title}`);
+      console.log(`ステータス: ${job.frontmatter.status}`);
+      console.log("フェーズログがありません。");
+    }
+    return;
+  }
+
+  if (format === "json") {
+    console.log(JSON.stringify(formatMetricsJson(metrics), null, 2));
+  } else {
+    console.log(formatMetricsText(metrics));
+  }
 }

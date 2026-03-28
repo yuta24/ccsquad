@@ -5,7 +5,7 @@ import { createProjectContext } from "./app/project-context.js";
 import { CcsquadError } from "./error.js";
 import {
   cmdList, cmdShow, cmdAdd, cmdRun, cmdTransition,
-  cmdApprove, cmdReject, cmdAbort,
+  cmdApprove, cmdReject, cmdAbort, cmdSummary,
 } from "./cli/commands/job.js";
 
 const program = new Command();
@@ -62,6 +62,12 @@ jobCmd.command("reject <id>").description("レビュー却下")
 jobCmd.command("abort <id>").description("ジョブを中断").action((id: string) => {
   cmdAbort(createProjectContext(), id);
 });
+
+jobCmd.command("summary <id>").description("ジョブのメトリクスサマリーを表示")
+  .option("--format <format>", "出力形式 (text|json)", "text")
+  .action((id: string, opts: { format: string }) => {
+    cmdSummary(createProjectContext(), id, opts.format === "json" ? "json" : "text");
+  });
 
 // ===== entry point =====
 try {
