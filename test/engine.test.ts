@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JobStatus, Job } from "../src/domain/types.js";
 import { JobStore } from "../src/infra/job-store.js";
-import { OutputStore } from "../src/infra/output-store.js";
 import { JobService, checkCircularDependency } from "../src/app/job-service.js";
 import type { ProjectContext } from "../src/app/project-context.js";
 
@@ -36,16 +35,13 @@ function makeJob(id: string, status: JobStatus): Job {
 function setup(): { ctx: ProjectContext; jobService: JobService } {
   const dir = mkdtempSync(join(tmpdir(), "ccsquad-engine-test-"));
   const jobsDir = join(dir, "jobs");
-  const outputsDir = join(dir, "outputs");
   const store = new JobStore(jobsDir);
   store.ensureDir();
   const ctx: ProjectContext = {
     jobStore: store,
-    outputStore: new OutputStore(outputsDir),
     projectRoot: dir,
     squadDir: dir,
     jobsDir,
-    outputsDir,
   };
   const jobService = new JobService(ctx);
   return { ctx, jobService };

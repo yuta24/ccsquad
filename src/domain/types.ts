@@ -38,15 +38,3 @@ export interface Job {
   body: string;
 }
 
-// ── Output ──
-
-export interface NodeOutput {
-  seq: number;
-  phase: string;
-  executor: string;
-  result: string;
-  sessionId?: string;
-  iteration: number;
-  timestamp: string;
-  content: string;
-}

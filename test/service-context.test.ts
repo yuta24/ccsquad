@@ -22,11 +22,9 @@ describe("createProjectContext", () => {
       const ctx = createProjectContext();
 
       expect(ctx.jobStore).toBeDefined();
-      expect(ctx.outputStore).toBeDefined();
       expect(ctx.projectRoot).toBe(tmpDir);
       expect(ctx.squadDir).toBe(join(tmpDir, ".ccsquad"));
       expect(ctx.jobsDir).toBe(join(tmpDir, ".ccsquad", "jobs"));
-      expect(ctx.outputsDir).toBe(join(tmpDir, ".ccsquad", "outputs"));
     } finally {
       if (originalRoot !== undefined) {
         process.env.CCSQUAD_ROOT = originalRoot;
@@ -42,21 +40,6 @@ describe("createProjectContext", () => {
     try {
       const ctx = createProjectContext();
       expect(existsSync(ctx.jobsDir)).toBe(true);
-    } finally {
-      if (originalRoot !== undefined) {
-        process.env.CCSQUAD_ROOT = originalRoot;
-      } else {
-        delete process.env.CCSQUAD_ROOT;
-      }
-    }
-  });
-
-  it(".ccsquad/outputs ディレクトリを作成する", () => {
-    const originalRoot = process.env.CCSQUAD_ROOT;
-    process.env.CCSQUAD_ROOT = tmpDir;
-    try {
-      const ctx = createProjectContext();
-      expect(existsSync(ctx.outputsDir)).toBe(true);
     } finally {
       if (originalRoot !== undefined) {
         process.env.CCSQUAD_ROOT = originalRoot;

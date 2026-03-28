@@ -48,7 +48,7 @@ ccsquad job add "タイトル" \
 - `--phases` は必須。`name:type` のカンマ区切りで指定する。
 - `--transitions` は必須。`phase:condition>target` のカンマ区切りで指定する。
 - `--depends-on` で依存ジョブを指定できる。循環依存はエラーになる。
-- `--max-iterations` でイテレーション上限を設定（デフォルト: 10）。
+- `--max-iterations` でイテレーション上限を設定（デフォルト: 10）。上限到達時はフェーズが進まず一時停止（pause with reason: max_iterations）する。
 
 ### ジョブの一覧
 

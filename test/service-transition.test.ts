@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JobStore } from "../src/infra/job-store.js";
 import type { Job, JobStatus } from "../src/domain/types.js";
-import { OutputStore } from "../src/infra/output-store.js";
 import { JobService } from "../src/app/job-service.js";
 import { validateConditionForPhase } from "../src/domain/workflow.js";
 import type { ProjectContext } from "../src/app/project-context.js";
@@ -48,17 +47,14 @@ function makeJob(id: string, status: JobStatus, body = WORKFLOW_BODY): Job {
 function setup() {
   const dir = makeTmpDir();
   const jobsDir = join(dir, "jobs");
-  const outputsDir = join(dir, "outputs");
   const store = new JobStore(jobsDir);
   store.ensureDir();
 
   const ctx: ProjectContext = {
     jobStore: store,
-    outputStore: new OutputStore(outputsDir),
     projectRoot: dir,
     squadDir: dir,
     jobsDir,
-    outputsDir,
   };
 
   const jobService = new JobService(ctx);

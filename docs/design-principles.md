@@ -6,11 +6,11 @@
 
 ### 1. リソースのクリーンアップ
 
-終了状態（completed, failed, aborted, closed）に遷移する全経路で、関連リソースの後始末が行われるか確認する。
+終了状態（completed, failed, aborted）に遷移する全経路で、関連リソースの後始末が行われるか確認する。
 
 対象リソース:
-- `iterationStore`: ジョブのイテレーションカウンタを `remove()` する
-- `outputStore`: 必要に応じて出力ファイルを整理する
+- `frontmatter.iteration`: 終了時に 0 にリセットする
+- `frontmatter.current_phase`: 終了時に `undefined` にする
 
 ### 2. 被参照の影響
 
@@ -22,9 +22,8 @@
 
 ### 3. 全経路の網羅
 
-同じ終了状態に至る経路が複数ある場合、全経路で同じ後処理が行われるか確認する。終了処理は `finalizeJob()` のような共通メソッドに集約し、各経路から呼び出す形が望ましい。
+同じ終了状態に至る経路が複数ある場合、全経路で同じ後処理が行われるか確認する。終了処理は `applyDecision()` のような共通メソッドに集約し、各経路から呼び出す形が望ましい。
 
 現在の終了経路:
 - `applyDecision()` の complete/abort: 通常の状態遷移による終了
 - `abort()`: 手動中断
-- `close()`: 手動破棄

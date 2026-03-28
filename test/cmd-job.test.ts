@@ -14,7 +14,6 @@ import {
 } from "../src/cli/commands/job.js";
 import { JobStore } from "../src/infra/job-store.js";
 import type { Job, JobStatus } from "../src/domain/types.js";
-import { OutputStore } from "../src/infra/output-store.js";
 import type { ProjectContext } from "../src/app/project-context.js";
 
 const PHASES = "plan:plan,code:execute,review:review";
@@ -52,16 +51,13 @@ function makeJob(id: string, status: JobStatus): Job {
 function setup(): { ctx: ProjectContext } {
   const dir = makeTmpDir();
   const jobsDir = join(dir, "jobs");
-  const outputsDir = join(dir, "outputs");
   const store = new JobStore(jobsDir);
   store.ensureDir();
   const ctx: ProjectContext = {
     jobStore: store,
-    outputStore: new OutputStore(outputsDir),
     projectRoot: dir,
     squadDir: dir,
     jobsDir,
-    outputsDir,
   };
   return { ctx };
 }
