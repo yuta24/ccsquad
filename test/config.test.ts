@@ -1,6 +1,16 @@
 import { describe, it, expect } from "bun:test";
-import { SquadConfigImpl, parseTransitionCondition, isTaskLikeType, getOutputFormat } from "../src/config.js";
-import type { PhaseConfig } from "../src/config.js";
+import { parseConfig } from "../src/infra/config-loader.js";
+import {
+  initialPhase,
+  getPhase,
+  resolveTransition,
+  maxIterations,
+  parseTransitionCondition,
+  isTaskLikeType,
+  getOutputFormat,
+  lint,
+} from "../src/domain/workflow.js";
+import type { PhaseConfig } from "../src/domain/types.js";
 import { CcsquadError } from "../src/error.js";
 
 function devWorkflowYaml(): string {
@@ -35,19 +45,19 @@ workflows:
 
 describe("config", () => {
   it("配列型phasesをパースする", () => {
-    const config = SquadConfigImpl.parse(devWorkflowYaml());
-    expect(Object.keys(config.workflows).length).toBe(1);
-    const dev = config.getWorkflow("dev");
+    const workflows = parseConfig(devWorkflowYaml());
+    expect(Object.keys(workflows).length).toBe(1);
+    const dev = workflows["dev"];
     expect(dev).toBeDefined();
-    expect(dev!.initialPhase().name).toBe("plan");
-    expect(dev!.phases.length).toBe(3);
-    const review = dev!.getPhase("review");
+    expect(initialPhase(dev).name).toBe("plan");
+    expect(dev.phases.length).toBe(3);
+    const review = getPhase(dev, "review");
     expect(review?.reviewer).toBe("human");
   });
 
   it("有効な設定のバリデーション", () => {
-    const config = SquadConfigImpl.parse(devWorkflowYaml());
-    const diagnostics = config.lint();
+    const workflows = parseConfig(devWorkflowYaml());
+    const diagnostics = lint(workflows["dev"], "dev");
     expect(diagnostics.length).toBe(0);
   });
 
@@ -57,8 +67,8 @@ workflows:
   test:
     phases: []
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const errors = diagnostics.filter(d => d.severity === "error");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].message).toContain("フェーズが定義されていません");
@@ -75,8 +85,8 @@ workflows:
         on:
           completed: nonexistent
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const errors = diagnostics.filter(d => d.severity === "error");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].message).toContain("存在しません");
@@ -91,8 +101,8 @@ workflows:
         type: task
         agent: planner
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const errors = diagnostics.filter(d => d.severity === "error");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].message).toContain("completed");
@@ -109,8 +119,8 @@ workflows:
         on:
           rejected: ABORT
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const errors = diagnostics.filter(d => d.severity === "error");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].message).toContain("approved");
@@ -127,8 +137,8 @@ workflows:
         on:
           approved: COMPLETE
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const errors = diagnostics.filter(d => d.severity === "error");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].message).toContain("rejected");
@@ -150,8 +160,8 @@ workflows:
         on:
           completed: COMPLETE
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const warnings = diagnostics.filter(d => d.severity === "warning");
     expect(warnings.length).toBe(1);
     expect(warnings[0].phase).toContain("orphan");
@@ -159,20 +169,20 @@ workflows:
   });
 
   it("遷移先の解決", () => {
-    const config = SquadConfigImpl.parse(devWorkflowYaml());
-    const dev = config.getWorkflow("dev")!;
+    const workflows = parseConfig(devWorkflowYaml());
+    const dev = workflows["dev"];
 
-    expect(dev.resolveTransition("plan", "completed")).toBe("code");
-    expect(dev.resolveTransition("plan", "failed")).toBe("ABORT");
-    expect(dev.resolveTransition("code", "failed")).toBe("plan");
-    expect(dev.resolveTransition("review", "approved")).toBe("COMPLETE");
-    expect(dev.resolveTransition("review", "rejected")).toBe("code");
+    expect(resolveTransition(dev, "plan", "completed")).toBe("code");
+    expect(resolveTransition(dev, "plan", "failed")).toBe("ABORT");
+    expect(resolveTransition(dev, "code", "failed")).toBe("plan");
+    expect(resolveTransition(dev, "review", "approved")).toBe("COMPLETE");
+    expect(resolveTransition(dev, "review", "rejected")).toBe("code");
   });
 
   it("一致するルールなしでエラー", () => {
-    const config = SquadConfigImpl.parse(devWorkflowYaml());
-    const dev = config.getWorkflow("dev")!;
-    expect(() => dev.resolveTransition("code", "rejected")).toThrow(CcsquadError);
+    const workflows = parseConfig(devWorkflowYaml());
+    const dev = workflows["dev"];
+    expect(() => resolveTransition(dev, "code", "rejected")).toThrow(CcsquadError);
   });
 
   it("TransitionConditionの表示とパース", () => {
@@ -195,8 +205,8 @@ workflows:
         on:
           completed: COMPLETE
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const errors = diagnostics.filter(d => d.severity === "error");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].message).toContain("type");
@@ -212,8 +222,8 @@ workflows:
         on:
           completed: COMPLETE
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const errors = diagnostics.filter(d => d.severity === "error");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].message).toContain("agent");
@@ -230,8 +240,8 @@ workflows:
           approved: COMPLETE
           rejected: ABORT
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const errors = diagnostics.filter(d => d.severity === "error");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].message).toContain("reviewer");
@@ -249,8 +259,8 @@ workflows:
         on:
           completed: COMPLETE
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const errors = diagnostics.filter(d => d.severity === "error");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].message).toContain("reviewer");
@@ -269,8 +279,8 @@ workflows:
           approved: COMPLETE
           rejected: ABORT
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const errors = diagnostics.filter(d => d.severity === "error");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].message).toContain("agent");
@@ -287,17 +297,17 @@ workflows:
         on:
           completed: COMPLETE
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const errors = diagnostics.filter(d => d.severity === "error");
     expect(errors.length).toBeGreaterThan(0);
   });
 
   it("max_iterationsのデフォルト値は10", () => {
-    const config = SquadConfigImpl.parse(devWorkflowYaml());
-    const dev = config.getWorkflow("dev")!;
+    const workflows = parseConfig(devWorkflowYaml());
+    const dev = workflows["dev"];
     expect(dev.max_iterations).toBeUndefined();
-    expect(dev.maxIterations()).toBe(10);
+    expect(maxIterations(dev)).toBe(10);
   });
 
   it("max_iterationsのカスタム値", () => {
@@ -312,9 +322,9 @@ workflows:
         on:
           completed: COMPLETE
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const dev = config.getWorkflow("dev")!;
-    expect(dev.maxIterations()).toBe(5);
+    const workflows = parseConfig(yaml);
+    const dev = workflows["dev"];
+    expect(maxIterations(dev)).toBe(5);
   });
 
   it("promptフィールドがパースされる", () => {
@@ -330,16 +340,16 @@ workflows:
         on:
           completed: COMPLETE
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const dev = config.getWorkflow("dev")!;
-    const code = dev.getPhase("code");
+    const workflows = parseConfig(yaml);
+    const dev = workflows["dev"];
+    const code = getPhase(dev, "code");
     expect(code?.prompt).toContain("テストも必ず書くこと");
   });
 
   it("promptが未設定でも正常にパースされる", () => {
-    const config = SquadConfigImpl.parse(devWorkflowYaml());
-    const dev = config.getWorkflow("dev")!;
-    const plan = dev.getPhase("plan");
+    const workflows = parseConfig(devWorkflowYaml());
+    const dev = workflows["dev"];
+    const plan = getPhase(dev, "plan");
     expect(plan?.prompt).toBeUndefined();
   });
 });
@@ -402,8 +412,6 @@ describe("getOutputFormat", () => {
   });
 
   it("output_format: null 明示設定 → null が返る", () => {
-    // YAML パーサーが null を undefined に変換する場合もあるが、
-    // PhaseConfig 直接作成時は null として扱われる
     const phase = makePhase("research");
     phase.output_format = null;
     const result = getOutputFormat(phase);
@@ -428,9 +436,9 @@ workflows:
         on:
           completed: COMPLETE
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const dev = config.getWorkflow("dev")!;
-    const phase = dev.getPhase("analyze");
+    const workflows = parseConfig(yaml);
+    const dev = workflows["dev"];
+    const phase = getPhase(dev, "analyze");
     expect(phase?.output_format).toEqual(["## 調査結果", "## まとめ"]);
   });
 });
@@ -449,8 +457,8 @@ workflows:
         on:
           completed: COMPLETE
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const errors = diagnostics.filter(d => d.severity === "error");
     expect(errors.length).toBe(0);
   });
@@ -465,8 +473,8 @@ workflows:
         on:
           completed: COMPLETE
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const errors = diagnostics.filter(d => d.severity === "error");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].message).toContain("agent");
@@ -484,8 +492,8 @@ workflows:
         on:
           completed: COMPLETE
 `;
-    const config = SquadConfigImpl.parse(yaml);
-    const diagnostics = config.lint();
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
     const errors = diagnostics.filter(d => d.severity === "error");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].message).toContain("reviewer");

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { parse, write } from "../src/frontmatter.js";
+import { parse, write } from "../src/infra/frontmatter.js";
 
 describe("frontmatter", () => {
   describe("parse", () => {

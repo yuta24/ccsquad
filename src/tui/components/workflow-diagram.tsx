@@ -1,4 +1,4 @@
-import type { PhaseConfig } from "../../config.js";
+import type { PhaseConfig } from "../../domain/types.js";
 import { COLOR_GRAY } from "../constants.js";
 
 interface WorkflowDiagramProps {

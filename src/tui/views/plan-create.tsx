@@ -1,49 +1,84 @@
 import type { KeyEvent } from "@opentui/core";
-import { useKeyboard, extend } from "@opentui/react";
+import { useKeyboard } from "@opentui/react";
 import { spawn, type IPty } from "bun-pty";
+import { PersistentTerminal } from "ghostty-opentui";
 import { useRef, useEffect } from "react";
-import { GhosttyTerminalRenderable } from "ghostty-opentui/terminal-buffer";
-import type { SquadConfig } from "../../config.js";
-import { buildPlanCreateSystemPrompt } from "../../service/prompt-builder.js";
+import type { WorkflowConfig } from "../../domain/types.js";
+import { buildPlanCreateSystemPrompt } from "../../app/prompt-builder.js";
+import { OutputLine } from "../components/output-line.js";
+import type { DisplayLine } from "../../infra/stream-parser.js";
 import { StatusBar } from "../components/status-bar.js";
+import {
+  ATTR_BOLD, COLOR_WHITE, COLOR_CYAN, COLOR_GRAY, COLOR_HEADER_BG,
+} from "../constants.js";
 import { useTerminalSize } from "../hooks/use-terminal-size.js";
 import { useSyncedState } from "../hooks/use-synced-state.js";
 
-extend({ "ghostty-terminal": GhosttyTerminalRenderable });
+const STYLE_FLAG_BOLD = 1;
+const STYLE_FLAG_FAINT = 32;
+
+function terminalDataToDisplayLines(terminal: PersistentTerminal): DisplayLine[] {
+  const data = terminal.getJson();
+  const lines: DisplayLine[] = [];
+
+  for (const line of data.lines) {
+    const spans: { text: string; color: string; attrs: number }[] = [];
+    for (const span of line.spans) {
+      let color = span.fg ?? COLOR_WHITE;
+      let attrs = 0;
+      if (span.flags & STYLE_FLAG_BOLD) attrs |= ATTR_BOLD;
+      if (span.flags & STYLE_FLAG_FAINT) color = COLOR_GRAY;
+      spans.push({ text: span.text, color, attrs });
+    }
+    lines.push(spans);
+  }
+
+  return lines;
+}
 
 interface PlanCreateViewProps {
   projectRoot: string;
-  config: SquadConfig;
+  workflows: Record<string, WorkflowConfig>;
   onDone: () => void;
 }
 
-export function PlanCreateView({ projectRoot, config, onDone }: PlanCreateViewProps) {
+export function PlanCreateView({ projectRoot, workflows, onDone }: PlanCreateViewProps) {
   const { cols, rows } = useTerminalSize();
   const ptyRef = useRef<IPty | null>(null);
-  const termRef = useRef<GhosttyTerminalRenderable | null>(null);
-  const [exited, setExited, exitedRef] = useSyncedState(false);
+  const terminalRef = useRef<PersistentTerminal | null>(null);
+  const [displayLines, setDisplayLines, displayLinesRef] = useSyncedState<DisplayLine[]>([]);
+  const [exited, _setExited, exitedRef] = useSyncedState(false);
 
-  // Spawn interactive Claude session
+  const termCols = Math.max(cols, 80);
+  const termRows = Math.max(rows - 2, 24);
+
   useEffect(() => {
-    const workflows = Object.keys(config.workflows);
-    const systemPrompt = buildPlanCreateSystemPrompt(workflows);
+    const terminal = new PersistentTerminal({ cols: termCols, rows: termRows });
+    terminalRef.current = terminal;
+
+    const workflowNames = Object.keys(workflows);
+    const systemPrompt = buildPlanCreateSystemPrompt(workflowNames);
     const args = ["claude", "--append-system-prompt", systemPrompt];
 
     const pty = spawn(args[0], args.slice(1), {
       name: "xterm-256color",
-      cols: Math.max(cols, 80),
-      rows: Math.max(rows - 1, 24),
+      cols: termCols,
+      rows: termRows,
       env: { ...process.env, TERM: "xterm-256color", CCSQUAD_ROOT: projectRoot },
       cwd: process.cwd(),
     });
     ptyRef.current = pty;
 
-    pty.onData((data: string) => {
-      termRef.current?.feed(data);
+    pty.onData((_data: string) => {
+      terminal.feed(_data);
+      const lines = terminalDataToDisplayLines(terminal);
+      setDisplayLines(lines);
     });
 
     pty.onExit(() => {
-      setExited(true);
+      exitedRef.current = true;
+      const lines = terminalDataToDisplayLines(terminal);
+      setDisplayLines(lines);
     });
 
     return () => {
@@ -54,20 +89,15 @@ export function PlanCreateView({ projectRoot, config, onDone }: PlanCreateViewPr
     };
   }, []);
 
-  // Resize PTY when terminal size changes
   useEffect(() => {
     if (ptyRef.current && !exitedRef.current) {
-      try {
-        ptyRef.current.resize(Math.max(cols, 80), Math.max(rows - 1, 24));
-      } catch { /* ignore */ }
+      try { ptyRef.current.resize(termCols, termRows); } catch { /* ignore */ }
     }
-    if (termRef.current) {
-      termRef.current.cols = Math.max(cols, 80);
-      termRef.current.rows = Math.max(rows - 1, 24);
+    if (terminalRef.current) {
+      try { terminalRef.current.resize(termCols, termRows); } catch { /* ignore */ }
     }
   }, [cols, rows]);
 
-  // Forward keyboard input to PTY
   useKeyboard((event: KeyEvent) => {
     if (exitedRef.current) {
       if (event.name === "escape" || event.name === "return" || event.name === "enter") {
@@ -83,23 +113,26 @@ export function PlanCreateView({ projectRoot, config, onDone }: PlanCreateViewPr
     }
   });
 
-  const termRows = Math.max(rows - 1, 24);
-  const termCols = Math.max(cols, 80);
-
   return (
     <box width="100%" height="100%" flexDirection="column">
-      <box flexGrow={1}>
-        <ghostty-terminal
-          ref={termRef}
-          persistent
-          showCursor
-          cursorStyle="block"
-          cols={termCols}
-          rows={termRows}
-        />
+      <box width="100%" height={1} backgroundColor={COLOR_HEADER_BG}>
+        <text fg={COLOR_CYAN} attributes={ATTR_BOLD}> CCSQUAD - プラン作成 </text>
       </box>
+
+      <scrollbox
+        flexGrow={1}
+        scrollY
+        stickyScroll
+        stickyStart="bottom"
+        focused
+      >
+        {displayLines.map((line, i) => (
+          <OutputLine key={i} spans={line} />
+        ))}
+      </scrollbox>
+
       <StatusBar items={
-        exited
+        exitedRef.current
           ? [{ key: "Enter/Esc", label: "戻る" }]
           : [{ key: "対話中", label: "Claude とプランを作成" }]
       } />

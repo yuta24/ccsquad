@@ -1,5 +1,5 @@
-import type { WorkflowConfig } from "../../config.js";
-import type { Job } from "../../job.js";
+import type { WorkflowConfig } from "../../domain/types.js";
+import type { Job } from "../../domain/types.js";
 import { ATTR_BOLD, COLOR_CYAN, COLOR_GRAY, truncateStr } from "../constants.js";
 
 interface PhaseHeaderProps {

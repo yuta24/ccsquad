@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, spyOn } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EntryStore } from "../src/entry.js";
-import { cmdAdd, cmdList, cmdShow, cmdEdit, cmdDelete, cmdSearch } from "../src/commands/memory.js";
+import { EntryStore } from "../src/infra/entry-store.js";
+import { cmdAdd, cmdList, cmdShow, cmdEdit, cmdDelete, cmdSearch } from "../src/cli/commands/memory.js";
 
 function tempStore(): { store: EntryStore; dir: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), "ccsquad-cmd-memory-"));

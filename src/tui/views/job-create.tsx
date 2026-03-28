@@ -1,8 +1,8 @@
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { useCallback, useMemo } from "react";
-import type { SquadConfig } from "../../config.js";
-import { JobStore } from "../../job.js";
+import type { ProjectContext } from "../../app/project-context.js";
+import type { JobService } from "../../app/job-service.js";
 import { useSyncedState } from "../hooks/use-synced-state.js";
 import { StatusBar } from "../components/status-bar.js";
 import {
@@ -11,13 +11,13 @@ import {
 } from "../constants.js";
 
 interface JobCreateViewProps {
-  config: SquadConfig;
-  store: JobStore;
+  ctx: ProjectContext;
+  jobService: JobService;
   onCreated: () => void;
   onCancel: () => void;
 }
 
-export function JobCreateView({ config, store, onCreated, onCancel }: JobCreateViewProps) {
+export function JobCreateView({ ctx, jobService, onCreated, onCancel }: JobCreateViewProps) {
   const [focusIndex, setFocusIndex, focusRef] = useSyncedState(0);
   const [title, setTitle, titleRef] = useSyncedState("");
   const [workflowIndex, setWorkflowIndex, workflowIndexRef] = useSyncedState(0);
@@ -26,7 +26,7 @@ export function JobCreateView({ config, store, onCreated, onCancel }: JobCreateV
   const [errorMsg, setErrorMsg] = useSyncedState<string | null>(null);
   const FIELD_COUNT = 4;
 
-  const workflowNames = Object.keys(config.workflows);
+  const workflowNames = Object.keys(ctx.workflows);
   const maxVisibleWf = 3;
   const wfViewStart = useMemo(() => {
     const total = workflowNames.length;
@@ -44,27 +44,19 @@ export function JobCreateView({ config, store, onCreated, onCancel }: JobCreateV
     const desc = descriptionRef.current.trim();
 
     try {
-      const id = store.nextId();
-      const now = new Date().toISOString();
-      const body = desc ? `## 説明\n${desc}\n` : "";
-      store.save({
-        frontmatter: {
-          id, title: t, workflow: wfName, status: "pending",
-          current_phase: undefined, priority: pri, depends_on: [],
-          created_at: now, updated_at: now,
-        },
-        body,
+      jobService.create(t, wfName, {
+        description: desc || undefined,
+        priority: pri,
       });
       onCreated();
     } catch (e) {
       setErrorMsg(`エラー: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [store, workflowNames, onCreated, titleRef, workflowIndexRef, priorityRef, descriptionRef, setErrorMsg]);
+  }, [jobService, workflowNames, onCreated, titleRef, workflowIndexRef, priorityRef, descriptionRef, setErrorMsg]);
 
   useKeyboard((event: KeyEvent) => {
     if (event.name === "escape") { onCancel(); event.preventDefault(); return; }
 
-    // Tab / Shift+Tab: move focus
     if (event.name === "tab") {
       const newFocus = event.shift
         ? Math.max(0, focusRef.current - 1)
@@ -76,14 +68,12 @@ export function JobCreateView({ config, store, onCreated, onCancel }: JobCreateV
 
     const fi = focusRef.current;
 
-    // Ctrl+Enter to submit
     if (event.ctrl && (event.name === "return" || event.name === "enter")) {
       handleCreate();
       event.preventDefault();
       return;
     }
 
-    // Title field (focus 0)
     if (fi === 0) {
       if (event.name === "backspace" || event.name === "delete") {
         setTitle((prev) => [...prev].slice(0, -1).join(""));
@@ -102,7 +92,6 @@ export function JobCreateView({ config, store, onCreated, onCancel }: JobCreateV
       }
     }
 
-    // Workflow select (focus 1)
     if (fi === 1) {
       if (event.name === "up" || event.name === "k") {
         setWorkflowIndex(Math.max(0, workflowIndexRef.current - 1));
@@ -121,7 +110,6 @@ export function JobCreateView({ config, store, onCreated, onCancel }: JobCreateV
       }
     }
 
-    // Priority field (focus 2)
     if (fi === 2) {
       if (event.name === "backspace" || event.name === "delete") {
         setPriority((prev) => [...prev].slice(0, -1).join(""));
@@ -140,7 +128,6 @@ export function JobCreateView({ config, store, onCreated, onCancel }: JobCreateV
       }
     }
 
-    // Description textarea (focus 3)
     if (fi === 3) {
       if (event.name === "backspace" || event.name === "delete") {
         setDescription((prev) => [...prev].slice(0, -1).join(""));

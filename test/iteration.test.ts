@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { IterationStore } from "../src/iteration.js";
+import { IterationStore } from "../src/infra/iteration-store.js";
 
 function makeTmpDir(): string {
   return mkdtempSync(join(tmpdir(), "ccsquad-iteration-"));

@@ -2,8 +2,8 @@ import { describe, it, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OutputStore } from "../src/output.js";
-import type { NodeOutput } from "../src/output.js";
+import { OutputStore } from "../src/infra/output-store.js";
+import type { NodeOutput } from "../src/domain/types.js";
 
 function makeTmpDir(): string {
   return mkdtempSync(join(tmpdir(), "ccsquad-output-test-"));

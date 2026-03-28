@@ -13,7 +13,6 @@ export function createSignalServer(
   sockPath: string,
   handler: SignalHandler,
 ): Server {
-  // 既存のソケットファイルがあれば削除
   if (existsSync(sockPath)) {
     unlinkSync(sockPath);
   }
@@ -35,7 +34,6 @@ export function createSignalServer(
 
   server.listen(sockPath);
 
-  // プロセス終了時の cleanup
   const cleanup = () => {
     try {
       server.close();

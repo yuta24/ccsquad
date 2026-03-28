@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs";
-import { EntryStore, MemoryEntry, MemoryFrontmatter, entryKey } from "../entry.js";
-import { truncate } from "../util.js";
-
-// --- helpers ---
+import type { MemoryEntry, MemoryFrontmatter } from "../../domain/types.js";
+import { EntryStore, entryKey } from "../../infra/entry-store.js";
+import { truncate } from "../../util.js";
 
 function formatTimestamp(isoString: string): string {
   return new Date(isoString).toISOString().slice(0, 16).replace("T", " ");
@@ -37,15 +36,12 @@ export function entryToJson(entry: MemoryEntry): {
 }
 
 export function resolveBody(bodyArg?: string, file?: string): string | undefined {
-  // --file is highest priority
   if (file !== undefined) {
     return readFileSync(file, "utf-8");
   }
-  // positional argument
   if (bodyArg !== undefined) {
     return bodyArg;
   }
-  // stdin if not a TTY
   if (!process.stdin.isTTY) {
     const buf = readFileSync(0, "utf-8");
     if (buf.length > 0) {
@@ -54,8 +50,6 @@ export function resolveBody(bodyArg?: string, file?: string): string | undefined
   }
   return undefined;
 }
-
-// --- commands ---
 
 export function cmdAdd(
   store: EntryStore,
@@ -96,7 +90,6 @@ export function cmdList(
     return;
   }
 
-  // text format
   if (entries.length === 0) {
     console.log("メモリエントリはありません。");
     return;
@@ -122,7 +115,6 @@ export function cmdShow(store: EntryStore, key: string, format: "text" | "json" 
     return;
   }
 
-  // text format
   console.log(`タイトル: ${entry.title}`);
   if (entry.frontmatter.type !== undefined) {
     console.log(`タイプ: ${entry.frontmatter.type}`);
@@ -202,7 +194,6 @@ export function cmdSearch(
     return;
   }
 
-  // text format
   if (results.length === 0) {
     console.log("該当するエントリはありません。");
     return;

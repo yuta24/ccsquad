@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createContext, findConfig, findConfigOrThrow } from "../src/service/context.js";
+import { createProjectContext } from "../src/app/project-context.js";
+import { findConfigPath, findConfigPathOrThrow } from "../src/infra/config-loader.js";
+import { initialPhase } from "../src/domain/workflow.js";
 import { CcsquadError } from "../src/error.js";
 
 function makeTempDir(): string {
@@ -35,7 +37,7 @@ workflows:
   return configPath;
 }
 
-describe("createContext", () => {
+describe("createProjectContext", () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -44,10 +46,10 @@ describe("createContext", () => {
 
   it("全ストアが初期化されたコンテキストを作成する", () => {
     const configPath = writeValidConfig(tmpDir);
-    const ctx = createContext(configPath);
+    const ctx = createProjectContext(configPath);
 
-    expect(ctx.config).toBeDefined();
-    expect(ctx.store).toBeDefined();
+    expect(ctx.workflows).toBeDefined();
+    expect(ctx.jobStore).toBeDefined();
     expect(ctx.iterationStore).toBeDefined();
     expect(ctx.entryStore).toBeDefined();
     expect(ctx.outputStore).toBeDefined();
@@ -59,7 +61,7 @@ describe("createContext", () => {
 
   it(".ccsquad/jobs ディレクトリを作成する", () => {
     const configPath = writeValidConfig(tmpDir);
-    const ctx = createContext(configPath);
+    const ctx = createProjectContext(configPath);
 
     expect(existsSync(ctx.jobsDir)).toBe(true);
     expect(ctx.jobsDir).toContain(".ccsquad/jobs");
@@ -67,7 +69,7 @@ describe("createContext", () => {
 
   it(".ccsquad/memory/entries ディレクトリを作成する", () => {
     const configPath = writeValidConfig(tmpDir);
-    const ctx = createContext(configPath);
+    const ctx = createProjectContext(configPath);
 
     expect(existsSync(ctx.memoryDir)).toBe(true);
     expect(ctx.memoryDir).toContain(".ccsquad/memory/entries");
@@ -75,50 +77,50 @@ describe("createContext", () => {
 
   it("設定が正しく読み込まれる", () => {
     const configPath = writeValidConfig(tmpDir);
-    const ctx = createContext(configPath);
+    const ctx = createProjectContext(configPath);
 
-    const dev = ctx.config.getWorkflow("dev");
+    const dev = ctx.workflows["dev"];
     expect(dev).toBeDefined();
-    expect(dev!.phases.length).toBe(2);
-    expect(dev!.initialPhase().name).toBe("plan");
+    expect(dev.phases.length).toBe(2);
+    expect(initialPhase(dev).name).toBe("plan");
   });
 
   it("存在しないファイルパスでエラーをスローする", () => {
     const nonExistentPath = join(tmpDir, "nonexistent.yaml");
-    expect(() => createContext(nonExistentPath)).toThrow();
+    expect(() => createProjectContext(nonExistentPath)).toThrow();
   });
 
   it("squadDir がプロジェクトルート配下の .ccsquad を指す", () => {
     const configPath = writeValidConfig(tmpDir);
-    const ctx = createContext(configPath);
+    const ctx = createProjectContext(configPath);
 
     expect(ctx.squadDir).toBe(join(tmpDir, ".ccsquad"));
   });
 
   it("jobsDir が squadDir 配下の jobs を指す", () => {
     const configPath = writeValidConfig(tmpDir);
-    const ctx = createContext(configPath);
+    const ctx = createProjectContext(configPath);
 
     expect(ctx.jobsDir).toBe(join(tmpDir, ".ccsquad", "jobs"));
   });
 
   it("memoryDir が squadDir 配下の memory/entries を指す", () => {
     const configPath = writeValidConfig(tmpDir);
-    const ctx = createContext(configPath);
+    const ctx = createProjectContext(configPath);
 
     expect(ctx.memoryDir).toBe(join(tmpDir, ".ccsquad", "memory", "entries"));
   });
 
   it("outputsDir が squadDir 配下の outputs を指す", () => {
     const configPath = writeValidConfig(tmpDir);
-    const ctx = createContext(configPath);
+    const ctx = createProjectContext(configPath);
 
     expect(ctx.outputsDir).toBe(join(tmpDir, ".ccsquad", "outputs"));
   });
 
   it(".ccsquad/outputs ディレクトリを作成する", () => {
     const configPath = writeValidConfig(tmpDir);
-    const ctx = createContext(configPath);
+    const ctx = createProjectContext(configPath);
 
     expect(existsSync(ctx.outputsDir)).toBe(true);
     expect(ctx.outputsDir).toContain(".ccsquad/outputs");
@@ -126,7 +128,7 @@ describe("createContext", () => {
 
   it("outputStore が OutputStore のインスタンスである", () => {
     const configPath = writeValidConfig(tmpDir);
-    const ctx = createContext(configPath);
+    const ctx = createProjectContext(configPath);
 
     expect(ctx.outputStore).toBeDefined();
     expect(typeof ctx.outputStore.save).toBe("function");
@@ -134,14 +136,14 @@ describe("createContext", () => {
   });
 });
 
-describe("findConfig", () => {
+describe("findConfigPath", () => {
   it("ccsquad.yaml が存在するディレクトリでパスを返す", () => {
     const dir = makeTempDir();
     writeValidConfig(dir);
     const originalCwd = process.cwd();
     process.chdir(dir);
     try {
-      const result = findConfig();
+      const result = findConfigPath();
       expect(result).toBe(join(dir, "ccsquad.yaml"));
     } finally {
       process.chdir(originalCwd);
@@ -156,7 +158,7 @@ describe("findConfig", () => {
     const originalCwd = process.cwd();
     process.chdir(subDir);
     try {
-      const result = findConfig();
+      const result = findConfigPath();
       expect(result).toBe(join(dir, "ccsquad.yaml"));
     } finally {
       process.chdir(originalCwd);
@@ -168,7 +170,7 @@ describe("findConfig", () => {
     const originalCwd = process.cwd();
     process.chdir(dir);
     try {
-      const result = findConfig();
+      const result = findConfigPath();
       expect(result).toBeNull();
     } finally {
       process.chdir(originalCwd);
@@ -176,13 +178,13 @@ describe("findConfig", () => {
   });
 });
 
-describe("findConfigOrThrow", () => {
+describe("findConfigPathOrThrow", () => {
   it("ccsquad.yaml が存在しない場合エラーをスローする", () => {
     const dir = makeTempDir();
     const originalCwd = process.cwd();
     process.chdir(dir);
     try {
-      expect(() => findConfigOrThrow()).toThrow("ccsquad.yaml が見つかりません");
+      expect(() => findConfigPathOrThrow()).toThrow("ccsquad.yaml が見つかりません");
     } finally {
       process.chdir(originalCwd);
     }
@@ -194,7 +196,7 @@ describe("findConfigOrThrow", () => {
     const originalCwd = process.cwd();
     process.chdir(dir);
     try {
-      const result = findConfigOrThrow();
+      const result = findConfigPathOrThrow();
       expect(result).toBe(join(dir, "ccsquad.yaml"));
     } finally {
       process.chdir(originalCwd);

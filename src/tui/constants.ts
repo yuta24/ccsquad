@@ -22,7 +22,7 @@ export const COLOR_SUCCESS_BG = "#1a3a1a";
 export const COLOR_DARK_BG = "#1a1a1a";
 export const COLOR_COL_HEADER_BG = "#252525";
 
-// Screen types
+// Screen types (pause-review removed)
 export interface TransitionInfo {
   prevPhase: string;
   result: string;
@@ -39,7 +39,6 @@ export interface TransitionInfo {
 export type Screen =
   | { type: "job-list" }
   | { type: "phase-running"; jobId: string; phase: string }
-  | { type: "pause-review"; jobId: string; phase: string; info: TransitionInfo }
   | { type: "job-create" }
   | { type: "plan-create" };
 

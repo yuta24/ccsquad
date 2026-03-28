@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { formatLintResult } from "../src/commands/lint.js";
-import type { Diagnostic } from "../src/config.js";
+import { formatLintResult } from "../src/cli/commands/lint.js";
+import type { Diagnostic } from "../src/domain/types.js";
 
 function makeConfig(phases: { name: string; type: string }[]): {
   workflows: Record<string, { phases: { name: string; type: string }[] }>;

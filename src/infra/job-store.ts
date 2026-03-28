@@ -2,43 +2,8 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, exists
 import { join } from "node:path";
 import { stringify, parse as parseYaml } from "yaml";
 import { parse as parseFrontmatter, write as writeFrontmatter } from "./frontmatter.js";
-import { CcsquadError } from "./error.js";
-
-export type JobStatus = "pending" | "running" | "completed" | "failed" | "aborted" | "closed";
-
-export interface JobFrontmatter {
-  id: string;
-  title: string;
-  workflow: string;
-  status: JobStatus;
-  current_phase?: string;
-  priority: number;
-  depends_on: string[];
-  created_at: string; // ISO 8601 string
-  updated_at: string; // ISO 8601 string
-}
-
-export interface Job {
-  frontmatter: JobFrontmatter;
-  body: string;
-}
-
-export function appendPhaseLog(job: Job, phase: string, result: string, next: string, message: string): void {
-  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-  const entry = message === ""
-    ? `### ${phase} (${result} → ${next}) - ${timestamp}\n\n`
-    : `### ${phase} (${result} → ${next}) - ${timestamp}\n${message}\n\n`;
-
-  if (job.body.includes("## フェーズログ")) {
-    job.body += entry;
-  } else {
-    if (job.body.length > 0 && !job.body.endsWith("\n")) {
-      job.body += "\n";
-    }
-    job.body += "\n## フェーズログ\n";
-    job.body += entry;
-  }
-}
+import { CcsquadError } from "../error.js";
+import type { Job, JobFrontmatter } from "../domain/types.js";
 
 function serializeFrontmatter(fm: JobFrontmatter): string {
   const obj: Record<string, unknown> = {
@@ -60,11 +25,7 @@ function serializeFrontmatter(fm: JobFrontmatter): string {
 }
 
 export class JobStore {
-  private baseDir: string;
-
-  constructor(baseDir: string) {
-    this.baseDir = baseDir;
-  }
+  constructor(private baseDir: string) {}
 
   ensureDir(): void {
     try {
@@ -178,7 +139,7 @@ export class JobStore {
         try {
           jobs.push(this.load(id));
         } catch {
-          // skip unreadable job files (like Rust implementation)
+          // skip unreadable job files
         }
       }
     }

@@ -2,8 +2,9 @@ import { describe, it, expect } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { JobStore, appendPhaseLog } from "../src/job.js";
-import type { Job, JobFrontmatter } from "../src/job.js";
+import { JobStore } from "../src/infra/job-store.js";
+import type { Job, JobFrontmatter } from "../src/domain/types.js";
+import { buildPhaseLogEntry, appendPhaseLog } from "../src/domain/phase-log.js";
 
 function makeTempStore(): JobStore {
   const dir = mkdtempSync(join(tmpdir(), "ccsquad-job-test-"));
@@ -80,7 +81,8 @@ describe("JobStore", () => {
 describe("appendPhaseLog", () => {
   it("フェーズログセクション作成", () => {
     const job = makeJob("J000001", "test");
-    appendPhaseLog(job, "plan", "completed", "code", "計画完了");
+    const entry = buildPhaseLogEntry("plan", "completed", "code", "計画完了");
+    job.body = appendPhaseLog(job.body, entry);
     expect(job.body).toContain("## フェーズログ");
     expect(job.body).toContain("### plan (completed → code)");
     expect(job.body).toContain("計画完了");
@@ -88,15 +90,18 @@ describe("appendPhaseLog", () => {
 
   it("フェーズログ追記", () => {
     const job = makeJob("J000001", "test");
-    appendPhaseLog(job, "plan", "completed", "code", "計画完了");
-    appendPhaseLog(job, "code", "completed", "review", "実装完了");
+    const entry1 = buildPhaseLogEntry("plan", "completed", "code", "計画完了");
+    job.body = appendPhaseLog(job.body, entry1);
+    const entry2 = buildPhaseLogEntry("code", "completed", "review", "実装完了");
+    job.body = appendPhaseLog(job.body, entry2);
     const logCount = (job.body.match(/###/g) ?? []).length;
     expect(logCount).toBe(2);
   });
 
   it("空メッセージ", () => {
     const job = makeJob("J000001", "test");
-    appendPhaseLog(job, "plan", "completed", "code", "");
+    const entry = buildPhaseLogEntry("plan", "completed", "code", "");
+    job.body = appendPhaseLog(job.body, entry);
     expect(job.body).toContain("### plan (completed → code)");
   });
 });

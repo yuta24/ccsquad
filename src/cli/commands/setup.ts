@@ -4,7 +4,7 @@ import {
   SKILL_JOB,
   SKILL_MEMORY,
   DEFAULT_CONFIG,
-} from "../embedded.js";
+} from "../../embedded.js";
 
 export interface SetupArgs {
   force: boolean;
@@ -114,4 +114,3 @@ function setupHooks(projectRoot: string): void {
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
   }
 }
-

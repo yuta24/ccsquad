@@ -1,6 +1,7 @@
-import { SquadConfigImpl, type Diagnostic } from "../config.js";
-import { findConfig } from "../service/context.js";
-import { CcsquadError } from "../error.js";
+import type { Diagnostic } from "../../domain/types.js";
+import { lint } from "../../domain/workflow.js";
+import { findConfigPath, loadConfig } from "../../infra/config-loader.js";
+import { CcsquadError } from "../../error.js";
 
 export function formatLintResult(
   config: { workflows: Record<string, { phases: { name: string; type: string }[] }> },
@@ -8,7 +9,6 @@ export function formatLintResult(
 ): { output: string; errorCount: number; warningCount: number } {
   const lines: string[] = [];
 
-  // Group diagnostics by workflow and phase
   const byWorkflowAndPhase: Record<string, Record<string, Diagnostic[]>> = {};
   for (const d of diagnostics) {
     if (!byWorkflowAndPhase[d.workflow]) {
@@ -24,7 +24,6 @@ export function formatLintResult(
   for (const [workflowName, workflow] of Object.entries(config.workflows)) {
     lines.push(`ワークフロー: ${workflowName}`);
 
-    // Workflow-level diagnostics (no phase)
     const workflowDiags = byWorkflowAndPhase[workflowName]?.["__workflow__"] ?? [];
     if (workflowDiags.length > 0) {
       for (const d of workflowDiags) {
@@ -61,7 +60,7 @@ export function formatLintResult(
 }
 
 export function cmdLint(configPath?: string): void {
-  const resolvedPath = configPath ?? findConfig();
+  const resolvedPath = configPath ?? findConfigPath();
   if (!resolvedPath) {
     console.error("エラー: ccsquad.yaml が見つかりません");
     process.exit(1);
@@ -69,9 +68,9 @@ export function cmdLint(configPath?: string): void {
 
   console.log(`${resolvedPath} を検証中...\n`);
 
-  let config;
+  let workflows;
   try {
-    config = SquadConfigImpl.load(resolvedPath);
+    workflows = loadConfig(resolvedPath);
   } catch (e) {
     if (e instanceof CcsquadError) {
       console.error(`エラー: ${e.message}`);
@@ -80,8 +79,12 @@ export function cmdLint(configPath?: string): void {
     throw e;
   }
 
-  const diagnostics = config.lint();
-  const { output, errorCount } = formatLintResult(config, diagnostics);
+  const diagnostics: Diagnostic[] = [];
+  for (const [name, wf] of Object.entries(workflows)) {
+    diagnostics.push(...lint(wf, name));
+  }
+
+  const { output, errorCount } = formatLintResult({ workflows }, diagnostics);
 
   console.log(output);
 

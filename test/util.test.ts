@@ -65,7 +65,6 @@ describe("adjustViewportOffset", () => {
   });
 
   it("カーソルがビューポートの最終位置にある場合は変更しない", () => {
-    // cursor=9, offset=0, height=10 → 9 < 0+10 なので変更なし
     expect(adjustViewportOffset(9, 0, 10)).toBe(0);
   });
 

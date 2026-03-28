@@ -1,11 +1,11 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { CcsquadError } from "./error.js";
+import { CcsquadError } from "../error.js";
 
 export class IterationStore {
   private filePath: string;
 
-  constructor(private squadDir: string) {
+  constructor(squadDir: string) {
     this.filePath = join(squadDir, "iteration.json");
   }
 

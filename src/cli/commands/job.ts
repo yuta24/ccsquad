@@ -1,57 +1,36 @@
-import type { SquadConfig, WorkflowConfig } from "../config.js";
-import { parseTransitionCondition } from "../config.js";
-import type { Job } from "../job.js";
-import { JobStore } from "../job.js";
-import { WorkflowEngine, checkCircularDependency } from "../engine.js";
-import type { IterationStore } from "../iteration.js";
-import { CcsquadError } from "../error.js";
-import { resolveAndExecuteTransition, validateConditionForPhase } from "../service/transition.js";
-import { truncate } from "../util.js";
+import type { Job } from "../../domain/types.js";
+import { getPhase, parseTransitionCondition, validateConditionForPhase } from "../../domain/workflow.js";
+import { CcsquadError } from "../../error.js";
+import type { ProjectContext } from "../../app/project-context.js";
+import { JobService, checkCircularDependency } from "../../app/job-service.js";
+import type { TransitionResult } from "../../app/job-service.js";
+import { truncate } from "../../util.js";
 
-// --- helper functions ---
-
-function getWorkflow(config: SquadConfig, job: Job): WorkflowConfig {
-  const wf = config.getWorkflow(job.frontmatter.workflow);
-  if (!wf) {
-    throw new CcsquadError(
-      "config",
-      `ワークフロー '${job.frontmatter.workflow}' が ccsquad.yaml に定義されていません`,
-    );
-  }
-  return wf;
-}
-
-function printTransitionResult(job: Job): void {
-  const fm = job.frontmatter;
-  switch (fm.status) {
-    case "completed":
-      console.log(`ジョブが完了しました: ${fm.id}`);
+function printTransitionResult(result: TransitionResult): void {
+  switch (result.type) {
+    case "done":
+      console.log(result.status === "completed"
+        ? `ジョブが完了しました: ${result.jobId}`
+        : `ジョブが失敗しました: ${result.jobId}`);
       break;
-    case "failed":
-      console.log(`ジョブが失敗しました: ${fm.id}`);
+    case "continue":
+      console.log(`フェーズを遷移しました: ${result.jobId} → ${result.nextPhase}`);
       break;
-    case "running": {
-      const phase = fm.current_phase ?? "?";
-      console.log(`フェーズを遷移しました: ${fm.id} → ${phase}`);
-      break;
-    }
-    case "closed":
-      console.log(`ジョブがクローズされました: ${fm.id}`);
-      break;
-    default:
+    case "pause":
+      console.log(`一時停止: ${result.jobId} → ${result.nextPhase} (${result.reason})`);
       break;
   }
 }
 
 function getPhaseInfo(
-  config: SquadConfig,
+  ctx: ProjectContext,
   job: Job,
 ): { type?: string; description?: string; agent?: string; reviewer?: string } | undefined {
   const phaseName = job.frontmatter.current_phase;
   if (!phaseName) return undefined;
-  const wf = config.getWorkflow(job.frontmatter.workflow);
+  const wf = ctx.workflows[job.frontmatter.workflow];
   if (!wf) return undefined;
-  const phase = wf.getPhase(phaseName);
+  const phase = getPhase(wf, phaseName);
   if (!phase) return undefined;
   return {
     type: phase.type,
@@ -61,10 +40,8 @@ function getPhaseInfo(
   };
 }
 
-// --- exported command functions ---
-
-export function cmdList(store: JobStore): void {
-  const jobs = store.listAll();
+export function cmdList(ctx: ProjectContext): void {
+  const jobs = ctx.jobStore.listAll();
   if (jobs.length === 0) {
     console.log("ジョブはありません。");
     return;
@@ -81,16 +58,11 @@ export function cmdList(store: JobStore): void {
   }
 }
 
-export function cmdShow(
-  store: JobStore,
-  config: SquadConfig,
-  id: string,
-  format: "text" | "json",
-): void {
-  const job = store.load(id);
+export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"): void {
+  const job = ctx.jobStore.load(id);
 
   if (format === "json") {
-    const phaseInfo = getPhaseInfo(config, job);
+    const phaseInfo = getPhaseInfo(ctx, job);
     const output: Record<string, unknown> = {
       id: job.frontmatter.id,
       title: job.frontmatter.title,
@@ -121,7 +93,7 @@ export function cmdShow(
     console.log(`ステータス: ${fm.status}`);
     if (fm.current_phase) {
       console.log(`現在のフェーズ: ${fm.current_phase}`);
-      const info = getPhaseInfo(config, job);
+      const info = getPhaseInfo(ctx, job);
       if (info) {
         if (info.type) console.log(`  タイプ: ${info.type}`);
         if (info.description) console.log(`  説明: ${info.description}`);
@@ -143,61 +115,39 @@ export function cmdShow(
 }
 
 export function cmdAdd(
-  store: JobStore,
-  config: SquadConfig,
+  ctx: ProjectContext,
   title: string,
   workflow: string,
   description?: string,
   priority: number = 0,
   dependsOn: string[] = [],
 ): void {
-  if (!config.getWorkflow(workflow)) {
-    throw new CcsquadError(
-      "config",
-      `ワークフロー '${workflow}' が ccsquad.yaml に定義されていません`,
-    );
+  if (!ctx.workflows[workflow]) {
+    throw new CcsquadError("config", `ワークフロー '${workflow}' が ccsquad.yaml に定義されていません`);
   }
-
-  const id = store.nextId();
 
   if (dependsOn.length > 0) {
     for (const depId of dependsOn) {
-      store.load(depId);
+      ctx.jobStore.load(depId);
     }
-    checkCircularDependency(store, id, dependsOn);
+    const nextId = ctx.jobStore.nextId();
+    checkCircularDependency(ctx, nextId, dependsOn);
   }
 
-  const now = new Date().toISOString();
-  const body = description ? `## 説明\n${description}\n` : "";
-
-  const job: Job = {
-    frontmatter: {
-      id,
-      title,
-      workflow,
-      status: "pending",
-      current_phase: undefined,
-      priority,
-      depends_on: dependsOn,
-      created_at: now,
-      updated_at: now,
-    },
-    body,
-  };
-
-  store.save(job);
-  console.log(`ジョブを作成しました: ${id}`);
+  const jobService = new JobService(ctx);
+  const job = jobService.create(title, workflow, { description, priority, dependsOn });
+  console.log(`ジョブを作成しました: ${job.frontmatter.id}`);
 }
 
 export function cmdEdit(
-  store: JobStore,
+  ctx: ProjectContext,
   id: string,
   title?: string,
   description?: string,
   priority?: number,
   dependsOn?: string[],
 ): void {
-  const job = store.load(id);
+  const job = ctx.jobStore.load(id);
 
   if (title !== undefined) {
     job.frontmatter.title = title;
@@ -207,9 +157,9 @@ export function cmdEdit(
   }
   if (dependsOn !== undefined) {
     for (const depId of dependsOn) {
-      store.load(depId);
+      ctx.jobStore.load(depId);
     }
-    checkCircularDependency(store, id, dependsOn);
+    checkCircularDependency(ctx, id, dependsOn);
     job.frontmatter.depends_on = dependsOn;
   }
   if (description !== undefined) {
@@ -229,41 +179,36 @@ export function cmdEdit(
   }
 
   job.frontmatter.updated_at = new Date().toISOString();
-  store.save(job);
+  ctx.jobStore.save(job);
   console.log(`ジョブを更新しました: ${id}`);
 }
 
 export function cmdUpdateSection(
-  store: JobStore,
+  ctx: ProjectContext,
   id: string,
   section: string,
   content: string,
 ): void {
-  const job = store.load(id);
+  const job = ctx.jobStore.load(id);
 
   const sectionHeader = `## ${section}`;
   const phaseLogHeader = "## フェーズログ";
 
-  // Find section boundaries
   const sectionIdx = job.body.indexOf(sectionHeader);
   const phaseLogIdx = job.body.indexOf(phaseLogHeader);
 
   if (sectionIdx !== -1) {
-    // Replace existing section
     const afterHeader = sectionIdx + sectionHeader.length;
-    // Find next ## heading after this section
     const nextSection = job.body.indexOf("\n## ", afterHeader);
     const sectionEnd = nextSection !== -1 ? nextSection : job.body.length;
     const before = job.body.slice(0, sectionIdx);
     const after = job.body.slice(sectionEnd);
     job.body = `${before}${sectionHeader}\n${content}\n${after}`;
   } else if (phaseLogIdx !== -1) {
-    // Insert before phase log
     const before = job.body.slice(0, phaseLogIdx);
     const after = job.body.slice(phaseLogIdx);
     job.body = `${before}${sectionHeader}\n${content}\n\n${after}`;
   } else {
-    // Append at end
     if (job.body.length > 0 && !job.body.endsWith("\n")) {
       job.body += "\n";
     }
@@ -271,85 +216,45 @@ export function cmdUpdateSection(
   }
 
   job.frontmatter.updated_at = new Date().toISOString();
-  store.save(job);
+  ctx.jobStore.save(job);
   console.log(`ジョブのセクションを更新しました: ${id} (${section})`);
 }
 
-export function cmdRun(store: JobStore, config: SquadConfig, id: string): void {
-  const job = store.load(id);
-  const wf = getWorkflow(config, job);
-
-  const engine = new WorkflowEngine(wf, store);
-  const updatedJob = engine.startJob(id);
-  const phase = updatedJob.frontmatter.current_phase ?? "?";
+export function cmdRun(ctx: ProjectContext, id: string): void {
+  const jobService = new JobService(ctx);
+  const job = jobService.start(id);
+  const phase = job.frontmatter.current_phase ?? "?";
   console.log(`ジョブを開始しました: ${id} (フェーズ: ${phase})`);
 }
 
-export function cmdTransition(
-  store: JobStore,
-  config: SquadConfig,
-  id: string,
-  result: string,
-  message: string,
-): void {
+export function cmdTransition(ctx: ProjectContext, id: string, result: string, message: string): void {
+  const jobService = new JobService(ctx);
   const condition = parseTransitionCondition(result);
-  const job = store.load(id);
-  const wf = getWorkflow(config, job);
-  const engine = new WorkflowEngine(wf, store);
-
-  const updatedJob = engine.transition(id, condition, message);
-  printTransitionResult(updatedJob);
+  const txResult = jobService.transition(id, condition, message);
+  printTransitionResult(txResult);
 }
 
-export function cmdApprove(
-  store: JobStore,
-  config: SquadConfig,
-  id: string,
-  message: string,
-): void {
-  const job = store.load(id);
-  const wf = getWorkflow(config, job);
-  const engine = new WorkflowEngine(wf, store);
-
-  const updatedJob = engine.approve(id, message);
-  printTransitionResult(updatedJob);
+export function cmdApprove(ctx: ProjectContext, id: string, message: string): void {
+  const jobService = new JobService(ctx);
+  const txResult = jobService.transition(id, "approved", message);
+  printTransitionResult(txResult);
 }
 
-export function cmdReject(
-  store: JobStore,
-  config: SquadConfig,
-  id: string,
-  message: string,
-): void {
-  const job = store.load(id);
-  const wf = getWorkflow(config, job);
-  const engine = new WorkflowEngine(wf, store);
-
-  const updatedJob = engine.reject(id, message);
-  printTransitionResult(updatedJob);
+export function cmdReject(ctx: ProjectContext, id: string, message: string): void {
+  const jobService = new JobService(ctx);
+  const txResult = jobService.transition(id, "rejected", message);
+  printTransitionResult(txResult);
 }
 
-export function cmdAbort(store: JobStore, config: SquadConfig, id: string): void {
-  const job = store.load(id);
-  const wf = getWorkflow(config, job);
-  const engine = new WorkflowEngine(wf, store);
-
-  engine.abortJob(id);
+export function cmdAbort(ctx: ProjectContext, id: string): void {
+  const jobService = new JobService(ctx);
+  jobService.abort(id);
   console.log(`ジョブを中断しました: ${id}`);
 }
 
-export function cmdClose(
-  store: JobStore,
-  config: SquadConfig,
-  iterationStore: IterationStore,
-  id: string,
-): void {
-  const job = store.load(id);
-  const wf = getWorkflow(config, job);
-  const engine = new WorkflowEngine(wf, store);
-
-  engine.closeJob(id);
-  iterationStore.remove(id);
+export function cmdClose(ctx: ProjectContext, id: string): void {
+  const jobService = new JobService(ctx);
+  jobService.close(id);
   console.log(`ジョブをクローズしました: ${id}`);
 }
 
@@ -365,44 +270,41 @@ export interface NextActionOutput {
 }
 
 export function cmdNextAction(
-  store: JobStore,
-  config: SquadConfig,
-  iterationStore: IterationStore,
+  ctx: ProjectContext,
   id: string,
   result: string,
   message: string,
   resetIteration: boolean,
 ): void {
   if (resetIteration) {
-    iterationStore.reset(id);
+    ctx.iterationStore.reset(id);
   }
 
-  const job = store.load(id);
-  const wf = getWorkflow(config, job);
+  const job = ctx.jobStore.load(id);
+  const wf = ctx.workflows[job.frontmatter.workflow];
+  if (!wf) throw new CcsquadError("config", `ワークフロー '${job.frontmatter.workflow}' が見つかりません`);
+
   const phaseName = job.frontmatter.current_phase;
-  if (!phaseName) {
-    throw new CcsquadError("workflow", "現在のフェーズが設定されていません");
-  }
+  if (!phaseName) throw new CcsquadError("workflow", "現在のフェーズが設定されていません");
+
+  const phaseConfig = getPhase(wf, phaseName);
+  if (!phaseConfig) throw new CcsquadError("workflow", `フェーズ '${phaseName}' が見つかりません`);
 
   const condition = parseTransitionCondition(result);
-  validateConditionForPhase(wf, phaseName, condition);
+  validateConditionForPhase(phaseConfig.type, condition);
 
-  const txResult = resolveAndExecuteTransition(wf, store, iterationStore, id, condition, message);
+  const jobService = new JobService(ctx);
+  const txResult = jobService.transition(id, condition, message);
 
   let output: NextActionOutput;
 
   switch (txResult.type) {
     case "done":
-      output = {
-        action: "done",
-        job_id: id,
-        status: txResult.status,
-      };
+      output = { action: "done", job_id: id, status: txResult.status };
       break;
     case "pause":
       output = {
-        action: "pause",
-        job_id: id,
+        action: "pause", job_id: id,
         phase: txResult.nextPhase,
         phase_description: txResult.phaseConfig.description,
         agent: txResult.phaseConfig.agent,
@@ -412,8 +314,7 @@ export function cmdNextAction(
       break;
     case "continue":
       output = {
-        action: "continue",
-        job_id: id,
+        action: "continue", job_id: id,
         phase: txResult.nextPhase,
         phase_description: txResult.phaseConfig.description,
         agent: txResult.phaseConfig.agent,

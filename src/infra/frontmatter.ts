@@ -1,4 +1,4 @@
-import { CcsquadError } from "./error.js";
+import { CcsquadError } from "../error.js";
 
 const DELIMITER = "---";
 

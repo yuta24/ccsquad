@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { buildTaskPrompt, buildResumePrompt, buildReviewPrompt } from "../src/service/prompt-builder.js";
-import type { OutputFileRef } from "../src/service/prompt-builder.js";
+import { buildTaskPrompt, buildResumePrompt, buildReviewPrompt } from "../src/app/prompt-builder.js";
+import type { OutputFileRef } from "../src/app/prompt-builder.js";
 
 function makeOutputFileRef(phase: string, seq: number): OutputFileRef {
   return { seq, phase, filePath: `.ccsquad/outputs/J000001/${seq}-${phase}.md` };

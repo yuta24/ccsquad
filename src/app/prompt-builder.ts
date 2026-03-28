@@ -1,4 +1,5 @@
-import { isTaskLikeType } from "../config.js";
+import { isTaskLikeType } from "../domain/workflow.js";
+import type { PhaseType } from "../domain/types.js";
 
 const DEFAULT_MAX_CHARS = 50000;
 
@@ -105,7 +106,7 @@ export function buildResumePrompt(params: {
 }): string {
   const { phaseType, phasePrompt, iteration, feedback } = params;
 
-  if (isTaskLikeType(phaseType as import("../config.js").PhaseType)) {
+  if (isTaskLikeType(phaseType as PhaseType)) {
     return [
       "以下の理由で reject されました。修正してください。",
       "",
@@ -187,12 +188,10 @@ export function buildReviewPrompt(params: {
     parts.push(phasePrompt);
   }
 
-  // Reference to the output being reviewed
   parts.push("");
   parts.push("## レビュー対象");
   parts.push(`以下のファイルに記載された出力をレビューしてください: \`${taskOutputFile.filePath}\``);
 
-  // Other output files for reference
   const otherFiles = outputFiles.filter((f) => f.filePath !== taskOutputFile.filePath);
   const refsSection = buildOutputReferencesSection(otherFiles);
   if (refsSection) {

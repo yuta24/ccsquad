@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { parsePrintOutput, parsePrintOutputFromText, stripAnsi, extractResult } from "../src/result.js";
+import { parsePrintOutput, parsePrintOutputFromText, stripAnsi, extractResult } from "../src/infra/stream-parser.js";
 
 describe("parsePrintOutput", () => {
   it("完全な JSON から sessionId, content, costUsd を正しく抽出", () => {

@@ -10,20 +10,9 @@ import {
 } from "fs";
 import { join, dirname } from "path";
 import { stringify as yamlStringify, parse as yamlParse } from "yaml";
-import { CcsquadError } from "./error.js";
+import { CcsquadError } from "../error.js";
 import { parse as parseFrontmatter, write as writeFrontmatter } from "./frontmatter.js";
-
-export interface MemoryFrontmatter {
-  type?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface MemoryEntry {
-  title: string;
-  frontmatter: MemoryFrontmatter;
-  body: string;
-}
+import type { MemoryEntry, MemoryFrontmatter } from "../domain/types.js";
 
 export function entryKey(entry: MemoryEntry): string {
   if (entry.frontmatter.type) {
@@ -45,7 +34,6 @@ function validateName(name: string): void {
 }
 
 function serializeFrontmatter(fm: MemoryFrontmatter): string {
-  // Build an ordered object: type (if present), created_at, updated_at
   const obj: Record<string, string> = {};
   if (fm.type !== undefined) {
     obj["type"] = fm.type;
@@ -56,11 +44,7 @@ function serializeFrontmatter(fm: MemoryFrontmatter): string {
 }
 
 export class EntryStore {
-  private baseDir: string;
-
-  constructor(baseDir: string) {
-    this.baseDir = baseDir;
-  }
+  constructor(private baseDir: string) {}
 
   ensureDir(): void {
     mkdirSync(this.baseDir, { recursive: true });

@@ -1,9 +1,9 @@
 import { connect } from "node:net";
 import { join, dirname } from "node:path";
-import { findConfigOrThrow } from "../service/context.js";
+import { findConfigPathOrThrow } from "../../infra/config-loader.js";
 
 export function cmdSignal(event: string, jobId?: string): void {
-  const configPath = findConfigOrThrow();
+  const configPath = findConfigPathOrThrow();
   const projectRoot = dirname(configPath);
   const sockPath = join(projectRoot, ".ccsquad", "ccsquad.sock");
 
@@ -15,8 +15,6 @@ export function cmdSignal(event: string, jobId?: string): void {
   });
 
   socket.on("error", (_err) => {
-    // TUI が起動していない場合などは静かに失敗
-    // hook から呼ばれるため、エラーで Claude Code を止めたくない
     process.exit(0);
   });
 

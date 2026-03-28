@@ -2,7 +2,8 @@ import { describe, it, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { EntryStore, entryKey, MemoryEntry } from "../src/entry.js";
+import { EntryStore, entryKey } from "../src/infra/entry-store.js";
+import type { MemoryEntry } from "../src/domain/types.js";
 
 function tempStore(): { store: EntryStore; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), "ccsquad-entry-test-"));

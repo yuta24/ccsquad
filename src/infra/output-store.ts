@@ -1,20 +1,9 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { stringify } from "yaml";
-import { parse as parseYaml } from "yaml";
+import { stringify, parse as parseYaml } from "yaml";
 import { parse, write } from "./frontmatter.js";
-import { CcsquadError } from "./error.js";
-
-export interface NodeOutput {
-  seq: number;
-  phase: string;
-  executor: string;
-  result: string;
-  sessionId?: string;
-  iteration: number;
-  timestamp: string;
-  content: string;
-}
+import { CcsquadError } from "../error.js";
+import type { NodeOutput } from "../domain/types.js";
 
 interface FrontmatterData {
   phase: string;

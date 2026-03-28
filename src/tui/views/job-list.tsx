@@ -1,11 +1,10 @@
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { useState, useCallback, useEffect } from "react";
-import type { SquadConfig, WorkflowConfig } from "../../config.js";
-import type { Job } from "../../job.js";
-import { JobStore } from "../../job.js";
-import { WorkflowEngine } from "../../engine.js";
-import type { IterationStore } from "../../iteration.js";
+import type { Job, WorkflowConfig } from "../../domain/types.js";
+import { initialPhase } from "../../domain/workflow.js";
+import type { ProjectContext } from "../../app/project-context.js";
+import type { JobService } from "../../app/job-service.js";
 import { adjustViewportOffset } from "../../util.js";
 import { useSyncedState } from "../hooks/use-synced-state.js";
 import { useTerminalSize } from "../hooks/use-terminal-size.js";
@@ -19,18 +18,17 @@ import {
 } from "../constants.js";
 
 interface JobListViewProps {
-  store: JobStore;
-  config: SquadConfig;
-  iterationStore: IterationStore;
+  ctx: ProjectContext;
+  jobService: JobService;
   onStartJob: (jobId: string, phase: string) => void;
-  onResumeJob: (job: Job, workflowConfig: WorkflowConfig) => void;
+  onResumeJob: (job: Job) => void;
   onCreateJob: () => void;
   onPlanCreate: () => void;
   onQuit: () => void;
 }
 
 export function JobListView({
-  store, config, iterationStore,
+  ctx, jobService,
   onStartJob, onResumeJob, onCreateJob, onPlanCreate, onQuit,
 }: JobListViewProps) {
   const [cursor, setCursor, cursorRef] = useSyncedState(0);
@@ -40,17 +38,16 @@ export function JobListView({
   const [viewportOffset, setViewportOffset, viewportOffsetRef] = useSyncedState(0);
   const { rows } = useTerminalSize();
 
-  // Reserve: header(1) + border(2) + col-header(1) + workflow-diagram(4) + confirm/msg(1) + statusbar(1) = 10
   const viewportHeight = Math.max(rows - 10, 3);
 
   const loadJobs = useCallback(() => {
     try {
-      const loaded = store.listAll();
+      const loaded = jobService.list();
       setJobs(loaded);
     } catch {
       setJobs([]);
     }
-  }, [store, setJobs]);
+  }, [jobService, setJobs]);
 
   useEffect(() => {
     loadJobs();
@@ -74,8 +71,8 @@ export function JobListView({
   };
 
   const selectedJob = jobs[cursor];
-  const selectedWorkflow = selectedJob
-    ? config.getWorkflow(selectedJob.frontmatter.workflow)
+  const selectedWorkflow: WorkflowConfig | undefined = selectedJob
+    ? ctx.workflows[selectedJob.frontmatter.workflow]
     : undefined;
 
   useKeyboard((event: KeyEvent) => {
@@ -85,15 +82,10 @@ export function JobListView({
         setConfirmAction(null);
         try {
           if (type === "delete") {
-            store.delete(jobId);
+            ctx.jobStore.delete(jobId);
             setMessage(`ジョブ ${jobId} を削除しました`);
           } else if (type === "abort") {
-            const job = store.load(jobId);
-            const wf = config.getWorkflow(job.frontmatter.workflow);
-            if (wf) {
-              const engine = new WorkflowEngine(wf, store);
-              engine.abortJob(jobId);
-            }
+            jobService.abort(jobId);
             setMessage(`ジョブ ${jobId} を中断しました`);
           }
           loadJobs();
@@ -140,18 +132,16 @@ export function JobListView({
       const fm = job.frontmatter;
       if (fm.status === "pending") {
         try {
-          const wf = config.getWorkflow(fm.workflow);
+          const wf = ctx.workflows[fm.workflow];
           if (!wf) { setMessage(`ワークフロー '${fm.workflow}' が見つかりません`); event.preventDefault(); return; }
-          const engine = new WorkflowEngine(wf, store);
-          const startedJob = engine.startJob(fm.id);
-          const phase = startedJob.frontmatter.current_phase ?? wf.initialPhase().name;
+          const startedJob = jobService.start(fm.id);
+          const phase = startedJob.frontmatter.current_phase ?? initialPhase(wf).name;
           onStartJob(fm.id, phase);
         } catch (e) {
           setMessage(`エラー: ${e instanceof Error ? e.message : String(e)}`);
         }
       } else if (fm.status === "running") {
-        const wf = config.getWorkflow(fm.workflow);
-        if (wf) { onResumeJob(job, wf); } else { setMessage(`ワークフロー '${fm.workflow}' が見つかりません`); }
+        onResumeJob(job);
       } else {
         setMessage(`ステータス '${fm.status}' のジョブは開始できません`);
       }
