@@ -89,7 +89,7 @@ export function JobListView({
             setMessage(`ジョブ ${jobId} を中断しました`);
           }
           loadJobs();
-          const newCursor = Math.min(cursorRef.current, Math.max(0, jobsRef.current.length - 2));
+          const newCursor = Math.min(cursorRef.current, Math.max(0, jobsRef.current.length - 1));
           setCursor(newCursor);
           adjustViewport(newCursor);
         } catch (e) {

@@ -79,7 +79,10 @@ export class OutputStore {
       throw new CcsquadError("io", `Failed to read job directory: ${e}`);
     }
 
-    const seq = existingFiles.length + 1;
+    const seqs = existingFiles
+      .map(f => { const m = f.match(/^(\d+)-/); return m ? parseInt(m[1], 10) : 0; })
+      .filter(n => !isNaN(n));
+    const seq = seqs.length > 0 ? Math.max(...seqs) + 1 : 1;
     const fileName = `${seq}-${output.phase}.md`;
     const filePath = join(dir, fileName);
 

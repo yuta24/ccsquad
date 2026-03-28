@@ -162,10 +162,45 @@ workflows:
 `;
     const workflows = parseConfig(yaml);
     const diagnostics = lint(workflows["test"], "test");
-    const warnings = diagnostics.filter(d => d.severity === "warning");
-    expect(warnings.length).toBe(1);
-    expect(warnings[0].phase).toContain("orphan");
-    expect(warnings[0].message).toContain("到達不能");
+    const unreachable = diagnostics.filter(d => d.severity === "warning" && d.message.includes("到達不能"));
+    expect(unreachable.length).toBe(1);
+    expect(unreachable[0].phase).toContain("orphan");
+  });
+
+  it("'failed' ルール欠如で警告を返す", () => {
+    const yaml = `
+workflows:
+  test:
+    phases:
+      - name: plan
+        type: task
+        agent: planner
+        on:
+          completed: COMPLETE
+`;
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
+    const failedWarnings = diagnostics.filter(d => d.severity === "warning" && d.message.includes("failed"));
+    expect(failedWarnings.length).toBe(1);
+    expect(failedWarnings[0].phase).toBe("plan");
+  });
+
+  it("'failed' ルールがある場合警告なし", () => {
+    const yaml = `
+workflows:
+  test:
+    phases:
+      - name: plan
+        type: task
+        agent: planner
+        on:
+          completed: COMPLETE
+          failed: ABORT
+`;
+    const workflows = parseConfig(yaml);
+    const diagnostics = lint(workflows["test"], "test");
+    const failedWarnings = diagnostics.filter(d => d.severity === "warning" && d.message.includes("failed"));
+    expect(failedWarnings.length).toBe(0);
   });
 
   it("遷移先の解決", () => {
@@ -440,6 +475,47 @@ workflows:
     const dev = workflows["dev"];
     const phase = getPhase(dev, "analyze");
     expect(phase?.output_format).toEqual(["## 調査結果", "## まとめ"]);
+  });
+
+  it("output_format: null を YAML で書くと null が保持される", () => {
+    const yaml = `
+workflows:
+  dev:
+    phases:
+      - name: analyze
+        type: research
+        agent: researcher
+        output_format: null
+        on:
+          completed: COMPLETE
+`;
+    const workflows = parseConfig(yaml);
+    const dev = workflows["dev"];
+    const phase = getPhase(dev, "analyze");
+    expect(phase?.output_format).toBeNull();
+    // getOutputFormat で null が返ることを確認（デフォルトが適用されない）
+    expect(getOutputFormat(phase!)).toBeNull();
+  });
+
+  it("output_format 未設定の YAML → undefined（デフォルトが適用される）", () => {
+    const yaml = `
+workflows:
+  dev:
+    phases:
+      - name: analyze
+        type: research
+        agent: researcher
+        on:
+          completed: COMPLETE
+`;
+    const workflows = parseConfig(yaml);
+    const dev = workflows["dev"];
+    const phase = getPhase(dev, "analyze");
+    expect(phase?.output_format).toBeUndefined();
+    // getOutputFormat で research のデフォルトが返る
+    const format = getOutputFormat(phase!);
+    expect(format).not.toBeNull();
+    expect(format!.length).toBeGreaterThan(0);
   });
 });
 

@@ -146,6 +146,9 @@ export function lint(wf: WorkflowConfig, workflowName: string): Diagnostic[] {
       if (!phase.on["completed"]) {
         diagnostics.push({ severity: "error", workflow: workflowName, phase: phase.name, message: "'completed' ルールがありません" });
       }
+      if (!phase.on["failed"]) {
+        diagnostics.push({ severity: "warning", workflow: workflowName, phase: phase.name, message: "'failed' ルールがありません" });
+      }
     }
   }
 

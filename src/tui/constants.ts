@@ -32,7 +32,7 @@ export interface TransitionInfo {
   agent?: string;
   reviewer?: string;
   phaseType?: string;
-  reason?: "max_iterations";
+  reason?: "max_iterations" | "human_review";
   sessionId?: string;
 }
 

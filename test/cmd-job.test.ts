@@ -7,6 +7,7 @@ import {
   cmdList,
   cmdShow,
   cmdEdit,
+  cmdUpdateSection,
   cmdRun,
   cmdTransition,
   cmdApprove,
@@ -507,5 +508,68 @@ describe("cmdEdit", () => {
     const { ctx } = setup();
     cmdAdd(ctx, "タスク", "dev");
     expect(() => cmdEdit(ctx, "J000001", undefined, undefined, undefined, ["J999999"])).toThrow();
+  });
+});
+
+// ─── cmdUpdateSection ─────────────────────────────────────────────────────────
+
+describe("cmdUpdateSection", () => {
+  it("空のボディに新しいセクションを追加する", () => {
+    const { ctx } = setup();
+    cmdAdd(ctx, "タスク", "dev");
+    cmdUpdateSection(ctx, "J000001", "実装内容", "コードを書いた");
+
+    const job = ctx.jobStore.load("J000001");
+    expect(job.body).toContain("## 実装内容");
+    expect(job.body).toContain("コードを書いた");
+  });
+
+  it("既存セクションを更新する", () => {
+    const { ctx } = setup();
+    cmdAdd(ctx, "タスク", "dev", { description: "初期内容" });
+    cmdUpdateSection(ctx, "J000001", "実装内容", "最初の内容");
+    cmdUpdateSection(ctx, "J000001", "実装内容", "更新された内容");
+
+    const job = ctx.jobStore.load("J000001");
+    expect(job.body).toContain("更新された内容");
+    expect(job.body).not.toContain("最初の内容");
+  });
+
+  it("フェーズログの前にセクションを挿入する", () => {
+    const { ctx } = setup();
+    cmdAdd(ctx, "タスク", "dev");
+    // フェーズログを含むボディを直接設定
+    const job = ctx.jobStore.load("J000001");
+    job.body = "## 説明\n既存の説明\n\n## フェーズログ\n- ログ1\n";
+    ctx.jobStore.save(job);
+
+    cmdUpdateSection(ctx, "J000001", "実装内容", "新しい内容");
+
+    const updated = ctx.jobStore.load("J000001");
+    const implIdx = updated.body.indexOf("## 実装内容");
+    const logIdx = updated.body.indexOf("## フェーズログ");
+    expect(implIdx).not.toBe(-1);
+    expect(logIdx).not.toBe(-1);
+    expect(implIdx).toBeLessThan(logIdx);
+    expect(updated.body).toContain("新しい内容");
+    expect(updated.body).toContain("- ログ1");
+  });
+
+  it("既存セクションの更新で他セクションを壊さない", () => {
+    const { ctx } = setup();
+    cmdAdd(ctx, "タスク", "dev");
+    const job = ctx.jobStore.load("J000001");
+    job.body = "## 説明\n初期説明\n\n## 実装内容\n古い内容\n\n## フェーズログ\n- ログ\n";
+    ctx.jobStore.save(job);
+
+    cmdUpdateSection(ctx, "J000001", "実装内容", "新しい内容");
+
+    const updated = ctx.jobStore.load("J000001");
+    expect(updated.body).toContain("## 説明");
+    expect(updated.body).toContain("初期説明");
+    expect(updated.body).toContain("新しい内容");
+    expect(updated.body).not.toContain("古い内容");
+    expect(updated.body).toContain("## フェーズログ");
+    expect(updated.body).toContain("- ログ");
   });
 });

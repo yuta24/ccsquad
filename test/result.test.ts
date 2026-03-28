@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { parsePrintOutput, parsePrintOutputFromText, stripAnsi, extractResult } from "../src/infra/stream-parser.js";
+import { parsePrintOutput, parsePrintOutputFromText, parseStreamJsonResult, stripAnsi, extractResult } from "../src/infra/stream-parser.js";
 
 describe("parsePrintOutput", () => {
   it("完全な JSON から sessionId, content, costUsd を正しく抽出", () => {
@@ -200,5 +200,80 @@ describe("extractResult", () => {
   it("空文字列 → null を返す", () => {
     const result = extractResult("");
     expect(result).toBeNull();
+  });
+});
+
+describe("parseStreamJsonResult", () => {
+  it("type: result イベントから sessionId, content, costUsd を抽出", () => {
+    const json = JSON.stringify({
+      type: "result",
+      session_id: "sess-xyz",
+      result: "処理完了",
+      total_cost_usd: 0.05,
+    });
+    const result = parseStreamJsonResult(json);
+    expect(result).not.toBeNull();
+    expect(result!.sessionId).toBe("sess-xyz");
+    expect(result!.content).toBe("処理完了");
+    expect(result!.costUsd).toBe(0.05);
+  });
+
+  it("type: result がない JSON → null", () => {
+    const json = JSON.stringify({
+      type: "assistant",
+      session_id: "sess-abc",
+      result: "内容",
+    });
+    const result = parseStreamJsonResult(json);
+    expect(result).toBeNull();
+  });
+
+  it("複数行の出力から末尾の result イベントを抽出", () => {
+    const lines = [
+      JSON.stringify({ type: "assistant", message: { content: [] } }),
+      JSON.stringify({ type: "user", message: { content: [] } }),
+      JSON.stringify({ type: "result", session_id: "sess-final", result: "最終結果", total_cost_usd: 0.12 }),
+    ].join("\n");
+    const result = parseStreamJsonResult(lines);
+    expect(result).not.toBeNull();
+    expect(result!.sessionId).toBe("sess-final");
+    expect(result!.content).toBe("最終結果");
+    expect(result!.costUsd).toBe(0.12);
+  });
+
+  it("ANSI エスケープを含む出力からパース", () => {
+    const json = JSON.stringify({ type: "result", session_id: "sess-ansi", result: "ok", total_cost_usd: 0.01 });
+    const raw = `\x1b[32mDone\x1b[0m\n${json}`;
+    const result = parseStreamJsonResult(raw);
+    expect(result).not.toBeNull();
+    expect(result!.sessionId).toBe("sess-ansi");
+  });
+
+  it("total_cost_usd がない → costUsd は 0", () => {
+    const json = JSON.stringify({ type: "result", session_id: "sess-nocost", result: "ok" });
+    const result = parseStreamJsonResult(json);
+    expect(result).not.toBeNull();
+    expect(result!.costUsd).toBe(0);
+  });
+
+  it("session_id がない → sessionId は ''", () => {
+    const json = JSON.stringify({ type: "result", result: "ok", total_cost_usd: 0.01 });
+    const result = parseStreamJsonResult(json);
+    expect(result).not.toBeNull();
+    expect(result!.sessionId).toBe("");
+  });
+
+  it("空文字列 → null", () => {
+    expect(parseStreamJsonResult("")).toBeNull();
+  });
+
+  it("JSON がない文字列 → null", () => {
+    expect(parseStreamJsonResult("plain text\nno json")).toBeNull();
+  });
+
+  it("cost_usd ではなく total_cost_usd を使う", () => {
+    const json = JSON.stringify({ type: "result", session_id: "s", result: "ok", cost_usd: 0.99, total_cost_usd: 0.05 });
+    const result = parseStreamJsonResult(json);
+    expect(result!.costUsd).toBe(0.05);
   });
 });

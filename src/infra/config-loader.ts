@@ -59,7 +59,7 @@ export function parseConfig(content: string): Record<string, WorkflowConfig> {
         agent: p.agent as string | undefined,
         reviewer: p.reviewer as string | undefined,
         prompt: p.prompt as string | undefined,
-        output_format: p.output_format != null ? (p.output_format as string[]) : undefined,
+        output_format: p.output_format === null ? null : (p.output_format as string[] | undefined),
         on: (p.on as Partial<Record<TransitionCondition, string>>) ?? {},
       }));
     } else {

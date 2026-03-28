@@ -54,6 +54,7 @@ export class PhaseExecutor {
 
       const phaseType: PhaseType = phaseConfig.type;
       const agentName = phaseConfig.agent ?? "claude";
+      const executorName = phaseType === "review" ? (phaseConfig.reviewer ?? "claude") : agentName;
       const iteration = this.ctx.iterationStore.get(jobId);
       const lastOutput = this.ctx.outputStore.findLastByPhase(jobId, phaseName);
       const sessionId = lastOutput?.sessionId;
@@ -93,7 +94,7 @@ export class PhaseExecutor {
           outputFiles,
           outputFormat: getOutputFormat(phaseConfig),
         });
-        args = ["claude", "-p", "--verbose", "--permission-mode", "auto", "--agent", agentName, "--output-format", "stream-json", prompt];
+        args = ["claude", "-p", "--verbose", "--permission-mode", "auto", "--agent", executorName, "--output-format", "stream-json", prompt];
       } else {
         prompt = buildTaskPrompt({
           jobId,
@@ -126,7 +127,7 @@ export class PhaseExecutor {
           : (exitInfo.exitCode === 0 ? "approved" : "rejected");
 
         try {
-          this.outputService.saveAgentOutput(jobId, phaseName, exitInfo, agentName, iteration, resultCondition);
+          this.outputService.saveAgentOutput(jobId, phaseName, exitInfo, executorName, iteration, resultCondition);
         } catch {
           errorHandler?.("出力の保存に失敗しました");
           return;

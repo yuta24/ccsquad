@@ -58,6 +58,7 @@ export function PhaseRunningView({
   const [pauseInfo, setPauseInfo, pauseInfoRef] = useSyncedState<TransitionInfo | null>(null);
   const [reviewMode, setReviewMode] = useState<ReviewMode>("browse");
   const [statusMsg, setStatusMsg] = useState("");
+  const handleTransitionResultRef = useRef<(r: TransitionResult) => void>();
 
   // ── Start a phase ──
 
@@ -75,7 +76,7 @@ export function PhaseRunningView({
     });
 
     exec.onExit((result: TransitionResult) => {
-      handleTransitionResult(result);
+      handleTransitionResultRef.current?.(result);
     });
 
     exec.onError((msg) => {
@@ -119,6 +120,7 @@ export function PhaseRunningView({
       }
     }
   }, [jobId, onDone, outputService, startPhase]);
+  handleTransitionResultRef.current = handleTransitionResult;
 
   // ── Review callbacks ──
 

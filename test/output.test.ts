@@ -57,6 +57,25 @@ describe("OutputStore.save", () => {
     expect(outputs[2].seq).toBe(3);
   });
 
+  it("途中のファイルが削除されても seq が衝突しない", () => {
+    const dir = makeTmpDir();
+    const store = new OutputStore(dir);
+    store.save("J000001", makeOutput("plan", 1));
+    store.save("J000001", makeOutput("code", 1));
+    store.save("J000001", makeOutput("review", 1));
+
+    // 2番目のファイルを手動削除
+    const { unlinkSync } = require("node:fs");
+    const jobDir = join(dir, "J000001");
+    unlinkSync(join(jobDir, "2-code.md"));
+
+    // 次の save は seq=4 になるべき（既存 max=3）
+    store.save("J000001", makeOutput("code", 2));
+    const outputs = store.loadForJob("J000001");
+    const seqs = outputs.map(o => o.seq).sort((a, b) => a - b);
+    expect(seqs).toEqual([1, 3, 4]);
+  });
+
   it("sessionId が設定されている場合保存される", () => {
     const dir = makeTmpDir();
     const store = new OutputStore(dir);
