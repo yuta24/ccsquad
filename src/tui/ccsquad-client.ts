@@ -57,11 +57,22 @@ export function parseJobShowOutput(output: string): JobShowResult {
     updated_at: String(parsed.updated_at ?? ""),
     body: String(parsed.body ?? ""),
     phase_config: parsed.phase_config
-      ? {
-          type: String(parsed.phase_config.type),
-          agent: String(parsed.phase_config.agent),
-          auto: Boolean(parsed.phase_config.auto),
-        }
+      ? parsed.phase_config.agents
+        ? {
+            type: String(parsed.phase_config.type),
+            agents: (parsed.phase_config.agents as Array<{ agent: string; constraint?: string }>).map(
+              (s: { agent: string; constraint?: string }) => ({
+                agent: String(s.agent),
+                ...(s.constraint != null ? { constraint: String(s.constraint) } : {}),
+              }),
+            ),
+            auto: Boolean(parsed.phase_config.auto),
+          }
+        : {
+            type: String(parsed.phase_config.type),
+            agent: String(parsed.phase_config.agent),
+            auto: Boolean(parsed.phase_config.auto),
+          }
       : undefined,
   };
 }

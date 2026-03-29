@@ -5,6 +5,7 @@ import type {
   PhaseConfig,
   PhaseType,
   TransitionCondition,
+  AgentSpec,
 } from "./types.js";
 import { ALL_CONDITIONS, ALL_PHASE_TYPES } from "./types.js";
 
@@ -99,6 +100,32 @@ export function parseWorkflowFromBody(body: string): WorkflowConfig {
     }
 
     const agent = entry.agent != null ? String(entry.agent) : undefined;
+
+    let agents: AgentSpec[] | undefined;
+    const agentsRaw = entry.agents;
+    if (agentsRaw != null) {
+      if (agent != null) {
+        throw new CcsquadError("workflow", `フェーズ '${name}': agent と agents は同時に指定できません`);
+      }
+      if (!Array.isArray(agentsRaw)) {
+        throw new CcsquadError("workflow", `フェーズ '${name}': agents は配列で指定してください`);
+      }
+      if (agentsRaw.length < 2) {
+        throw new CcsquadError("workflow", `フェーズ '${name}': agents は 2 件以上指定してください（1 件の場合は agent を使用してください）`);
+      }
+      agents = agentsRaw.map((item: unknown, i: number) => {
+        if (typeof item === "string") return { agent: item };
+        if (typeof item !== "object" || item === null || typeof (item as Record<string, unknown>).agent !== "string") {
+          throw new CcsquadError("workflow", `フェーズ '${name}': agents[${i}] は { agent: string, constraint?: string } で指定してください`);
+        }
+        const spec = item as Record<string, unknown>;
+        return {
+          agent: String(spec.agent),
+          ...(spec.constraint != null ? { constraint: String(spec.constraint) } : {}),
+        };
+      });
+    }
+
     const auto = entry.auto === true ? true : undefined;
 
     const onRaw = entry.on;
@@ -114,7 +141,7 @@ export function parseWorkflowFromBody(body: string): WorkflowConfig {
       on[cond as TransitionCondition] = String(target);
     }
 
-    phases.push({ name, type: type as PhaseType, ...(agent ? { agent } : {}), ...(auto ? { auto } : {}), on });
+    phases.push({ name, type: type as PhaseType, ...(agent ? { agent } : {}), ...(agents ? { agents } : {}), ...(auto ? { auto } : {}), on });
   }
 
   if (phases.length === 0) {
@@ -128,7 +155,11 @@ export function generateWorkflowSection(wf: WorkflowConfig): string {
   const obj: Record<string, Record<string, unknown>> = {};
   for (const phase of wf.phases) {
     const entry: Record<string, unknown> = { type: phase.type };
-    if (phase.agent) entry.agent = phase.agent;
+    if (phase.agents && phase.agents.length > 0) {
+      entry.agents = phase.agents;
+    } else if (phase.agent) {
+      entry.agent = phase.agent;
+    }
     if (phase.auto) entry.auto = true;
     entry.on = { ...phase.on };
     obj[phase.name] = entry;

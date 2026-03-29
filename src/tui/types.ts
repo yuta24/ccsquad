@@ -21,9 +21,7 @@ export interface JobShowResult {
   created_at: string;
   updated_at: string;
   body: string;
-  phase_config?: {
-    type: string;
-    agent: string;
-    auto: boolean;
-  };
+  phase_config?:
+    | { type: string; agent: string; auto: boolean }
+    | { type: string; agents: Array<{ agent: string; constraint?: string }>; auto: boolean };
 }

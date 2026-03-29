@@ -19,22 +19,38 @@ description: |
 │    ├─ running → Step 2
 │    └─ completed/failed/aborted → 報告して終了
 │
-├─ Step 2: phase_config.agent を判定（JSON 出力の phase_config.agent を使用）
-│    ├─ type が review → Step 4
-│    └─ それ以外 → Step 3（agent 名のエージェントを起動）
+├─ Step 2: phase_config を判定
+│    ├─ type が review → Step 5
+│    ├─ phase_config.agent がある場合 → Step 3（単一エージェント）
+│    └─ phase_config.agents がある場合 → Step 4（並列マルチエージェント）
 │
-├─ Step 3: phase_config.agent のエージェントを起動
+├─ Step 3: 単一エージェント実行
+│    │  phase_config.agent のエージェントを起動
 │    │  結果 (completed/failed) を受け取る
 │    └─ ccsquad job transition <ID> <result> --message "..."
 │         ├─ 「ジョブが完了/失敗しました」→ 報告して終了
 │         ├─ 「フェーズを遷移しました」→ Step 1 に戻る
-│         ├─ 「一時停止」(human_review) → Step 4
+│         ├─ 「一時停止」(human_review) → Step 5
 │         └─ 「一時停止」(max_iterations) → 上限到達を報告して終了
 │
-└─ Step 4: review フェーズ到達 → ユーザーに報告して停止
+├─ Step 4: 並列マルチエージェント実行
+│    │  phase_config.agents の各エントリをサブエージェントとして並列起動
+│    │  （Agent ツールを複数同時に呼び出す）
+│    │  各エージェントに constraint がある場合、追加指示として渡す
+│    │  全サブエージェントの完了を待つ
+│    │  集約ルール: 全完了 → completed、いずれか失敗 → failed
+│    └─ ccsquad job transition <ID> <result> --message "..."
+│         ├─ 「ジョブが完了/失敗しました」→ 報告して終了
+│         ├─ 「フェーズを遷移しました」→ Step 1 に戻る
+│         ├─ 「一時停止」(human_review) → Step 5
+│         └─ 「一時停止」(max_iterations) → 上限到達を報告して終了
+│
+└─ Step 5: review フェーズ到達 → ユーザーに報告して停止
 ```
 
 ## エージェントのプロンプト
+
+### 単一エージェント（phase_config.agent）
 
 `phase_config.agent` の値（例: developer, planner, coder）に対応する `.claude/agents/{agent}.md` のエージェントを起動する。
 
@@ -54,6 +70,33 @@ description: |
 - execute フェーズ: Acceptance Criteria に基づいて実装・テストを行う
 - 結果を { result: "completed"|"failed", message: "要約" } で返す
 ```
+
+### 並列マルチエージェント（phase_config.agents）
+
+`phase_config.agents` の各エントリに対して Agent ツールを **並列** で起動する。
+
+```
+以下のジョブの「{current_phase}」フェーズ（タイプ: {phase_type}、エージェント: {agent}）を実行してください。
+
+## ジョブ情報
+- ID: {id}
+- タイトル: {title}
+- イテレーション: {iteration}/{max_iterations}
+
+## ジョブ body
+{body 全文}
+
+{constraint がある場合:}
+## 追加制約
+{constraint}
+
+## 指示
+- plan フェーズ: 調査・設計を行い、Acceptance Criteria を具体化する
+- execute フェーズ: Acceptance Criteria に基づいて実装・テストを行う
+- 結果を { result: "completed"|"failed", message: "要約" } で返す
+```
+
+**集約ルール**: 全エージェントが completed → completed、いずれかが failed → failed
 
 ## review 到達時の報告
 
