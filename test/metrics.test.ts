@@ -9,6 +9,7 @@ import type { Job } from "../src/domain/types.js";
 import { cmdSummary } from "../src/cli/commands/job.js";
 import { JobStore } from "../src/infra/job-store.js";
 import type { ProjectContext } from "../src/app/project-context.js";
+import { createTestContext } from "./helpers.js";
 
 const WORKFLOW_BODY = `## Workflow
 
@@ -256,18 +257,7 @@ function captureLog(fn: () => void): string[] {
 }
 
 function setup(): { ctx: ProjectContext } {
-  const dir = mkdtempSync(join(tmpdir(), "ccsquad-metrics-"));
-  const jobsDir = join(dir, "jobs");
-  const store = new JobStore(jobsDir);
-  store.ensureDir();
-  return {
-    ctx: {
-      jobStore: store,
-      projectRoot: dir,
-      squadDir: dir,
-      jobsDir,
-    },
-  };
+  return { ctx: createTestContext("ccsquad-metrics-") };
 }
 
 describe("cmdSummary", () => {

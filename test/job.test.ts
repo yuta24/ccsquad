@@ -18,8 +18,9 @@ function makeJob(id: string, title: string): Job {
   const frontmatter: JobFrontmatter = {
     id,
     title,
-    workflow: "dev",
     status: "pending",
+    iteration: 0,
+    max_iterations: 10,
     priority: 0,
     depends_on: [],
     created_at: now,

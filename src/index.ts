@@ -7,6 +7,7 @@ import {
   cmdList, cmdShow, cmdAdd, cmdRun, cmdTransition,
   cmdApprove, cmdReject, cmdAbort, cmdSummary,
 } from "./cli/commands/job.js";
+import { cmdDagRun, cmdDagStatus, cmdDagClean } from "./cli/commands/dag.js";
 
 const program = new Command();
 program.name("ccsquad").description("ステートマシン型ワークフローエンジン CLI");
@@ -67,6 +68,32 @@ jobCmd.command("summary <id>").description("ジョブのメトリクスサマリ
   .option("--format <format>", "出力形式 (text|json)", "text")
   .action((id: string, opts: { format: string }) => {
     cmdSummary(createProjectContext(), id, opts.format === "json" ? "json" : "text");
+  });
+
+// ===== dag commands =====
+const dagCmd = program.command("dag").description("DAG マルチジョブ並列実行");
+
+dagCmd.command("run [ids...]").description("DAG 並列実行")
+  .option("--max-concurrency <n>", "最大同時実行数", "4")
+  .option("--no-cascade", "上流失敗時に依存ジョブを自動スキップしない")
+  .option("--dry-run", "実行計画のみ表示")
+  .action(async (ids: string[], opts: { maxConcurrency: string; cascade: boolean; dryRun: boolean }) => {
+    await cmdDagRun(createProjectContext(), ids, {
+      maxConcurrency: parseInt(opts.maxConcurrency, 10) || 4,
+      noCascade: !opts.cascade,
+      dryRun: opts.dryRun ?? false,
+    });
+  });
+
+dagCmd.command("status").description("DAG 実行状態を表示")
+  .option("--format <format>", "出力形式 (text|json)", "text")
+  .action(async (opts: { format: string }) => {
+    await cmdDagStatus(createProjectContext(), opts.format === "json" ? "json" : "text");
+  });
+
+dagCmd.command("clean").description("孤立 worktree のクリーンアップ")
+  .action(async () => {
+    await cmdDagClean(createProjectContext());
   });
 
 // ===== entry point =====

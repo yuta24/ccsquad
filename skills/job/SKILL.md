@@ -83,6 +83,20 @@ ccsquad job abort <ID>
 ccsquad job summary <ID> [--format json]
 ```
 
+## DAG 並列実行
+
+```bash
+# 指定ジョブを DAG 実行（depends_on に基づいて依存解決・並列実行）
+ccsquad dag run J000001 J000002 J000003
+ccsquad dag run --all                     # 全 pending ジョブ対象
+ccsquad dag run J000001 --dry-run         # 実行計画のみ表示
+ccsquad dag run --max-concurrency 2       # 最大並列数指定
+
+# 実行状態の確認とクリーンアップ
+ccsquad dag status [--format json]
+ccsquad dag clean                         # 孤立 worktree の削除
+```
+
 ## ライフサイクル
 
 ```

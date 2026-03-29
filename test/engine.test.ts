@@ -6,6 +6,7 @@ import type { JobStatus, Job } from "../src/domain/types.js";
 import { JobStore } from "../src/infra/job-store.js";
 import { JobService, checkCircularDependency } from "../src/app/job-service.js";
 import type { ProjectContext } from "../src/app/project-context.js";
+import { createTestContext } from "./helpers.js";
 
 const DEV_WORKFLOW_BODY = `## Acceptance Criteria
 
@@ -44,16 +45,7 @@ function makeJob(id: string, status: JobStatus): Job {
 }
 
 function setup(): { ctx: ProjectContext; jobService: JobService } {
-  const dir = mkdtempSync(join(tmpdir(), "ccsquad-engine-test-"));
-  const jobsDir = join(dir, "jobs");
-  const store = new JobStore(jobsDir);
-  store.ensureDir();
-  const ctx: ProjectContext = {
-    jobStore: store,
-    projectRoot: dir,
-    squadDir: dir,
-    jobsDir,
-  };
+  const ctx = createTestContext("ccsquad-engine-test-");
   const jobService = new JobService(ctx);
   return { ctx, jobService };
 }

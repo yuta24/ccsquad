@@ -215,7 +215,7 @@ export function checkCircularDependency(
     const depId = stack.pop()!;
 
     if (depId === jobId) {
-      throw new CcsquadError("job", "循環依存が検出されました");
+      throw new CcsquadError("dag", "循環依存が検出されました");
     }
 
     if (visited.has(depId)) {

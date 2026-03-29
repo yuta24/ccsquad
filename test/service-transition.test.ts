@@ -7,6 +7,7 @@ import type { Job, JobStatus } from "../src/domain/types.js";
 import { JobService } from "../src/app/job-service.js";
 import { validateConditionForPhase } from "../src/domain/workflow.js";
 import type { ProjectContext } from "../src/app/project-context.js";
+import { createTestContext } from "./helpers.js";
 
 const WORKFLOW_BODY = `## Acceptance Criteria
 
@@ -53,25 +54,15 @@ function makeJob(id: string, status: JobStatus, body = WORKFLOW_BODY): Job {
 }
 
 function setup() {
-  const dir = makeTmpDir();
-  const jobsDir = join(dir, "jobs");
-  const store = new JobStore(jobsDir);
-  store.ensureDir();
-
-  const ctx: ProjectContext = {
-    jobStore: store,
-    projectRoot: dir,
-    squadDir: dir,
-    jobsDir,
-  };
-
+  const ctx = createTestContext("ccsquad-svc-transition-");
+  const store = ctx.jobStore;
   const jobService = new JobService(ctx);
 
   const job = makeJob("J000001", "pending");
   store.save(job);
   jobService.start("J000001");
 
-  return { dir, store, ctx, jobService };
+  return { dir: ctx.projectRoot, store, ctx, jobService };
 }
 
 // ─── JobService.transition - 終端遷移 ───────────────────────────────────

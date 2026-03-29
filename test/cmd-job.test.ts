@@ -15,6 +15,7 @@ import {
 import { JobStore } from "../src/infra/job-store.js";
 import type { Job, JobStatus } from "../src/domain/types.js";
 import type { ProjectContext } from "../src/app/project-context.js";
+import { createTestContext } from "./helpers.js";
 
 const PHASES = "plan:plan,code:execute,review:review";
 const TRANSITIONS = "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code";
@@ -53,16 +54,7 @@ function makeJob(id: string, status: JobStatus): Job {
 }
 
 function setup(): { ctx: ProjectContext } {
-  const dir = makeTmpDir();
-  const jobsDir = join(dir, "jobs");
-  const store = new JobStore(jobsDir);
-  store.ensureDir();
-  const ctx: ProjectContext = {
-    jobStore: store,
-    projectRoot: dir,
-    squadDir: dir,
-    jobsDir,
-  };
+  const ctx = createTestContext("ccsquad-cmd-job-");
   return { ctx };
 }
 
