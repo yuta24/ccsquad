@@ -157,6 +157,7 @@ export class JobService {
         job.body = appendPhaseLog(job.body, entry);
         job.frontmatter.status = targetStatus;
         job.frontmatter.current_phase = undefined;
+        job.frontmatter.iteration = 0;
         job.frontmatter.updated_at = new Date().toISOString();
         this.ctx.jobStore.save(job);
         return { type: "done", jobId, status: targetStatus };

@@ -20,7 +20,8 @@ description: |
 │    └─ completed/failed/aborted → 報告して終了
 │
 ├─ Step 2: phase_config を判定
-│    ├─ type が review → Step 5
+│    ├─ type が review かつ auto が false → Step 5（人間レビュー）
+│    ├─ type が review かつ auto が true → Step 3 または Step 4（自動レビュー）
 │    ├─ phase_config.agent がある場合 → Step 3（単一エージェント）
 │    └─ phase_config.agents がある場合 → Step 4（並列マルチエージェント）
 │
