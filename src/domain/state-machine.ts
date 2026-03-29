@@ -66,14 +66,15 @@ export function computeTransition(input: TransitionInput): TransitionDecision {
     );
   }
 
+  // Human review check (review phase pauses unless auto is enabled)
+  // Review pauses take priority over max_iterations — humans must always be able to approve/reject.
+  if (nextPhaseConfig.type === "review" && !nextPhaseConfig.auto) {
+    return { action: "pause", nextPhase: next, nextPhaseConfig, reason: "human_review" };
+  }
+
   // Max iterations check
   if (job.frontmatter.iteration >= job.frontmatter.max_iterations) {
     return { action: "pause", nextPhase: next, nextPhaseConfig, reason: "max_iterations" };
-  }
-
-  // Human review check (review phase pauses unless auto is enabled)
-  if (nextPhaseConfig.type === "review" && !nextPhaseConfig.auto) {
-    return { action: "pause", nextPhase: next, nextPhaseConfig, reason: "human_review" };
   }
 
   // Auto-continue
