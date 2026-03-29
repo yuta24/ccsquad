@@ -31,6 +31,10 @@ ccsquad dag run J000001 J000002 --max-concurrency 2
 # 上流失敗時に下流を自動スキップしない
 ccsquad dag run J000001 J000002 --no-cascade
 
+# review 承認後のジョブ再開
+ccsquad dag resume              # running かつ worktree なしのジョブを自動検出
+ccsquad dag resume J000001      # 指定ジョブを再開
+
 # 実行中のジョブ状態を表示
 ccsquad dag status
 ccsquad dag status --format json

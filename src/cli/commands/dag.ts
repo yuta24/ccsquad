@@ -92,6 +92,58 @@ export async function cmdDagStatus(ctx: ProjectContext, format: "text" | "json")
   }
 }
 
+export async function cmdDagResume(
+  ctx: ProjectContext,
+  jobIds: string[],
+  opts: { maxConcurrency: number; noCascade: boolean },
+): Promise<void> {
+  const orchestrator = new DagOrchestrator(ctx);
+
+  // If no IDs specified, find running jobs without active worktrees
+  let targetIds = jobIds;
+  if (targetIds.length === 0) {
+    const allJobs = ctx.jobStore.listAll();
+    targetIds = allJobs
+      .filter((j) =>
+        j.frontmatter.status === "running" &&
+        j.frontmatter.current_phase !== undefined &&
+        !ctx.worktreeManager.exists(j.frontmatter.id),
+      )
+      .map((j) => j.frontmatter.id);
+  }
+
+  if (targetIds.length === 0) {
+    console.log("再開対象のジョブがありません。");
+    return;
+  }
+
+  // Validate that all specified jobs are in a resumable state
+  for (const id of targetIds) {
+    const job = ctx.jobStore.load(id);
+    if (job.frontmatter.status !== "running") {
+      console.error(`ジョブ ${id} は running 状態ではありません (status: ${job.frontmatter.status})`);
+      return;
+    }
+  }
+
+  console.log(`再開: ${targetIds.join(", ")}\n`);
+
+  const runOpts: DagRunOptions = {
+    maxConcurrency: opts.maxConcurrency,
+    cascadeAbort: !opts.noCascade,
+    dryRun: false,
+  };
+
+  const dagResult = await orchestrator.run(targetIds, runOpts);
+
+  // Print summary
+  console.log("\n--- DAG 再開結果 ---");
+  for (const [jobId, jobResult] of dagResult.jobs) {
+    const icon = statusIcon(jobResult);
+    console.log(`  ${icon} ${jobId}: ${jobResult.status}`);
+  }
+}
+
 export async function cmdDagClean(ctx: ProjectContext): Promise<void> {
   const worktrees = await ctx.worktreeManager.listAll();
 

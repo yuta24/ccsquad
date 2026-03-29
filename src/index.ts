@@ -7,7 +7,7 @@ import {
   cmdList, cmdShow, cmdAdd, cmdRun, cmdTransition,
   cmdApprove, cmdReject, cmdAbort, cmdSummary,
 } from "./cli/commands/job.js";
-import { cmdDagRun, cmdDagStatus, cmdDagClean } from "./cli/commands/dag.js";
+import { cmdDagRun, cmdDagResume, cmdDagStatus, cmdDagClean } from "./cli/commands/dag.js";
 
 const program = new Command();
 program.name("ccsquad").description("ステートマシン型ワークフローエンジン CLI");
@@ -82,6 +82,16 @@ dagCmd.command("run [ids...]").description("DAG 並列実行")
       maxConcurrency: parseInt(opts.maxConcurrency, 10) || 4,
       noCascade: !opts.cascade,
       dryRun: opts.dryRun ?? false,
+    });
+  });
+
+dagCmd.command("resume [ids...]").description("一時停止中のジョブを再開")
+  .option("--max-concurrency <n>", "最大同時実行数", "4")
+  .option("--no-cascade", "上流失敗時に依存ジョブを自動スキップしない")
+  .action(async (ids: string[], opts: { maxConcurrency: string; cascade: boolean }) => {
+    await cmdDagResume(createProjectContext(), ids, {
+      maxConcurrency: parseInt(opts.maxConcurrency, 10) || 4,
+      noCascade: !opts.cascade,
     });
   });
 

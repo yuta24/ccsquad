@@ -113,6 +113,37 @@ describe("JobService (replaces WorkflowEngine)", () => {
     if (result.type === "continue") expect(result.nextPhase).toBe("plan");
   });
 
+  it("test_auto_review_does_not_pause", () => {
+    const { ctx, jobService } = setup();
+    const autoReviewBody = `## Acceptance Criteria
+
+- [ ] テスト基準
+
+## Workflow
+
+- plan: plan -> completed:code, failed:ABORT
+- code: execute -> completed:review, failed:plan
+- review: review auto -> approved:COMPLETE, rejected:code
+`;
+    ctx.jobStore.save({
+      frontmatter: makeJob("J000001", "pending").frontmatter,
+      body: autoReviewBody,
+    });
+    jobService.start("J000001");
+
+    // plan -> completed -> code
+    jobService.transition("J000001", "completed", "");
+
+    // code -> completed -> review (should NOT pause because auto is set)
+    const result = jobService.transition("J000001", "completed", "実装完了");
+    expect(result.type).toBe("continue");
+    if (result.type === "continue") expect(result.nextPhase).toBe("review");
+
+    // review -> approved -> COMPLETE (auto-executed)
+    const result2 = jobService.transition("J000001", "approved", "LGTM");
+    expect(result2.type).toBe("done");
+  });
+
   it("test_abort_to_failed", () => {
     const { ctx, jobService } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));

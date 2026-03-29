@@ -10,6 +10,7 @@ export interface PhaseConfig {
   name: string;
   type: PhaseType;
   agent?: string;
+  auto?: boolean;
   on: Partial<Record<TransitionCondition, string>>;
 }
 

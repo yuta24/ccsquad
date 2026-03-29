@@ -21,6 +21,18 @@ ccsquad job add "タスク名" \
   --transitions "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code"
 ```
 
+### 自動レビューパターン: plan → execute → auto review
+
+reviewer エージェントによる自動レビュー。人間の確認が不要な場合に使用。
+
+```bash
+ccsquad job add "タスク名" \
+  --phases "plan:plan,code:execute,review:review:auto" \
+  --transitions "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code"
+```
+
+カスタム reviewer を指定する場合: `--phases "review:review:my-reviewer:auto"`
+
 ### 調査分離パターン: research → design → execute → review
 
 未知の技術・ドメインを含むタスク向け。調査と設計を分離する。
@@ -91,6 +103,10 @@ ccsquad dag run J000001 J000002 J000003
 ccsquad dag run --all                     # 全 pending ジョブ対象
 ccsquad dag run J000001 --dry-run         # 実行計画のみ表示
 ccsquad dag run --max-concurrency 2       # 最大並列数指定
+
+# review 承認後のジョブ再開
+ccsquad dag resume                        # running + worktree なしを自動検出
+ccsquad dag resume J000001                # 指定ジョブを再開
 
 # 実行状態の確認とクリーンアップ
 ccsquad dag status [--format json]

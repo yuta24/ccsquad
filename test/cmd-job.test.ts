@@ -158,7 +158,7 @@ describe("cmdAdd", () => {
 
   it("test_add_rejects_invalid_phase_format_too_many_colons", () => {
     const { ctx } = setup();
-    expect(() => cmdAdd(ctx, "タスク", "plan:plan:agent:extra", "plan:completed>COMPLETE")).toThrow("フェーズ定義の形式が不正です");
+    expect(() => cmdAdd(ctx, "タスク", "plan:plan:agent:auto:extra", "plan:completed>COMPLETE")).toThrow("フェーズ定義の形式が不正です");
   });
 });
 

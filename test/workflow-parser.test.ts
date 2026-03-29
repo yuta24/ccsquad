@@ -119,6 +119,39 @@ describe("parseWorkflowFromBody", () => {
     expect(wf.phases[0].agent).toBeUndefined();
     expect(wf.phases[1].agent).toBe("coder");
   });
+
+  it("auto キーワードをパースする", () => {
+    const body = `## Workflow
+
+- plan: plan -> completed:code, failed:ABORT
+- code: execute -> completed:review, failed:plan
+- review: review auto -> approved:COMPLETE, rejected:code
+`;
+    const wf = parseWorkflowFromBody(body);
+    expect(wf.phases[2].auto).toBe(true);
+    expect(wf.phases[0].auto).toBeUndefined();
+  });
+
+  it("agent と auto の両方を指定できる", () => {
+    const body = `## Workflow
+
+- review: review [my-reviewer] auto -> approved:COMPLETE, rejected:code
+`;
+    const wf = parseWorkflowFromBody(body);
+    expect(wf.phases[0].agent).toBe("my-reviewer");
+    expect(wf.phases[0].auto).toBe(true);
+  });
+
+  it("auto 指定ありで generateWorkflowSection が正しく出力する", () => {
+    const body = `## Workflow
+
+- plan: plan -> completed:review, failed:ABORT
+- review: review [reviewer] auto -> approved:COMPLETE, rejected:plan
+`;
+    const wf = parseWorkflowFromBody(body);
+    const output = generateWorkflowSection(wf);
+    expect(output).toContain("review: review [reviewer] auto -> approved:COMPLETE, rejected:plan");
+  });
 });
 
 describe("generateWorkflowSection", () => {

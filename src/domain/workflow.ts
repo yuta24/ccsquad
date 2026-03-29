@@ -87,10 +87,23 @@ export function parseWorkflowFromBody(body: string): WorkflowConfig {
     const name = nameType.slice(0, colonIdx).trim();
     const typeAndAgent = nameType.slice(colonIdx + 1).trim();
 
-    // [agent] ブラケット記法をパース: "plan [planner]" or "plan"
-    const bracketMatch = typeAndAgent.match(/^(\S+)\s+\[(\S+)\]$/);
-    const type = bracketMatch ? bracketMatch[1] : typeAndAgent;
-    const agent = bracketMatch ? bracketMatch[2] : undefined;
+    // [agent] ブラケット記法と auto キーワードをパース:
+    // "plan", "plan [planner]", "review auto", "review [reviewer] auto"
+    const bracketMatch = typeAndAgent.match(/^(\S+)\s+\[(\S+)\](?:\s+auto)?$/);
+    const autoOnly = typeAndAgent.match(/^(\S+)\s+auto$/);
+    let type: string;
+    let agent: string | undefined;
+    let auto = false;
+    if (bracketMatch) {
+      type = bracketMatch[1];
+      agent = bracketMatch[2];
+      auto = typeAndAgent.endsWith(" auto");
+    } else if (autoOnly) {
+      type = autoOnly[1];
+      auto = true;
+    } else {
+      type = typeAndAgent;
+    }
 
     if (!ALL_PHASE_TYPES.includes(type as PhaseType)) {
       throw new CcsquadError("workflow", `不正なフェーズタイプ: ${type} (${ALL_PHASE_TYPES.join(", ")} を指定してください)`);
@@ -111,7 +124,7 @@ export function parseWorkflowFromBody(body: string): WorkflowConfig {
       on[cond as TransitionCondition] = target;
     }
 
-    phases.push({ name, type: type as PhaseType, ...(agent ? { agent } : {}), on });
+    phases.push({ name, type: type as PhaseType, ...(agent ? { agent } : {}), ...(auto ? { auto } : {}), on });
   }
 
   if (phases.length === 0) {
@@ -128,7 +141,8 @@ export function generateWorkflowSection(wf: WorkflowConfig): string {
       .map(([cond, target]) => `${cond}:${target}`)
       .join(", ");
     const agentPart = phase.agent ? ` [${phase.agent}]` : "";
-    result += `- ${phase.name}: ${phase.type}${agentPart} -> ${transitions}\n`;
+    const autoPart = phase.auto ? " auto" : "";
+    result += `- ${phase.name}: ${phase.type}${agentPart}${autoPart} -> ${transitions}\n`;
   }
   return result;
 }

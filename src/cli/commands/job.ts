@@ -64,7 +64,7 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
         const wf = parseWorkflowFromBody(job.body);
         const phase = getPhase(wf, job.frontmatter.current_phase);
         if (phase) {
-          output.phase_config = { type: phase.type, agent: resolveAgent(phase) };
+          output.phase_config = { type: phase.type, agent: resolveAgent(phase), auto: phase.auto ?? false };
         }
       } catch {
         // skip if workflow parse fails
@@ -128,20 +128,38 @@ export function cmdAdd(
 }
 
 function buildWorkflowConfig(phasesStr: string, transitionsStr: string): WorkflowConfig {
-  // Parse phases: "research:plan,design:plan:planner,code:execute,review:review"
+  // Parse phases: "research:plan,design:plan:planner,code:execute,review:review:auto,review:review:reviewer:auto"
   const phaseDefs = phasesStr.split(",").map((pair) => {
     const trimmed = pair.trim();
     const parts = trimmed.split(":");
-    if (parts.length < 2 || parts.length > 3) {
-      throw new CcsquadError("config", `フェーズ定義の形式が不正です: ${trimmed} (name:type または name:type:agent の形式で指定してください)`);
+    if (parts.length < 2 || parts.length > 4) {
+      throw new CcsquadError("config", `フェーズ定義の形式が不正です: ${trimmed} (name:type, name:type:agent, name:type:auto, name:type:agent:auto の形式で指定してください)`);
     }
     const name = parts[0].trim();
     const type = parts[1].trim();
-    const agent = parts.length === 3 ? parts[2].trim() : undefined;
+
+    // Determine agent and auto from remaining parts
+    let agent: string | undefined;
+    let auto = false;
+    if (parts.length >= 3) {
+      const third = parts[2].trim();
+      if (third === "auto") {
+        auto = true;
+      } else {
+        agent = third || undefined;
+      }
+    }
+    if (parts.length === 4) {
+      const fourth = parts[3].trim();
+      if (fourth === "auto") {
+        auto = true;
+      }
+    }
+
     if (!ALL_PHASE_TYPES.includes(type as PhaseType)) {
       throw new CcsquadError("config", `不正なフェーズタイプ: ${type} (${ALL_PHASE_TYPES.join(", ")} を指定してください)`);
     }
-    return { name, type: type as PhaseType, agent };
+    return { name, type: type as PhaseType, agent, auto };
   });
 
   // Parse transitions: "research:completed>design,research:failed>ABORT,..."
@@ -166,14 +184,14 @@ function buildWorkflowConfig(phasesStr: string, transitionsStr: string): Workflo
   });
 
   // Build PhaseConfig array
-  const phases: PhaseConfig[] = phaseDefs.map(({ name, type, agent }) => {
+  const phases: PhaseConfig[] = phaseDefs.map(({ name, type, agent, auto }) => {
     const on: Partial<Record<TransitionCondition, string>> = {};
     for (const t of transitionDefs) {
       if (t.phase === name) {
         on[t.condition] = t.target;
       }
     }
-    return { name, type, ...(agent ? { agent } : {}), on };
+    return { name, type, ...(agent ? { agent } : {}), ...(auto ? { auto } : {}), on };
   });
 
   return { phases };

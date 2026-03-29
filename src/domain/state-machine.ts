@@ -71,8 +71,8 @@ export function computeTransition(input: TransitionInput): TransitionDecision {
     return { action: "pause", nextPhase: next, nextPhaseConfig, reason: "max_iterations" };
   }
 
-  // Human review check (review phase is always a pause point)
-  if (nextPhaseConfig.type === "review") {
+  // Human review check (review phase pauses unless auto is enabled)
+  if (nextPhaseConfig.type === "review" && !nextPhaseConfig.auto) {
     return { action: "pause", nextPhase: next, nextPhaseConfig, reason: "human_review" };
   }
 
