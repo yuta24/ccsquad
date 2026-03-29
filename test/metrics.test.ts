@@ -13,10 +13,25 @@ import { createTestContext } from "./helpers.js";
 
 const WORKFLOW_BODY = `## Workflow
 
-- research: plan -> completed:design, failed:ABORT
-- design: plan -> completed:code
-- code: execute -> completed:review, failed:design
-- review: review -> approved:COMPLETE, rejected:code
+research:
+  type: plan
+  on:
+    completed: design
+    failed: ABORT
+design:
+  type: plan
+  on:
+    completed: code
+code:
+  type: execute
+  on:
+    completed: review
+    failed: design
+review:
+  type: review
+  on:
+    approved: COMPLETE
+    rejected: code
 `;
 
 const PHASE_LOG = `## フェーズログ

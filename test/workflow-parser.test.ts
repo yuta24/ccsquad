@@ -5,9 +5,21 @@ describe("parseWorkflowFromBody", () => {
   it("基本的なワークフローをパースする", () => {
     const body = `## Workflow
 
-- plan: plan -> completed:code, failed:ABORT
-- code: execute -> completed:review, failed:plan
-- review: review -> approved:COMPLETE, rejected:code
+plan:
+  type: plan
+  on:
+    completed: code
+    failed: ABORT
+code:
+  type: execute
+  on:
+    completed: review
+    failed: plan
+review:
+  type: review
+  on:
+    approved: COMPLETE
+    rejected: code
 `;
     const wf = parseWorkflowFromBody(body);
     expect(wf.phases).toHaveLength(3);
@@ -23,22 +35,16 @@ describe("parseWorkflowFromBody", () => {
     expect(wf.phases[2].on.rejected).toBe("code");
   });
 
-  it("Unicode 矢印 → もサポートする", () => {
-    const body = `## Workflow
-
-- plan: plan → completed:code, failed:ABORT
-`;
-    const wf = parseWorkflowFromBody(body);
-    expect(wf.phases[0].on.completed).toBe("code");
-  });
-
   it("他のセクションがある場合も Workflow セクションのみパースする", () => {
     const body = `## 説明
 何かの説明
 
 ## Workflow
 
-- plan: plan -> completed:COMPLETE
+plan:
+  type: plan
+  on:
+    completed: COMPLETE
 
 ## フェーズログ
 ### plan (completed → COMPLETE) - 2026-01-01
@@ -66,23 +72,30 @@ describe("parseWorkflowFromBody", () => {
   it("不正なフェーズタイプの場合エラーをスローする", () => {
     const body = `## Workflow
 
-- plan: invalid -> completed:COMPLETE
+plan:
+  type: invalid
+  on:
+    completed: COMPLETE
 `;
     expect(() => parseWorkflowFromBody(body)).toThrow("不正なフェーズタイプ");
   });
 
-  it("矢印がない行の場合エラーをスローする", () => {
+  it("on が未定義の場合エラーをスローする", () => {
     const body = `## Workflow
 
-- plan: plan completed:COMPLETE
+plan:
+  type: plan
 `;
-    expect(() => parseWorkflowFromBody(body)).toThrow("不正なフェーズ定義");
+    expect(() => parseWorkflowFromBody(body)).toThrow("on (遷移ルール) が定義されていません");
   });
 
   it("不明な遷移条件の場合エラーをスローする", () => {
     const body = `## Workflow
 
-- plan: plan -> unknown:COMPLETE
+plan:
+  type: plan
+  on:
+    unknown: COMPLETE
 `;
     expect(() => parseWorkflowFromBody(body)).toThrow("不明な遷移条件");
   });
@@ -90,9 +103,24 @@ describe("parseWorkflowFromBody", () => {
   it("agent 指定ありのフェーズをパースする", () => {
     const body = `## Workflow
 
-- research: plan [planner] -> completed:code, failed:ABORT
-- code: execute [coder] -> completed:review, failed:research
-- review: review [reviewer] -> approved:COMPLETE, rejected:code
+research:
+  type: plan
+  agent: planner
+  on:
+    completed: code
+    failed: ABORT
+code:
+  type: execute
+  agent: coder
+  on:
+    completed: review
+    failed: research
+review:
+  type: review
+  agent: reviewer
+  on:
+    approved: COMPLETE
+    rejected: code
 `;
     const wf = parseWorkflowFromBody(body);
     expect(wf.phases[0].agent).toBe("planner");
@@ -103,7 +131,10 @@ describe("parseWorkflowFromBody", () => {
   it("agent 省略時は undefined", () => {
     const body = `## Workflow
 
-- plan: plan -> completed:COMPLETE
+plan:
+  type: plan
+  on:
+    completed: COMPLETE
 `;
     const wf = parseWorkflowFromBody(body);
     expect(wf.phases[0].agent).toBeUndefined();
@@ -112,8 +143,16 @@ describe("parseWorkflowFromBody", () => {
   it("agent 指定ありと省略の混在をパースする", () => {
     const body = `## Workflow
 
-- plan: plan -> completed:code, failed:ABORT
-- code: execute [coder] -> completed:COMPLETE
+plan:
+  type: plan
+  on:
+    completed: code
+    failed: ABORT
+code:
+  type: execute
+  agent: coder
+  on:
+    completed: COMPLETE
 `;
     const wf = parseWorkflowFromBody(body);
     expect(wf.phases[0].agent).toBeUndefined();
@@ -123,9 +162,22 @@ describe("parseWorkflowFromBody", () => {
   it("auto キーワードをパースする", () => {
     const body = `## Workflow
 
-- plan: plan -> completed:code, failed:ABORT
-- code: execute -> completed:review, failed:plan
-- review: review auto -> approved:COMPLETE, rejected:code
+plan:
+  type: plan
+  on:
+    completed: code
+    failed: ABORT
+code:
+  type: execute
+  on:
+    completed: review
+    failed: plan
+review:
+  type: review
+  auto: true
+  on:
+    approved: COMPLETE
+    rejected: code
 `;
     const wf = parseWorkflowFromBody(body);
     expect(wf.phases[2].auto).toBe(true);
@@ -135,7 +187,13 @@ describe("parseWorkflowFromBody", () => {
   it("agent と auto の両方を指定できる", () => {
     const body = `## Workflow
 
-- review: review [my-reviewer] auto -> approved:COMPLETE, rejected:code
+review:
+  type: review
+  agent: my-reviewer
+  auto: true
+  on:
+    approved: COMPLETE
+    rejected: code
 `;
     const wf = parseWorkflowFromBody(body);
     expect(wf.phases[0].agent).toBe("my-reviewer");
@@ -145,12 +203,24 @@ describe("parseWorkflowFromBody", () => {
   it("auto 指定ありで generateWorkflowSection が正しく出力する", () => {
     const body = `## Workflow
 
-- plan: plan -> completed:review, failed:ABORT
-- review: review [reviewer] auto -> approved:COMPLETE, rejected:plan
+plan:
+  type: plan
+  on:
+    completed: review
+    failed: ABORT
+review:
+  type: review
+  agent: reviewer
+  auto: true
+  on:
+    approved: COMPLETE
+    rejected: plan
 `;
     const wf = parseWorkflowFromBody(body);
     const output = generateWorkflowSection(wf);
-    expect(output).toContain("review: review [reviewer] auto -> approved:COMPLETE, rejected:plan");
+    expect(output).toContain("type: review");
+    expect(output).toContain("agent: reviewer");
+    expect(output).toContain("auto: true");
   });
 });
 
@@ -165,9 +235,12 @@ describe("generateWorkflowSection", () => {
     };
     const text = generateWorkflowSection(wf);
     expect(text).toContain("## Workflow");
-    expect(text).toContain("plan: plan");
-    expect(text).toContain("code: execute");
-    expect(text).toContain("review: review");
+    expect(text).toContain("plan:");
+    expect(text).toContain("type: plan");
+    expect(text).toContain("code:");
+    expect(text).toContain("type: execute");
+    expect(text).toContain("review:");
+    expect(text).toContain("type: review");
   });
 
   it("ラウンドトリップ: generate → parse が同一のワークフローを返す", () => {
@@ -197,9 +270,8 @@ describe("generateWorkflowSection", () => {
       ],
     };
     const text = generateWorkflowSection(wf);
-    expect(text).toContain("plan: plan [planner]");
-    expect(text).toContain("code: execute ->");
-    expect(text).not.toContain("code: execute [");
+    expect(text).toContain("agent: planner");
+    expect(text).not.toMatch(/code:[\s\S]*agent:/);
   });
 
   it("ラウンドトリップ (agent あり): generate → parse で agent が保持される", () => {

@@ -14,16 +14,40 @@ const DEV_WORKFLOW_BODY = `## Acceptance Criteria
 
 ## Workflow
 
-- plan: plan -> completed:code, failed:ABORT
-- code: execute -> completed:review, failed:plan
-- review: review -> approved:COMPLETE, rejected:code
+plan:
+  type: plan
+  on:
+    completed: code
+    failed: ABORT
+code:
+  type: execute
+  on:
+    completed: review
+    failed: plan
+review:
+  type: review
+  on:
+    approved: COMPLETE
+    rejected: code
 `;
 
 const DEV_WORKFLOW_BODY_NO_AC = `## Workflow
 
-- plan: plan -> completed:code, failed:ABORT
-- code: execute -> completed:review, failed:plan
-- review: review -> approved:COMPLETE, rejected:code
+plan:
+  type: plan
+  on:
+    completed: code
+    failed: ABORT
+code:
+  type: execute
+  on:
+    completed: review
+    failed: plan
+review:
+  type: review
+  on:
+    approved: COMPLETE
+    rejected: code
 `;
 
 function makeJob(id: string, status: JobStatus): Job {
@@ -121,9 +145,22 @@ describe("JobService (replaces WorkflowEngine)", () => {
 
 ## Workflow
 
-- plan: plan -> completed:code, failed:ABORT
-- code: execute -> completed:review, failed:plan
-- review: review auto -> approved:COMPLETE, rejected:code
+plan:
+  type: plan
+  on:
+    completed: code
+    failed: ABORT
+code:
+  type: execute
+  on:
+    completed: review
+    failed: plan
+review:
+  type: review
+  auto: true
+  on:
+    approved: COMPLETE
+    rejected: code
 `;
     ctx.jobStore.save({
       frontmatter: makeJob("J000001", "pending").frontmatter,

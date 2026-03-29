@@ -15,9 +15,21 @@ const WORKFLOW_BODY = `## Acceptance Criteria
 
 ## Workflow
 
-- plan: plan -> completed:code, failed:ABORT
-- code: execute -> completed:review, failed:plan
-- review: review -> approved:COMPLETE, rejected:code
+plan:
+  type: plan
+  on:
+    completed: code
+    failed: ABORT
+code:
+  type: execute
+  on:
+    completed: review
+    failed: plan
+review:
+  type: review
+  on:
+    approved: COMPLETE
+    rejected: code
 `;
 
 const WORKFLOW_BODY_MAX3 = `## Acceptance Criteria
@@ -26,9 +38,21 @@ const WORKFLOW_BODY_MAX3 = `## Acceptance Criteria
 
 ## Workflow
 
-- plan: plan -> completed:code, failed:ABORT
-- code: execute -> completed:review, failed:plan
-- review: review -> approved:COMPLETE, rejected:code
+plan:
+  type: plan
+  on:
+    completed: code
+    failed: ABORT
+code:
+  type: execute
+  on:
+    completed: review
+    failed: plan
+review:
+  type: review
+  on:
+    approved: COMPLETE
+    rejected: code
 `;
 
 function makeTmpDir(): string {

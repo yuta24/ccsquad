@@ -26,9 +26,21 @@ const WORKFLOW_BODY = `## Acceptance Criteria
 
 ## Workflow
 
-- plan: plan -> completed:code, failed:ABORT
-- code: execute -> completed:review, failed:plan
-- review: review -> approved:COMPLETE, rejected:code
+plan:
+  type: plan
+  on:
+    completed: code
+    failed: ABORT
+code:
+  type: execute
+  on:
+    completed: review
+    failed: plan
+review:
+  type: review
+  on:
+    approved: COMPLETE
+    rejected: code
 `;
 
 function makeTmpDir(): string {
@@ -77,9 +89,9 @@ describe("cmdAdd", () => {
     cmdAdd(ctx, "タスク", PHASES, TRANSITIONS);
     const job = ctx.jobStore.load("J000001");
     expect(job.body).toContain("## Workflow");
-    expect(job.body).toContain("plan: plan");
-    expect(job.body).toContain("code: execute");
-    expect(job.body).toContain("review: review");
+    expect(job.body).toContain("type: plan");
+    expect(job.body).toContain("type: execute");
+    expect(job.body).toContain("type: review");
   });
 
   it("test_add_with_description_sets_body", () => {
@@ -141,9 +153,9 @@ describe("cmdAdd", () => {
     cmdAdd(ctx, "タスク", "plan:plan:planner,code:execute:coder,review:review:reviewer",
       "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code");
     const job = ctx.jobStore.load("J000001");
-    expect(job.body).toContain("[planner]");
-    expect(job.body).toContain("[coder]");
-    expect(job.body).toContain("[reviewer]");
+    expect(job.body).toContain("agent: planner");
+    expect(job.body).toContain("agent: coder");
+    expect(job.body).toContain("agent: reviewer");
   });
 
   it("test_add_with_mixed_agent_and_no_agent", () => {
@@ -151,9 +163,9 @@ describe("cmdAdd", () => {
     cmdAdd(ctx, "タスク", "plan:plan,code:execute:coder,review:review",
       "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code");
     const job = ctx.jobStore.load("J000001");
-    expect(job.body).toContain("[coder]");
-    expect(job.body).not.toContain("[developer]");
-    expect(job.body).not.toContain("[reviewer]");
+    expect(job.body).toContain("agent: coder");
+    expect(job.body).not.toContain("agent: developer");
+    expect(job.body).not.toContain("agent: reviewer");
   });
 
   it("test_add_rejects_invalid_phase_format_too_many_colons", () => {

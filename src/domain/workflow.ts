@@ -1,3 +1,4 @@
+import YAML from "yaml";
 import { CcsquadError } from "../error.js";
 import type {
   WorkflowConfig,
@@ -69,59 +70,48 @@ export function parseWorkflowFromBody(body: string): WorkflowConfig {
     throw new CcsquadError("workflow", "ジョブに Workflow セクションが定義されていません");
   }
 
+  const trimmed = section.trim();
+  if (!trimmed) {
+    throw new CcsquadError("workflow", "Workflow セクションにフェーズが定義されていません");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = YAML.parse(trimmed);
+  } catch {
+    throw new CcsquadError("workflow", "Workflow セクションの YAML パースに失敗しました");
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new CcsquadError("workflow", "Workflow セクションにフェーズが定義されていません");
+  }
+
   const phases: PhaseConfig[] = [];
-  const lines = section.split("\n").filter((l) => l.trim().startsWith("-"));
-
-  for (const line of lines) {
-    // "- research: plan -> completed:design, failed:ABORT"
-    const content = line.replace(/^-\s*/, "").trim();
-    const arrowMatch = content.split(/\s*(?:→|->)\s*/);
-    if (arrowMatch.length !== 2) {
-      throw new CcsquadError("workflow", `不正なフェーズ定義です: ${line.trim()}`);
+  for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof value !== "object" || value === null) {
+      throw new CcsquadError("workflow", `不正なフェーズ定義です: ${name}`);
     }
-    const [nameType, transitionsStr] = arrowMatch;
-    const colonIdx = nameType.indexOf(":");
-    if (colonIdx === -1) {
-      throw new CcsquadError("workflow", `フェーズ名とタイプの区切り ':' がありません: ${nameType}`);
-    }
-    const name = nameType.slice(0, colonIdx).trim();
-    const typeAndAgent = nameType.slice(colonIdx + 1).trim();
+    const entry = value as Record<string, unknown>;
 
-    // [agent] ブラケット記法と auto キーワードをパース:
-    // "plan", "plan [planner]", "review auto", "review [reviewer] auto"
-    const bracketMatch = typeAndAgent.match(/^(\S+)\s+\[(\S+)\](?:\s+auto)?$/);
-    const autoOnly = typeAndAgent.match(/^(\S+)\s+auto$/);
-    let type: string;
-    let agent: string | undefined;
-    let auto = false;
-    if (bracketMatch) {
-      type = bracketMatch[1];
-      agent = bracketMatch[2];
-      auto = typeAndAgent.endsWith(" auto");
-    } else if (autoOnly) {
-      type = autoOnly[1];
-      auto = true;
-    } else {
-      type = typeAndAgent;
-    }
-
+    const type = String(entry.type ?? "");
     if (!ALL_PHASE_TYPES.includes(type as PhaseType)) {
       throw new CcsquadError("workflow", `不正なフェーズタイプ: ${type} (${ALL_PHASE_TYPES.join(", ")} を指定してください)`);
     }
 
+    const agent = entry.agent != null ? String(entry.agent) : undefined;
+    const auto = entry.auto === true ? true : undefined;
+
+    const onRaw = entry.on;
+    if (typeof onRaw !== "object" || onRaw === null) {
+      throw new CcsquadError("workflow", `フェーズ '${name}' に on (遷移ルール) が定義されていません`);
+    }
+
     const on: Partial<Record<TransitionCondition, string>> = {};
-    for (const pair of transitionsStr.split(",")) {
-      const trimmed = pair.trim();
-      const pairColonIdx = trimmed.indexOf(":");
-      if (pairColonIdx === -1) {
-        throw new CcsquadError("workflow", `遷移ルールの形式が不正です: ${trimmed}`);
-      }
-      const cond = trimmed.slice(0, pairColonIdx).trim();
-      const target = trimmed.slice(pairColonIdx + 1).trim();
+    for (const [cond, target] of Object.entries(onRaw as Record<string, unknown>)) {
       if (!ALL_CONDITIONS.includes(cond as TransitionCondition)) {
         throw new CcsquadError("workflow", `不明な遷移条件です: ${cond}`);
       }
-      on[cond as TransitionCondition] = target;
+      on[cond as TransitionCondition] = String(target);
     }
 
     phases.push({ name, type: type as PhaseType, ...(agent ? { agent } : {}), ...(auto ? { auto } : {}), on });
@@ -135,16 +125,15 @@ export function parseWorkflowFromBody(body: string): WorkflowConfig {
 }
 
 export function generateWorkflowSection(wf: WorkflowConfig): string {
-  let result = "## Workflow\n\n";
+  const obj: Record<string, Record<string, unknown>> = {};
   for (const phase of wf.phases) {
-    const transitions = Object.entries(phase.on)
-      .map(([cond, target]) => `${cond}:${target}`)
-      .join(", ");
-    const agentPart = phase.agent ? ` [${phase.agent}]` : "";
-    const autoPart = phase.auto ? " auto" : "";
-    result += `- ${phase.name}: ${phase.type}${agentPart}${autoPart} -> ${transitions}\n`;
+    const entry: Record<string, unknown> = { type: phase.type };
+    if (phase.agent) entry.agent = phase.agent;
+    if (phase.auto) entry.auto = true;
+    entry.on = { ...phase.on };
+    obj[phase.name] = entry;
   }
-  return result;
+  return `## Workflow\n\n${YAML.stringify(obj)}`;
 }
 
 function extractWorkflowSection(body: string): string | null {
