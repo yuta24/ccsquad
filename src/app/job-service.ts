@@ -173,7 +173,6 @@ export class JobService {
           const entry = buildPhaseLogEntry(phaseName, condition, decision.nextPhase, message);
           job.body = appendPhaseLog(job.body, entry);
           job.frontmatter.current_phase = decision.nextPhase;
-          job.frontmatter.iteration += 1;
           job.frontmatter.updated_at = new Date().toISOString();
           this.ctx.jobStore.save(job);
         }

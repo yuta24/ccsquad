@@ -200,14 +200,14 @@ describe("JobService.transition - human_review", () => {
     expect(job.frontmatter.current_phase).toBe("review");
   });
 
-  it("test_review_increments_iteration", () => {
+  it("test_review_does_not_increment_iteration", () => {
     const { store, jobService } = setup();
     jobService.transition("J000001", "completed", "");
     const countAfterFirst = store.load("J000001").frontmatter.iteration;
 
     jobService.transition("J000001", "completed", "");
 
-    expect(store.load("J000001").frontmatter.iteration).toBe(countAfterFirst + 1);
+    expect(store.load("J000001").frontmatter.iteration).toBe(countAfterFirst);
   });
 });
 
