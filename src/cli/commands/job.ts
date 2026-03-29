@@ -1,5 +1,5 @@
 import type { Job, PhaseType, PhaseConfig, TransitionCondition, WorkflowConfig } from "../../domain/types.js";
-import { ALL_PHASE_TYPES, ALL_CONDITIONS } from "../../domain/types.js";
+import { ALL_PHASE_TYPES, ALL_CONDITIONS, resolveAgent } from "../../domain/types.js";
 import { getPhase, parseTransitionCondition, parseWorkflowFromBody } from "../../domain/workflow.js";
 import { CcsquadError } from "../../error.js";
 import type { ProjectContext } from "../../app/project-context.js";
@@ -64,7 +64,7 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
         const wf = parseWorkflowFromBody(job.body);
         const phase = getPhase(wf, job.frontmatter.current_phase);
         if (phase) {
-          output.phase_config = { type: phase.type };
+          output.phase_config = { type: phase.type, agent: resolveAgent(phase) };
         }
       } catch {
         // skip if workflow parse fails
@@ -82,6 +82,7 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
         const phase = getPhase(wf, fm.current_phase);
         if (phase) {
           console.log(`  タイプ: ${phase.type}`);
+          console.log(`  エージェント: ${resolveAgent(phase)}`);
         }
       } catch {
         // skip
@@ -127,19 +128,20 @@ export function cmdAdd(
 }
 
 function buildWorkflowConfig(phasesStr: string, transitionsStr: string): WorkflowConfig {
-  // Parse phases: "research:plan,design:plan,code:execute,review:review"
+  // Parse phases: "research:plan,design:plan:planner,code:execute,review:review"
   const phaseDefs = phasesStr.split(",").map((pair) => {
     const trimmed = pair.trim();
-    const colonIdx = trimmed.indexOf(":");
-    if (colonIdx === -1) {
-      throw new CcsquadError("config", `フェーズ定義の形式が不正です: ${trimmed} (name:type の形式で指定してください)`);
+    const parts = trimmed.split(":");
+    if (parts.length < 2 || parts.length > 3) {
+      throw new CcsquadError("config", `フェーズ定義の形式が不正です: ${trimmed} (name:type または name:type:agent の形式で指定してください)`);
     }
-    const name = trimmed.slice(0, colonIdx).trim();
-    const type = trimmed.slice(colonIdx + 1).trim();
+    const name = parts[0].trim();
+    const type = parts[1].trim();
+    const agent = parts.length === 3 ? parts[2].trim() : undefined;
     if (!ALL_PHASE_TYPES.includes(type as PhaseType)) {
       throw new CcsquadError("config", `不正なフェーズタイプ: ${type} (${ALL_PHASE_TYPES.join(", ")} を指定してください)`);
     }
-    return { name, type: type as PhaseType };
+    return { name, type: type as PhaseType, agent };
   });
 
   // Parse transitions: "research:completed>design,research:failed>ABORT,..."
@@ -164,14 +166,14 @@ function buildWorkflowConfig(phasesStr: string, transitionsStr: string): Workflo
   });
 
   // Build PhaseConfig array
-  const phases: PhaseConfig[] = phaseDefs.map(({ name, type }) => {
+  const phases: PhaseConfig[] = phaseDefs.map(({ name, type, agent }) => {
     const on: Partial<Record<TransitionCondition, string>> = {};
     for (const t of transitionDefs) {
       if (t.phase === name) {
         on[t.condition] = t.target;
       }
     }
-    return { name, type, on };
+    return { name, type, ...(agent ? { agent } : {}), on };
   });
 
   return { phases };

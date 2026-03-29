@@ -19,11 +19,11 @@ description: |
 │    ├─ running → Step 2
 │    └─ completed/failed/aborted → 報告して終了
 │
-├─ Step 2: phase_config.type を判定
-│    ├─ plan / execute → Step 3
-│    └─ review → Step 4
+├─ Step 2: phase_config.agent を判定（JSON 出力の phase_config.agent を使用）
+│    ├─ type が review → Step 4
+│    └─ それ以外 → Step 3（agent 名のエージェントを起動）
 │
-├─ Step 3: developer エージェント起動
+├─ Step 3: phase_config.agent のエージェントを起動
 │    │  結果 (completed/failed) を受け取る
 │    └─ ccsquad job transition <ID> <result> --message "..."
 │         ├─ 「ジョブが完了/失敗しました」→ 報告して終了
@@ -34,10 +34,12 @@ description: |
 └─ Step 4: review フェーズ到達 → ユーザーに報告して停止
 ```
 
-## developer エージェントのプロンプト
+## エージェントのプロンプト
+
+`phase_config.agent` の値（例: developer, planner, coder）に対応する `.claude/agents/{agent}.md` のエージェントを起動する。
 
 ```
-以下のジョブの「{current_phase}」フェーズ（タイプ: {phase_type}）を実行してください。
+以下のジョブの「{current_phase}」フェーズ（タイプ: {phase_type}、エージェント: {agent}）を実行してください。
 
 ## ジョブ情報
 - ID: {id}

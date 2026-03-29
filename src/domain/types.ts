@@ -9,7 +9,16 @@ export const ALL_PHASE_TYPES: PhaseType[] = ["plan", "execute", "review"];
 export interface PhaseConfig {
   name: string;
   type: PhaseType;
+  agent?: string;
   on: Partial<Record<TransitionCondition, string>>;
+}
+
+export function defaultAgentForType(type: PhaseType): string {
+  return type === "review" ? "reviewer" : "developer";
+}
+
+export function resolveAgent(phase: PhaseConfig): string {
+  return phase.agent ?? defaultAgentForType(phase.type);
 }
 
 export interface WorkflowConfig {

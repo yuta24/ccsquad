@@ -143,6 +143,31 @@ describe("cmdAdd", () => {
     const { ctx } = setup();
     expect(() => cmdAdd(ctx, "タスク", "plan:invalid", "plan:completed>COMPLETE")).toThrow();
   });
+
+  it("test_add_with_agent_creates_workflow_with_agent", () => {
+    const { ctx } = setup();
+    cmdAdd(ctx, "タスク", "plan:plan:planner,code:execute:coder,review:review:reviewer",
+      "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code");
+    const job = ctx.jobStore.load("J000001");
+    expect(job.body).toContain("[planner]");
+    expect(job.body).toContain("[coder]");
+    expect(job.body).toContain("[reviewer]");
+  });
+
+  it("test_add_with_mixed_agent_and_no_agent", () => {
+    const { ctx } = setup();
+    cmdAdd(ctx, "タスク", "plan:plan,code:execute:coder,review:review",
+      "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code");
+    const job = ctx.jobStore.load("J000001");
+    expect(job.body).toContain("[coder]");
+    expect(job.body).not.toContain("[developer]");
+    expect(job.body).not.toContain("[reviewer]");
+  });
+
+  it("test_add_rejects_invalid_phase_format_too_many_colons", () => {
+    const { ctx } = setup();
+    expect(() => cmdAdd(ctx, "タスク", "plan:plan:agent:extra", "plan:completed>COMPLETE")).toThrow("フェーズ定義の形式が不正です");
+  });
 });
 
 // ─── cmdRun ──────────────────────────────────────────────────────────────────
@@ -335,6 +360,23 @@ describe("cmdShow", () => {
     expect(json.current_phase).toBe("plan");
     expect(json.phase_config).toBeDefined();
     expect(json.phase_config.type).toBe("plan");
+  });
+
+  it("test_show_json_includes_agent_field", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    cmdRun(ctx, "J000001");
+    const lines: string[] = [];
+    const spy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      lines.push(args.join(" "));
+    });
+    try {
+      cmdShow(ctx, "J000001", "json");
+    } finally {
+      spy.mockRestore();
+    }
+    const json = JSON.parse(lines.join("\n"));
+    expect(json.phase_config.agent).toBe("developer");
   });
 
   it("test_show_throws_for_nonexistent_job", () => {

@@ -25,7 +25,7 @@ jobCmd.command("show <id>").description("ジョブ詳細を表示")
   });
 
 jobCmd.command("add <title>").description("ジョブを追加")
-  .requiredOption("--phases <phases>", "フェーズ定義 (name:type のカンマ区切り)")
+  .requiredOption("--phases <phases>", "フェーズ定義 (name:type または name:type:agent のカンマ区切り)")
   .requiredOption("--transitions <transitions>", "遷移ルール (phase:condition>target のカンマ区切り)")
   .option("--description <description>", "説明")
   .option("--priority <priority>", "優先度", "0")
