@@ -49,3 +49,23 @@ plan/execute フェーズの作業を実行するサブエージェント。
 result: completed | failed
 message: 作業内容の要約（plan: 設計判断の概要、execute: 実装内容の概要）
 ```
+
+### 成功時の例
+
+```
+result: completed
+message: |
+  Acceptance Criteria の全項目を満たす実装を完了。
+  - src/domain/workflow.ts に parseWorkflow() を追加
+  - test/workflow.test.ts に 5 ケース追加、全パス
+```
+
+### 失敗時の例
+
+```
+result: failed
+message: |
+  Acceptance Criteria 項目 3「既存テストが通る」が未達。
+  原因: state-machine.ts の遷移ロジック変更が既存テスト 2 件を破壊。
+  試みた対処: テスト修正を試みたが、期待値の仕様が不明なため断念。
+```
