@@ -53,6 +53,20 @@ ccsquad job add "タスク名" \
   --transitions "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>verify,review:rejected>code,verify:approved>COMPLETE,verify:rejected>code"
 ```
 
+### 並列探索パターン: explore(並列) → design → execute → review
+
+大規模タスクや複数の設計選択肢があるタスク向け。複数エージェントが異なる視点で並列調査し、結果を統合してから設計に進む。
+
+`--phases` で `agent[constraint]+agent[constraint]` の形式でマルチエージェントと constraint を指定できる。
+
+```bash
+ccsquad job add "タスク名" \
+  --phases "explore:plan:developer[類似機能の実装パターンと再利用可能なコードを調査]+developer[アーキテクチャ層・モジュール境界・抽象化パターンを調査]+developer[テスト慣習・統合ポイント・外部依存を調査],design:plan,code:execute,review:review" \
+  --transitions "explore:completed>design,explore:failed>ABORT,design:completed>code,design:failed>ABORT,code:completed>review,code:failed>design,review:approved>COMPLETE,review:rejected>code"
+```
+
+constraint を省略して `developer+developer+developer` とすることも可能。constraint の設計指針は `harness` スキルを参照。
+
 ## Acceptance Criteria の運用
 
 - **plan フェーズ完了前**: `## Acceptance Criteria` を具体的なチェックリストに更新する。曖昧なまま execute に入らない

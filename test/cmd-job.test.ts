@@ -172,6 +172,47 @@ describe("cmdAdd", () => {
     const { ctx } = setup();
     expect(() => cmdAdd(ctx, "タスク", "plan:plan:agent:auto:extra", "plan:completed>COMPLETE")).toThrow("フェーズ定義の形式が不正です");
   });
+
+  it("test_add_with_multi_agent_creates_agents_in_workflow", () => {
+    const { ctx } = setup();
+    cmdAdd(ctx, "タスク", "explore:plan:dev1+dev2,review:review",
+      "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
+    const job = ctx.jobStore.load("J000001");
+    expect(job.body).toContain("agents:");
+    expect(job.body).toContain("agent: dev1");
+    expect(job.body).toContain("agent: dev2");
+  });
+
+  it("test_add_with_multi_agent_and_constraint", () => {
+    const { ctx } = setup();
+    cmdAdd(ctx, "タスク", "explore:plan:dev[類似機能の調査]+dev[アーキテクチャの調査],review:review",
+      "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
+    const job = ctx.jobStore.load("J000001");
+    expect(job.body).toContain("agents:");
+    expect(job.body).toContain("constraint: 類似機能の調査");
+    expect(job.body).toContain("constraint: アーキテクチャの調査");
+  });
+
+  it("test_add_with_multi_agent_mixed_constraint", () => {
+    const { ctx } = setup();
+    cmdAdd(ctx, "タスク", "explore:plan:dev[調査]+dev,review:review",
+      "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
+    const job = ctx.jobStore.load("J000001");
+    expect(job.body).toContain("constraint: 調査");
+    // dev without constraint should not have constraint field
+    const body = job.body;
+    const agentsSection = body.slice(body.indexOf("agents:"));
+    const lines = agentsSection.split("\n");
+    // Count constraint occurrences - should be exactly 1
+    const constraintLines = lines.filter(l => l.includes("constraint:"));
+    expect(constraintLines).toHaveLength(1);
+  });
+
+  it("test_add_rejects_unclosed_bracket_in_constraint", () => {
+    const { ctx } = setup();
+    expect(() => cmdAdd(ctx, "タスク", "explore:plan:dev[unclosed+dev,review:review",
+      "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore")).toThrow("閉じ括弧");
+  });
 });
 
 // ─── cmdRun ──────────────────────────────────────────────────────────────────

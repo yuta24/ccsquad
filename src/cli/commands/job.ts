@@ -8,6 +8,52 @@ import type { TransitionResult } from "../../app/job-service.js";
 import { truncate } from "../../util.js";
 import { computeMetrics, formatMetricsText, formatMetricsJson } from "../../domain/metrics.js";
 
+// Parse "agent1[constraint1]+agent2[constraint2]" or "agent1+agent2" into AgentSpec[]
+function parseAgentSpecs(raw: string): AgentSpec[] {
+  const specs: AgentSpec[] = [];
+  // Split on '+' that is NOT inside brackets
+  const tokens: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of raw) {
+    if (ch === "[") depth++;
+    else if (ch === "]") depth--;
+    if (ch === "+" && depth === 0) {
+      tokens.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  tokens.push(current);
+
+  for (const token of tokens) {
+    const trimmed = token.trim();
+    if (trimmed === "") {
+      throw new CcsquadError("config", `エージェント名に空文字列が含まれています: ${raw}`);
+    }
+    const bracketIdx = trimmed.indexOf("[");
+    if (bracketIdx === -1) {
+      specs.push({ agent: trimmed });
+    } else {
+      if (!trimmed.endsWith("]")) {
+        throw new CcsquadError("config", `constraint の閉じ括弧がありません: ${trimmed}`);
+      }
+      const agent = trimmed.slice(0, bracketIdx).trim();
+      const constraint = trimmed.slice(bracketIdx + 1, -1).trim();
+      if (agent === "") {
+        throw new CcsquadError("config", `エージェント名に空文字列が含まれています: ${raw}`);
+      }
+      specs.push(constraint ? { agent, constraint } : { agent });
+    }
+  }
+
+  if (specs.length < 2) {
+    throw new CcsquadError("config", `マルチエージェントは + で 2 件以上指定してください: ${raw}`);
+  }
+  return specs;
+}
+
 function printTransitionResult(result: TransitionResult): void {
   switch (result.type) {
     case "done":
@@ -141,7 +187,7 @@ function buildWorkflowConfig(phasesStr: string, transitionsStr: string): Workflo
     const trimmed = pair.trim();
     const parts = trimmed.split(":");
     if (parts.length < 2 || parts.length > 4) {
-      throw new CcsquadError("config", `フェーズ定義の形式が不正です: ${trimmed} (name:type, name:type:agent, name:type:agent1+agent2, name:type:auto, name:type:agent:auto の形式で指定してください)`);
+      throw new CcsquadError("config", `フェーズ定義の形式が不正です: ${trimmed} (name:type, name:type:agent, name:type:agent1[constraint1]+agent2[constraint2], name:type:auto, name:type:agent:auto の形式で指定してください)`);
     }
     const name = parts[0].trim();
     const type = parts[1].trim();
@@ -155,14 +201,7 @@ function buildWorkflowConfig(phasesStr: string, transitionsStr: string): Workflo
       if (third === "auto") {
         auto = true;
       } else if (third.includes("+")) {
-        const rawNames = third.split("+").map((s) => s.trim());
-        if (rawNames.some((n) => n === "")) {
-          throw new CcsquadError("config", `エージェント名に空文字列が含まれています: ${third}`);
-        }
-        if (rawNames.length < 2) {
-          throw new CcsquadError("config", `マルチエージェントは + で 2 件以上指定してください: ${third}`);
-        }
-        agents = rawNames.map((a) => ({ agent: a }));
+        agents = parseAgentSpecs(third);
       } else {
         agent = third || undefined;
       }
