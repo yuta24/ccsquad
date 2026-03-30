@@ -2,7 +2,7 @@
 name: job
 description: |
   ccsquad CLI を使ったジョブ管理とステートマシン型ワークフローの操作。
-  ジョブの作成・一覧・状態確認・フェーズ遷移・レビュー承認/却下・中断を行う。
+  ジョブの作成・更新・一覧・状態確認・フェーズ遷移・レビュー承認/却下・中断を行う。
   ユーザーがジョブやワークフローの操作を依頼した場合、またはタスクの進行管理が
   必要な場合にこのスキルを使用する。
 ---
@@ -101,6 +101,10 @@ ccsquad job transition <ID> <completed|failed> [--message "..."]
 # レビュー（review フェーズのみ）
 ccsquad job approve <ID> [--message "..."]
 ccsquad job reject <ID> --message "却下理由"
+
+# 更新
+ccsquad job update <ID> [--title "新タイトル"] [--priority N] [--description "説明"]
+cat long_desc.md | ccsquad job update <ID> --description -   # stdin から長文読み込み
 
 # 中断
 ccsquad job abort <ID>

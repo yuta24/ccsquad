@@ -116,6 +116,27 @@ export class JobService {
     return job;
   }
 
+  update(
+    jobId: string,
+    opts: { title?: string; priority?: number; description?: string },
+  ): Job {
+    const job = this.loadJob(jobId);
+
+    if (opts.title !== undefined) {
+      job.frontmatter.title = opts.title;
+    }
+    if (opts.priority !== undefined) {
+      job.frontmatter.priority = opts.priority;
+    }
+    if (opts.description !== undefined) {
+      job.body = replaceDescriptionSection(job.body, opts.description);
+    }
+
+    job.frontmatter.updated_at = new Date().toISOString();
+    this.ctx.jobStore.save(job);
+    return job;
+  }
+
   findDependents(jobId: string): string[] {
     const allJobs = this.ctx.jobStore.listAll();
     return allJobs
@@ -201,6 +222,17 @@ export class JobService {
       }
     }
   }
+}
+
+function replaceDescriptionSection(body: string, description: string): string {
+  const newSection = `## 説明\n${description}\n\n`;
+  // Match "## 説明" at line start, then everything until the next "## " heading or end of string.
+  // Do NOT use the m flag — $ must match end of string, not end of line.
+  const existing = /^## 説明\n[\s\S]*?(?=\n## )|^## 説明\n[\s\S]*$/;
+  if (existing.test(body)) {
+    return body.replace(existing, `## 説明\n${description}\n`);
+  }
+  return newSection + body;
 }
 
 export function checkCircularDependency(

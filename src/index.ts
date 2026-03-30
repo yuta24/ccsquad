@@ -3,9 +3,10 @@ import { Command } from "commander";
 
 import { createProjectContext } from "./app/project-context.js";
 import { CcsquadError } from "./error.js";
+import { readFileSync } from "node:fs";
 import {
   cmdList, cmdShow, cmdAdd, cmdRun, cmdTransition,
-  cmdApprove, cmdReject, cmdAbort, cmdSummary, cmdTree,
+  cmdApprove, cmdReject, cmdAbort, cmdSummary, cmdTree, cmdUpdate,
 } from "./cli/commands/job.js";
 import { cmdDagRun, cmdDagResume, cmdDagStatus, cmdDagClean } from "./cli/commands/dag.js";
 
@@ -74,6 +75,30 @@ jobCmd.command("tree").description("ジョブ依存関係をツリー表示")
   .option("--format <format>", "出力形式 (text|json)", "text")
   .action((opts: { format: string }) => {
     cmdTree(createProjectContext(), opts.format === "json" ? "json" : "text");
+  });
+
+jobCmd.command("update <id>").description("ジョブを更新")
+  .option("--title <title>", "タイトル")
+  .option("--priority <priority>", "優先度")
+  .option("--description <description>", "説明 (- で stdin から読み込み)")
+  .action((id: string, opts: { title?: string; priority?: string; description?: string }) => {
+    const ctx = createProjectContext();
+
+    let description: string | undefined;
+    if (opts.description === "-") {
+      description = readFileSync(0, "utf-8");
+    } else {
+      description = opts.description;
+    }
+
+    const priority = opts.priority !== undefined ? (parseInt(opts.priority, 10) || 0) : undefined;
+
+    if (opts.title === undefined && priority === undefined && description === undefined) {
+      console.error("エラー: --title, --priority, --description のいずれかを指定してください");
+      process.exit(1);
+    }
+
+    cmdUpdate(ctx, id, { title: opts.title, priority, description });
   });
 
 // ===== dag commands =====

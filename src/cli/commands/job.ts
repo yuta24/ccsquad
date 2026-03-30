@@ -288,6 +288,16 @@ export function cmdAbort(ctx: ProjectContext, id: string): void {
   console.log(`ジョブを中断しました: ${id}`);
 }
 
+export function cmdUpdate(
+  ctx: ProjectContext,
+  id: string,
+  opts: { title?: string; priority?: number; description?: string },
+): void {
+  const jobService = new JobService(ctx);
+  const job = jobService.update(id, opts);
+  console.log(`ジョブを更新しました: ${job.frontmatter.id}`);
+}
+
 export function cmdSummary(ctx: ProjectContext, id: string, format: "text" | "json"): void {
   const job = ctx.jobStore.load(id);
   const metrics = computeMetrics(job);
