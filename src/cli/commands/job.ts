@@ -309,3 +309,130 @@ export function cmdSummary(ctx: ProjectContext, id: string, format: "text" | "js
     console.log(formatMetricsText(metrics));
   }
 }
+
+// ── job tree ──
+
+interface TreeNode {
+  id: string;
+  title: string;
+  status: string;
+  children: TreeNode[];
+}
+
+function buildTreeStructure(jobs: Job[]): {
+  jobMap: Map<string, Job>;
+  children: Map<string, string[]>;
+  roots: string[];
+} {
+  const jobMap = new Map<string, Job>();
+  const children = new Map<string, string[]>();
+
+  for (const job of jobs) {
+    jobMap.set(job.frontmatter.id, job);
+    if (!children.has(job.frontmatter.id)) {
+      children.set(job.frontmatter.id, []);
+    }
+  }
+
+  for (const job of jobs) {
+    for (const depId of job.frontmatter.depends_on ?? []) {
+      if (!jobMap.has(depId)) {
+        process.stderr.write(`警告: ジョブ ${job.frontmatter.id} の依存 ${depId} が見つかりません\n`);
+        continue;
+      }
+      children.get(depId)!.push(job.frontmatter.id);
+    }
+  }
+
+  const roots = jobs
+    .filter((j) => (j.frontmatter.depends_on ?? []).every((dep) => !jobMap.has(dep)))
+    .map((j) => j.frontmatter.id)
+    .sort();
+
+  return { jobMap, children, roots };
+}
+
+function printTreeNode(
+  id: string,
+  jobMap: Map<string, Job>,
+  children: Map<string, string[]>,
+  prefix: string,
+  isLast: boolean,
+  ancestors: Set<string>,
+): void {
+  const job = jobMap.get(id);
+  if (!job) return;
+  const fm = job.frontmatter;
+  const connector = isLast ? "└── " : "├── ";
+  if (ancestors.has(id)) {
+    console.log(`${prefix}${connector}${fm.id}  ${truncate(fm.title, 24)}  [${fm.status}]  (cycle)`);
+    return;
+  }
+  console.log(`${prefix}${connector}${fm.id}  ${truncate(fm.title, 24)}  [${fm.status}]`);
+  const next = new Set(ancestors);
+  next.add(id);
+  const childIds = (children.get(id) ?? []).slice().sort();
+  const childPrefix = prefix + (isLast ? "    " : "│   ");
+  for (let i = 0; i < childIds.length; i++) {
+    printTreeNode(childIds[i], jobMap, children, childPrefix, i === childIds.length - 1, next);
+  }
+}
+
+function buildJsonNode(
+  id: string,
+  jobMap: Map<string, Job>,
+  children: Map<string, string[]>,
+  ancestors: Set<string>,
+): TreeNode | null {
+  const job = jobMap.get(id);
+  if (!job) return null;
+  const fm = job.frontmatter;
+  if (ancestors.has(id)) {
+    return { id: fm.id, title: fm.title, status: fm.status, children: [] };
+  }
+  const next = new Set(ancestors);
+  next.add(id);
+  return {
+    id: fm.id,
+    title: fm.title,
+    status: fm.status,
+    children: (children.get(id) ?? [])
+      .slice()
+      .sort()
+      .map((childId) => buildJsonNode(childId, jobMap, children, next))
+      .filter((n): n is TreeNode => n !== null),
+  };
+}
+
+export function cmdTree(ctx: ProjectContext, format: "text" | "json"): void {
+  const jobs = ctx.jobStore.listAll();
+
+  if (jobs.length === 0) {
+    if (format === "json") {
+      console.log(JSON.stringify([], null, 2));
+    } else {
+      console.log("ジョブはありません。");
+    }
+    return;
+  }
+
+  const { jobMap, children, roots } = buildTreeStructure(jobs);
+
+  if (format === "json") {
+    const tree = roots
+      .map((id) => buildJsonNode(id, jobMap, children, new Set()))
+      .filter((n): n is TreeNode => n !== null);
+    console.log(JSON.stringify(tree, null, 2));
+    return;
+  }
+
+  for (const id of roots) {
+    const fm = jobMap.get(id)!.frontmatter;
+    console.log(`${fm.id}  ${truncate(fm.title, 24)}  [${fm.status}]`);
+    const ancestors = new Set([id]);
+    const childIds = (children.get(id) ?? []).slice().sort();
+    for (let j = 0; j < childIds.length; j++) {
+      printTreeNode(childIds[j], jobMap, children, "", j === childIds.length - 1, ancestors);
+    }
+  }
+}

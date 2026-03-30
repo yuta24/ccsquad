@@ -5,7 +5,7 @@ import { createProjectContext } from "./app/project-context.js";
 import { CcsquadError } from "./error.js";
 import {
   cmdList, cmdShow, cmdAdd, cmdRun, cmdTransition,
-  cmdApprove, cmdReject, cmdAbort, cmdSummary,
+  cmdApprove, cmdReject, cmdAbort, cmdSummary, cmdTree,
 } from "./cli/commands/job.js";
 import { cmdDagRun, cmdDagResume, cmdDagStatus, cmdDagClean } from "./cli/commands/dag.js";
 import { cmdTui } from "./cli/commands/tui.js";
@@ -69,6 +69,12 @@ jobCmd.command("summary <id>").description("ジョブのメトリクスサマリ
   .option("--format <format>", "出力形式 (text|json)", "text")
   .action((id: string, opts: { format: string }) => {
     cmdSummary(createProjectContext(), id, opts.format === "json" ? "json" : "text");
+  });
+
+jobCmd.command("tree").description("ジョブ依存関係をツリー表示")
+  .option("--format <format>", "出力形式 (text|json)", "text")
+  .action((opts: { format: string }) => {
+    cmdTree(createProjectContext(), opts.format === "json" ? "json" : "text");
   });
 
 // ===== dag commands =====
