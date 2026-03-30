@@ -3,7 +3,9 @@ import { join } from "node:path";
 import { stringify, parse as parseYaml } from "yaml";
 import { parse as parseFrontmatter, write as writeFrontmatter } from "./frontmatter.js";
 import { CcsquadError } from "../error.js";
-import type { Job, JobFrontmatter } from "../domain/types.js";
+import type { Job, JobFrontmatter, JobStatus } from "../domain/types.js";
+
+const VALID_STATUSES: readonly JobStatus[] = ["pending", "running", "completed", "failed", "aborted"];
 
 function serializeFrontmatter(fm: JobFrontmatter): string {
   const obj: Record<string, unknown> = {
@@ -113,10 +115,33 @@ export class JobStore {
     if (typeof raw["status"] !== "string") {
       throw new CcsquadError("serialization", "frontmatter が不正です: status が文字列ではありません");
     }
+    if (!VALID_STATUSES.includes(raw["status"] as JobStatus)) {
+      throw new CcsquadError("serialization", `frontmatter が不正です: 不正な status '${raw["status"]}' (${VALID_STATUSES.join(", ")} のいずれかを指定してください)`);
+    }
 
     // Apply defaults for iteration fields
     if (raw["iteration"] === undefined) raw["iteration"] = 0;
     if (raw["max_iterations"] === undefined) raw["max_iterations"] = 10;
+
+    if (typeof raw["iteration"] !== "number" || !Number.isInteger(raw["iteration"]) || raw["iteration"] < 0) {
+      throw new CcsquadError("serialization", `frontmatter が不正です: iteration は 0 以上の整数でなければなりません (値: ${raw["iteration"]})`);
+    }
+    if (typeof raw["max_iterations"] !== "number" || !Number.isInteger(raw["max_iterations"]) || raw["max_iterations"] < 1) {
+      throw new CcsquadError("serialization", `frontmatter が不正です: max_iterations は 1 以上の整数でなければなりません (値: ${raw["max_iterations"]})`);
+    }
+    if (raw["priority"] !== undefined && typeof raw["priority"] !== "number") {
+      throw new CcsquadError("serialization", `frontmatter が不正です: priority は数値でなければなりません (値: ${raw["priority"]})`);
+    }
+    if (raw["depends_on"] !== undefined && !Array.isArray(raw["depends_on"])) {
+      throw new CcsquadError("serialization", "frontmatter が不正です: depends_on は配列でなければなりません");
+    }
+    if (Array.isArray(raw["depends_on"])) {
+      for (const dep of raw["depends_on"]) {
+        if (typeof dep !== "string") {
+          throw new CcsquadError("serialization", `frontmatter が不正です: depends_on の要素は文字列でなければなりません (値: ${dep})`);
+        }
+      }
+    }
 
     const fm = parsed as JobFrontmatter;
     return { frontmatter: fm, body };
@@ -140,8 +165,9 @@ export class JobStore {
         const id = name.slice(0, -3);
         try {
           jobs.push(this.load(id));
-        } catch {
-          // skip unreadable job files
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          process.stderr.write(`警告: ジョブ ${id} の読み込みをスキップしました: ${msg}\n`);
         }
       }
     }

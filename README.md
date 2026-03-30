@@ -37,55 +37,23 @@ claude skill add --url https://github.com/yuta24/ccsquad/blob/main/skills/job/SK
 
 ### セットアップ
 
-`ccsquad setup` コマンドで、プロジェクトに必要なファイルを一括生成できます。
+ワークフローは `ccsquad job add` コマンドでインラインに定義します。
 
 ```bash
-cd /path/to/your-project
-ccsquad setup
+ccsquad job add "機能追加" \
+  --phases "plan:plan:planner,code:execute:developer,review:review" \
+  --transitions "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code"
 ```
 
-以下のファイルが自動的に作成されます:
+利用可能なスキル:
 
-- `ccsquad.yaml` — ワークフロー定義
-- `.claude/skills/` — スキル定義 (job, job-run, job-approve, job-reject, memory)
-- `.claude/agents/` — エージェント定義 (coder, reviewer)
+- `job` — ジョブ管理 (作成・一覧・遷移・中断など)
+- `run-job` — ジョブの自動実行オーケストレーション
+- `dag` — DAG ベースのマルチジョブ並列実行
+- `harness` — ハーネス設計の原則
 
-既存ファイルはスキップされます。`--force` で上書きできます。
+利用可能なエージェント:
 
-```bash
-# 既存ファイルを上書き
-ccsquad setup --force
-
-# 特定のステップをスキップ
-ccsquad setup --skip-agents
-```
-
-#### 手動セットアップ
-
-`ccsquad setup` を使わずに手動で設定する場合は、プロジェクトルートに `ccsquad.yaml` を配置してワークフローを定義してください。
-
-```yaml
-workflows:
-  dev:
-    description: 開発ワークフロー
-    phases:
-      plan:
-        description: 実装計画を策定する
-        agent: planner
-        on:
-          completed: code
-          failed: ABORT
-      code:
-        description: コードを実装する
-        agent: coder
-        on:
-          completed: review
-          failed: plan
-      review:
-        description: コードレビューを行う
-        agent: reviewer
-        reviewer: human
-        on:
-          approved: COMPLETE
-          rejected: code
-```
+- `developer` — 実装エージェント (plan/execute フェーズのデフォルト)
+- `planner` — 計画策定エージェント
+- `reviewer` — レビューエージェント (review フェーズのデフォルト)
