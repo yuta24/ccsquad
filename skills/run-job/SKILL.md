@@ -53,7 +53,7 @@ description: |
 
 ### 単一エージェント（phase_config.agent）
 
-`phase_config.agent` の値（例: developer, planner, coder）に対応する `.claude/agents/{agent}.md` のエージェントを起動する。
+`phase_config.agent` の値（例: developer, planner, explorer）に対応する `.claude/agents/{agent}.md` のエージェントを起動する。
 
 ```
 以下のジョブの「{current_phase}」フェーズ（タイプ: {phase_type}、エージェント: {agent}）を実行してください。

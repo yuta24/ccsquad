@@ -9,6 +9,19 @@ description: |
 
 # ジョブ管理スキル
 
+## ワークフロー作成の前提
+
+ジョブを作成する前に、プロジェクトの `.claude/agents/` ディレクトリを確認し、利用可能なエージェント一覧を把握すること。
+
+```bash
+ls .claude/agents/
+```
+
+エージェント一覧に基づいて、タスクに最適なワークフローを組み立てる。例えば:
+- `explorer.md` が存在する場合、調査フェーズで explorer を活用できる
+- カスタムエージェントが存在する場合、対応するフェーズに割り当てる
+- 存在しないエージェントを指定しない（デフォルトの developer/reviewer にフォールバックされる）
+
 ## ワークフローテンプレート
 
 ### 基本パターン: plan → execute → review
@@ -61,11 +74,11 @@ ccsquad job add "タスク名" \
 
 ```bash
 ccsquad job add "タスク名" \
-  --phases "explore:plan:developer[類似機能の実装パターンと再利用可能なコードを調査]+developer[アーキテクチャ層・モジュール境界・抽象化パターンを調査]+developer[テスト慣習・統合ポイント・外部依存を調査],design:plan,code:execute,review:review" \
+  --phases "explore:plan:explorer[類似機能の実装パターンと再利用可能なコードを調査]+explorer[アーキテクチャ層・モジュール境界・抽象化パターンを調査]+explorer[テスト慣習・統合ポイント・外部依存を調査],design:plan,code:execute,review:review" \
   --transitions "explore:completed>design,explore:failed>ABORT,design:completed>code,design:failed>ABORT,code:completed>review,code:failed>design,review:approved>COMPLETE,review:rejected>code"
 ```
 
-constraint を省略して `developer+developer+developer` とすることも可能。constraint の設計指針は `harness` スキルを参照。
+constraint を省略して `explorer+explorer+explorer` とすることも可能。constraint の設計指針は `harness` スキルを参照。
 
 ## Acceptance Criteria の運用
 
