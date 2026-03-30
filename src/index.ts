@@ -8,7 +8,6 @@ import {
   cmdApprove, cmdReject, cmdAbort, cmdSummary, cmdTree,
 } from "./cli/commands/job.js";
 import { cmdDagRun, cmdDagResume, cmdDagStatus, cmdDagClean } from "./cli/commands/dag.js";
-import { cmdTui } from "./cli/commands/tui.js";
 
 const program = new Command();
 program.name("ccsquad").description("ステートマシン型ワークフローエンジン CLI");
@@ -116,6 +115,7 @@ dagCmd.command("clean").description("孤立 worktree のクリーンアップ")
 // ===== tui command =====
 program.command("tui").description("DAG ジョブ監視 TUI を起動")
   .action(async () => {
+    const { cmdTui } = await import("./cli/commands/tui.js");
     await cmdTui();
   });
 
