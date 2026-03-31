@@ -5,7 +5,7 @@ import { CcsquadError } from "../../error.js";
 import type { ProjectContext } from "../../app/project-context.js";
 import { JobService, checkCircularDependency } from "../../app/job-service.js";
 import type { TransitionResult } from "../../app/job-service.js";
-import { truncate } from "../../util.js";
+import { truncate, padRight } from "../../util.js";
 import { computeMetrics, formatMetricsText, formatMetricsJson } from "../../domain/metrics.js";
 
 // Parse "agent1[constraint1]+agent2[constraint2]" or "agent1+agent2" into AgentSpec[]
@@ -77,13 +77,13 @@ export function cmdList(ctx: ProjectContext): void {
     return;
   }
   console.log(
-    `${"ID".padEnd(10)} ${"タイトル".padEnd(30)} ${"ステータス".padEnd(12)} ${"フェーズ".padEnd(12)} ${"優先度".padEnd(4)}`,
+    `${padRight("ID", 10)} ${padRight("タイトル", 30)} ${padRight("ステータス", 12)} ${padRight("フェーズ", 12)} ${padRight("優先度", 4)}`,
   );
   console.log("-".repeat(70));
   for (const job of jobs) {
     const fm = job.frontmatter;
     console.log(
-      `${fm.id.padEnd(10)} ${truncate(fm.title, 28).padEnd(30)} ${fm.status.padEnd(12)} ${(fm.current_phase ?? "-").padEnd(12)} ${String(fm.priority).padEnd(4)}`,
+      `${padRight(fm.id, 10)} ${padRight(truncate(fm.title, 28), 30)} ${padRight(fm.status, 12)} ${padRight(fm.current_phase ?? "-", 12)} ${padRight(String(fm.priority), 4)}`,
     );
   }
 }
