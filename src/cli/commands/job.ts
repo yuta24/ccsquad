@@ -288,6 +288,12 @@ export function cmdAbort(ctx: ProjectContext, id: string): void {
   console.log(`ジョブを中断しました: ${id}`);
 }
 
+export function cmdCancel(ctx: ProjectContext, id: string, opts?: { force?: boolean }): void {
+  const jobService = new JobService(ctx);
+  jobService.cancel(id, { force: opts?.force });
+  console.log(`ジョブを取り下げました: ${id}`);
+}
+
 export function cmdUpdate(
   ctx: ProjectContext,
   id: string,

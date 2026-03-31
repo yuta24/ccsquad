@@ -1,4 +1,4 @@
-export type JobStatus = "pending" | "running" | "completed" | "failed" | "aborted";
+export type JobStatus = "pending" | "running" | "completed" | "failed" | "aborted" | "cancelled";
 
 export interface DagStatusJob {
   id: string;

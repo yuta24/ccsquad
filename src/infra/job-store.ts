@@ -5,7 +5,7 @@ import { parse as parseFrontmatter, write as writeFrontmatter } from "./frontmat
 import { CcsquadError } from "../error.js";
 import type { Job, JobFrontmatter, JobStatus } from "../domain/types.js";
 
-const VALID_STATUSES: readonly JobStatus[] = ["pending", "running", "completed", "failed", "aborted"];
+const VALID_STATUSES: readonly JobStatus[] = ["pending", "running", "completed", "failed", "aborted", "cancelled"];
 
 function serializeFrontmatter(fm: JobFrontmatter): string {
   const obj: Record<string, unknown> = {

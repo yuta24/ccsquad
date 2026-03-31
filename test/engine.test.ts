@@ -324,6 +324,71 @@ review:
     jobService.abort("J000001");
     expect(ctx.jobStore.load("J000001").frontmatter.iteration).toBe(0);
   });
+
+  it("test_cancel_pending_job", () => {
+    const { ctx, jobService } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+
+    const job = jobService.cancel("J000001");
+    expect(job.frontmatter.status).toBe("cancelled");
+    expect(job.frontmatter.current_phase).toBeUndefined();
+    expect(job.frontmatter.iteration).toBe(0);
+  });
+
+  it("test_cancel_aborted_job", () => {
+    const { ctx, jobService } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    jobService.start("J000001");
+    jobService.abort("J000001");
+    expect(ctx.jobStore.load("J000001").frontmatter.status).toBe("aborted");
+
+    const job = jobService.cancel("J000001");
+    expect(job.frontmatter.status).toBe("cancelled");
+  });
+
+  it("test_cancel_running_job_throws", () => {
+    const { ctx, jobService } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    jobService.start("J000001");
+
+    expect(() => jobService.cancel("J000001")).toThrow("取り下げできません");
+  });
+
+  it("test_cancel_completed_job_throws", () => {
+    const { ctx, jobService } = setup();
+    ctx.jobStore.save(makeJob("J000001", "completed"));
+
+    expect(() => jobService.cancel("J000001")).toThrow("取り下げできません");
+  });
+
+  it("test_cancel_cancelled_job_throws", () => {
+    const { ctx, jobService } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    jobService.cancel("J000001");
+
+    expect(() => jobService.cancel("J000001")).toThrow("取り下げできません");
+  });
+
+  it("test_cancel_with_dependents_throws_without_force", () => {
+    const { ctx, jobService } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    const job2 = makeJob("J000002", "pending");
+    job2.frontmatter.depends_on = ["J000001"];
+    ctx.jobStore.save(job2);
+
+    expect(() => jobService.cancel("J000001")).toThrow("--force");
+  });
+
+  it("test_cancel_with_dependents_succeeds_with_force", () => {
+    const { ctx, jobService } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    const job2 = makeJob("J000002", "pending");
+    job2.frontmatter.depends_on = ["J000001"];
+    ctx.jobStore.save(job2);
+
+    const job = jobService.cancel("J000001", { force: true });
+    expect(job.frontmatter.status).toBe("cancelled");
+  });
 });
 
 describe("JobService.getStatus", () => {

@@ -6,7 +6,7 @@ import { CcsquadError } from "./error.js";
 import { readFileSync } from "node:fs";
 import {
   cmdList, cmdShow, cmdAdd, cmdRun, cmdTransition,
-  cmdApprove, cmdReject, cmdAbort, cmdSummary, cmdTree, cmdUpdate,
+  cmdApprove, cmdReject, cmdAbort, cmdCancel, cmdSummary, cmdTree, cmdUpdate,
 } from "./cli/commands/job.js";
 import { cmdDagRun, cmdDagResume, cmdDagStatus, cmdDagClean } from "./cli/commands/dag.js";
 
@@ -64,6 +64,12 @@ jobCmd.command("reject <id>").description("レビュー却下")
 jobCmd.command("abort <id>").description("ジョブを中断").action((id: string) => {
   cmdAbort(createProjectContext(), id);
 });
+
+jobCmd.command("cancel <id>").description("ジョブを取り下げ")
+  .option("--force", "依存ジョブがある場合も強制的に取り下げ")
+  .action((id: string, opts: { force?: boolean }) => {
+    cmdCancel(createProjectContext(), id, { force: opts.force });
+  });
 
 jobCmd.command("summary <id>").description("ジョブのメトリクスサマリーを表示")
   .option("--format <format>", "出力形式 (text|json)", "text")

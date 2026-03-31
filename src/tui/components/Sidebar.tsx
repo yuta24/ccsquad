@@ -13,6 +13,8 @@ function statusIcon(status: string): string {
       return "-";
     case "aborted":
       return "x";
+    case "cancelled":
+      return "~";
     default:
       return "?";
   }
@@ -30,6 +32,8 @@ function statusColor(status: string): string {
       return "gray";
     case "aborted":
       return "red";
+    case "cancelled":
+      return "gray";
     default:
       return "white";
   }

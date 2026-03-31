@@ -116,6 +116,32 @@ export class JobService {
     return job;
   }
 
+  cancel(jobId: string, opts?: { force?: boolean }): Job {
+    const job = this.loadJob(jobId);
+
+    if (job.frontmatter.status !== "pending" && job.frontmatter.status !== "aborted") {
+      throw new CcsquadError(
+        "job",
+        `ジョブ '${jobId}' は取り下げできません (status: ${job.frontmatter.status})`,
+      );
+    }
+
+    const dependents = this.findDependents(jobId);
+    if (dependents.length > 0 && !opts?.force) {
+      throw new CcsquadError(
+        "job",
+        `ジョブ '${jobId}' に依存するジョブがあります (${dependents.join(", ")})。取り下げるには --force を指定してください`,
+      );
+    }
+
+    job.frontmatter.status = "cancelled";
+    job.frontmatter.current_phase = undefined;
+    job.frontmatter.iteration = 0;
+    job.frontmatter.updated_at = new Date().toISOString();
+    this.ctx.jobStore.save(job);
+    return job;
+  }
+
   update(
     jobId: string,
     opts: { title?: string; priority?: number; description?: string },

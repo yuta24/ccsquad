@@ -200,6 +200,7 @@ export class DagOrchestrator {
         return { status: "completed" };
       case "failed":
       case "aborted":
+      case "cancelled":
         return { status: "failed" };
       case "running":
         // Still running means review pause or process exited without completing
