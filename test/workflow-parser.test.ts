@@ -7,16 +7,19 @@ describe("parseWorkflowFromBody", () => {
 
 plan:
   type: plan
+  agent: developer
   on:
     completed: code
     failed: ABORT
 code:
   type: execute
+  agent: developer
   on:
     completed: review
     failed: plan
 review:
   type: review
+  agent: reviewer
   on:
     approved: COMPLETE
     rejected: code
@@ -43,6 +46,7 @@ review:
 
 plan:
   type: plan
+  agent: developer
   on:
     completed: COMPLETE
 
@@ -85,6 +89,7 @@ plan:
 
 plan:
   type: plan
+  agent: developer
 `;
     expect(() => parseWorkflowFromBody(body)).toThrow("on (遷移ルール) が定義されていません");
   });
@@ -94,6 +99,7 @@ plan:
 
 plan:
   type: plan
+  agent: developer
   on:
     unknown: COMPLETE
 `;
@@ -128,7 +134,7 @@ review:
     expect(wf.phases[2].agent).toBe("reviewer");
   });
 
-  it("agent 省略時は undefined", () => {
+  it("agent 省略時はエラーをスローする", () => {
     const body = `## Workflow
 
 plan:
@@ -136,11 +142,10 @@ plan:
   on:
     completed: COMPLETE
 `;
-    const wf = parseWorkflowFromBody(body);
-    expect(wf.phases[0].agent).toBeUndefined();
+    expect(() => parseWorkflowFromBody(body)).toThrow("agent または agents を指定してください");
   });
 
-  it("agent 指定ありと省略の混在をパースする", () => {
+  it("agent 指定ありと省略の混在はエラーをスローする", () => {
     const body = `## Workflow
 
 plan:
@@ -154,9 +159,7 @@ code:
   on:
     completed: COMPLETE
 `;
-    const wf = parseWorkflowFromBody(body);
-    expect(wf.phases[0].agent).toBeUndefined();
-    expect(wf.phases[1].agent).toBe("coder");
+    expect(() => parseWorkflowFromBody(body)).toThrow("agent または agents を指定してください");
   });
 
   it("auto キーワードをパースする", () => {
@@ -164,16 +167,19 @@ code:
 
 plan:
   type: plan
+  agent: developer
   on:
     completed: code
     failed: ABORT
 code:
   type: execute
+  agent: developer
   on:
     completed: review
     failed: plan
 review:
   type: review
+  agent: reviewer
   auto: true
   on:
     approved: COMPLETE
@@ -205,6 +211,7 @@ review:
 
 plan:
   type: plan
+  agent: developer
   on:
     completed: review
     failed: ABORT
@@ -228,9 +235,9 @@ describe("generateWorkflowSection", () => {
   it("WorkflowConfig からテキストを生成する", () => {
     const wf = {
       phases: [
-        { name: "plan", type: "plan" as const, on: { completed: "code", failed: "ABORT" } },
-        { name: "code", type: "execute" as const, on: { completed: "review", failed: "plan" } },
-        { name: "review", type: "review" as const, on: { approved: "COMPLETE", rejected: "code" } },
+        { name: "plan", type: "plan" as const, agent: "developer", on: { completed: "code", failed: "ABORT" } },
+        { name: "code", type: "execute" as const, agent: "developer", on: { completed: "review", failed: "plan" } },
+        { name: "review", type: "review" as const, agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
       ],
     };
     const text = generateWorkflowSection(wf);
@@ -246,9 +253,9 @@ describe("generateWorkflowSection", () => {
   it("ラウンドトリップ: generate → parse が同一のワークフローを返す", () => {
     const original = {
       phases: [
-        { name: "research", type: "plan" as const, on: { completed: "code", failed: "ABORT" } },
-        { name: "code", type: "execute" as const, on: { completed: "review", failed: "research" } },
-        { name: "review", type: "review" as const, on: { approved: "COMPLETE", rejected: "code" } },
+        { name: "research", type: "plan" as const, agent: "planner", on: { completed: "code", failed: "ABORT" } },
+        { name: "code", type: "execute" as const, agent: "developer", on: { completed: "review", failed: "research" } },
+        { name: "review", type: "review" as const, agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
       ],
     };
     const text = generateWorkflowSection(original);
@@ -262,23 +269,23 @@ describe("generateWorkflowSection", () => {
     }
   });
 
-  it("agent 指定ありのワークフローを生成する", () => {
+  it("異なるエージェント指定のワークフローを生成する", () => {
     const wf = {
       phases: [
         { name: "plan", type: "plan" as const, agent: "planner", on: { completed: "code", failed: "ABORT" } },
-        { name: "code", type: "execute" as const, on: { completed: "COMPLETE" } },
+        { name: "code", type: "execute" as const, agent: "developer", on: { completed: "COMPLETE" } },
       ],
     };
     const text = generateWorkflowSection(wf);
     expect(text).toContain("agent: planner");
-    expect(text).not.toMatch(/code:[\s\S]*agent:/);
+    expect(text).toContain("agent: developer");
   });
 
   it("ラウンドトリップ (agent あり): generate → parse で agent が保持される", () => {
     const original = {
       phases: [
         { name: "research", type: "plan" as const, agent: "planner", on: { completed: "code", failed: "ABORT" } },
-        { name: "code", type: "execute" as const, on: { completed: "review", failed: "research" } },
+        { name: "code", type: "execute" as const, agent: "developer", on: { completed: "review", failed: "research" } },
         { name: "review", type: "review" as const, agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
       ],
     };
@@ -286,7 +293,7 @@ describe("generateWorkflowSection", () => {
     const parsed = parseWorkflowFromBody(text);
 
     expect(parsed.phases[0].agent).toBe("planner");
-    expect(parsed.phases[1].agent).toBeUndefined();
+    expect(parsed.phases[1].agent).toBe("developer");
     expect(parsed.phases[2].agent).toBe("reviewer");
   });
 });

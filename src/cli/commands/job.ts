@@ -186,8 +186,8 @@ function buildWorkflowConfig(phasesStr: string, transitionsStr: string): Workflo
   const phaseDefs = phasesStr.split(",").map((pair) => {
     const trimmed = pair.trim();
     const parts = trimmed.split(":");
-    if (parts.length < 2 || parts.length > 4) {
-      throw new CcsquadError("config", `フェーズ定義の形式が不正です: ${trimmed} (name:type, name:type:agent, name:type:agent1[constraint1]+agent2[constraint2], name:type:auto, name:type:agent:auto の形式で指定してください)`);
+    if (parts.length < 3 || parts.length > 4) {
+      throw new CcsquadError("config", `フェーズ定義の形式が不正です: ${trimmed} (name:type:agent, name:type:agent1[constraint1]+agent2[constraint2], name:type:agent:auto の形式で指定してください)`);
     }
     const name = parts[0].trim();
     const type = parts[1].trim();
@@ -199,7 +199,7 @@ function buildWorkflowConfig(phasesStr: string, transitionsStr: string): Workflo
     if (parts.length >= 3) {
       const third = parts[2].trim();
       if (third === "auto") {
-        auto = true;
+        throw new CcsquadError("config", `フェーズ '${name}': エージェントを指定してください (name:type:agent:auto の形式)`);
       } else if (third.includes("+")) {
         agents = parseAgentSpecs(third);
       } else {

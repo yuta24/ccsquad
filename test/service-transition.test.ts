@@ -17,16 +17,19 @@ const WORKFLOW_BODY = `## Acceptance Criteria
 
 plan:
   type: plan
+  agent: developer
   on:
     completed: code
     failed: ABORT
 code:
   type: execute
+  agent: developer
   on:
     completed: review
     failed: plan
 review:
   type: review
+  agent: reviewer
   on:
     approved: COMPLETE
     rejected: code
@@ -40,16 +43,19 @@ const WORKFLOW_BODY_MAX3 = `## Acceptance Criteria
 
 plan:
   type: plan
+  agent: developer
   on:
     completed: code
     failed: ABORT
 code:
   type: execute
+  agent: developer
   on:
     completed: review
     failed: plan
 review:
   type: review
+  agent: reviewer
   on:
     approved: COMPLETE
     rejected: code

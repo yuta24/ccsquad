@@ -103,6 +103,9 @@ export function parseWorkflowFromBody(body: string): WorkflowConfig {
 
     let agents: AgentSpec[] | undefined;
     const agentsRaw = entry.agents;
+    if (agent == null && agentsRaw == null) {
+      throw new CcsquadError("workflow", `フェーズ '${name}': agent または agents を指定してください`);
+    }
     if (agentsRaw != null) {
       if (agent != null) {
         throw new CcsquadError("workflow", `フェーズ '${name}': agent と agents は同時に指定できません`);

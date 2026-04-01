@@ -20,7 +20,7 @@ ls .claude/agents/
 エージェント一覧に基づいて、タスクに最適なワークフローを組み立てる。例えば:
 - `explorer.md` が存在する場合、調査フェーズで explorer を活用できる
 - カスタムエージェントが存在する場合、対応するフェーズに割り当てる
-- 存在しないエージェントを指定しない（デフォルトの developer/reviewer にフォールバックされる）
+- エージェント指定は必須。省略するとエラーになる
 
 ## ワークフローテンプレート
 
@@ -30,7 +30,7 @@ ls .claude/agents/
 
 ```bash
 ccsquad job add "タスク名" \
-  --phases "plan:plan,code:execute,review:review" \
+  --phases "plan:plan:developer,code:execute:developer,review:review:reviewer" \
   --transitions "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code"
 ```
 
@@ -40,11 +40,9 @@ reviewer エージェントによる自動レビュー。人間の確認が不�
 
 ```bash
 ccsquad job add "タスク名" \
-  --phases "plan:plan,code:execute,review:review:auto" \
+  --phases "plan:plan:developer,code:execute:developer,review:review:reviewer:auto" \
   --transitions "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code"
 ```
-
-カスタム reviewer を指定する場合: `--phases "review:review:my-reviewer:auto"`
 
 ### 調査分離パターン: research → design → execute → review
 
@@ -52,7 +50,7 @@ ccsquad job add "タスク名" \
 
 ```bash
 ccsquad job add "タスク名" \
-  --phases "research:plan,design:plan,code:execute,review:review" \
+  --phases "research:plan:developer,design:plan:developer,code:execute:developer,review:review:reviewer" \
   --transitions "research:completed>design,research:failed>ABORT,design:completed>code,design:failed>ABORT,code:completed>review,code:failed>design,review:approved>COMPLETE,review:rejected>code"
 ```
 
@@ -62,7 +60,7 @@ ccsquad job add "タスク名" \
 
 ```bash
 ccsquad job add "タスク名" \
-  --phases "plan:plan,code:execute,review:review,verify:review" \
+  --phases "plan:plan:developer,code:execute:developer,review:review:reviewer,verify:review:reviewer" \
   --transitions "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>verify,review:rejected>code,verify:approved>COMPLETE,verify:rejected>code"
 ```
 
@@ -74,7 +72,7 @@ ccsquad job add "タスク名" \
 
 ```bash
 ccsquad job add "タスク名" \
-  --phases "explore:plan:explorer[類似機能の実装パターンと再利用可能なコードを調査]+explorer[アーキテクチャ層・モジュール境界・抽象化パターンを調査]+explorer[テスト慣習・統合ポイント・外部依存を調査],design:plan,code:execute,review:review" \
+  --phases "explore:plan:explorer[類似機能の実装パターンと再利用可能なコードを調査]+explorer[アーキテクチャ層・モジュール境界・抽象化パターンを調査]+explorer[テスト慣習・統合ポイント・外部依存を調査],design:plan:developer,code:execute:developer,review:review:reviewer" \
   --transitions "explore:completed>design,explore:failed>ABORT,design:completed>code,design:failed>ABORT,code:completed>review,code:failed>design,review:approved>COMPLETE,review:rejected>code"
 ```
 
@@ -99,7 +97,7 @@ constraint を省略して `explorer+explorer+explorer` とすることも可能
 ```bash
 # 作成（--phases, --transitions は必須）
 ccsquad job add "タイトル" \
-  --phases "name:type,..." \
+  --phases "name:type:agent,..." \
   --transitions "phase:condition>target,..." \
   [--description "説明"] [--priority N] [--depends-on ID1,ID2] [--max-iterations N]
 

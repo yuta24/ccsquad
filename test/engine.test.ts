@@ -16,16 +16,19 @@ const DEV_WORKFLOW_BODY = `## Acceptance Criteria
 
 plan:
   type: plan
+  agent: developer
   on:
     completed: code
     failed: ABORT
 code:
   type: execute
+  agent: developer
   on:
     completed: review
     failed: plan
 review:
   type: review
+  agent: reviewer
   on:
     approved: COMPLETE
     rejected: code
@@ -35,16 +38,19 @@ const DEV_WORKFLOW_BODY_NO_AC = `## Workflow
 
 plan:
   type: plan
+  agent: developer
   on:
     completed: code
     failed: ABORT
 code:
   type: execute
+  agent: developer
   on:
     completed: review
     failed: plan
 review:
   type: review
+  agent: reviewer
   on:
     approved: COMPLETE
     rejected: code
@@ -147,16 +153,19 @@ describe("JobService (replaces WorkflowEngine)", () => {
 
 plan:
   type: plan
+  agent: developer
   on:
     completed: code
     failed: ABORT
 code:
   type: execute
+  agent: developer
   on:
     completed: review
     failed: plan
 review:
   type: review
+  agent: reviewer
   auto: true
   on:
     approved: COMPLETE

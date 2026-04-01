@@ -20,19 +20,15 @@ export interface PhaseConfig {
   on: Partial<Record<TransitionCondition, string>>;
 }
 
-export function defaultAgentForType(type: PhaseType): string {
-  return type === "review" ? "reviewer" : "developer";
-}
-
 export function resolveAgent(phase: PhaseConfig): string {
-  return phase.agent ?? defaultAgentForType(phase.type);
+  return phase.agent!;
 }
 
 export function resolveAgents(phase: PhaseConfig): AgentSpec[] {
   if (phase.agents && phase.agents.length > 0) {
     return phase.agents;
   }
-  return [{ agent: resolveAgent(phase) }];
+  return [{ agent: phase.agent! }];
 }
 
 export function isMultiAgent(phase: PhaseConfig): boolean {

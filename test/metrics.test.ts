@@ -15,20 +15,24 @@ const WORKFLOW_BODY = `## Workflow
 
 research:
   type: plan
+  agent: planner
   on:
     completed: design
     failed: ABORT
 design:
   type: plan
+  agent: planner
   on:
     completed: code
 code:
   type: execute
+  agent: developer
   on:
     completed: review
     failed: design
 review:
   type: review
+  agent: reviewer
   on:
     approved: COMPLETE
     rejected: code

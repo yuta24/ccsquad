@@ -17,7 +17,7 @@ import type { Job, JobStatus } from "../src/domain/types.js";
 import type { ProjectContext } from "../src/app/project-context.js";
 import { createTestContext } from "./helpers.js";
 
-const PHASES = "plan:plan,code:execute,review:review";
+const PHASES = "plan:plan:developer,code:execute:developer,review:review:reviewer";
 const TRANSITIONS = "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code";
 
 const WORKFLOW_BODY = `## Acceptance Criteria
@@ -28,16 +28,19 @@ const WORKFLOW_BODY = `## Acceptance Criteria
 
 plan:
   type: plan
+  agent: developer
   on:
     completed: code
     failed: ABORT
 code:
   type: execute
+  agent: developer
   on:
     completed: review
     failed: plan
 review:
   type: review
+  agent: reviewer
   on:
     approved: COMPLETE
     rejected: code
@@ -158,14 +161,10 @@ describe("cmdAdd", () => {
     expect(job.body).toContain("agent: reviewer");
   });
 
-  it("test_add_with_mixed_agent_and_no_agent", () => {
+  it("test_add_rejects_phase_without_agent", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク", "plan:plan,code:execute:coder,review:review",
-      "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code");
-    const job = ctx.jobStore.load("J000001");
-    expect(job.body).toContain("agent: coder");
-    expect(job.body).not.toContain("agent: developer");
-    expect(job.body).not.toContain("agent: reviewer");
+    expect(() => cmdAdd(ctx, "タスク", "plan:plan,code:execute:coder,review:review",
+      "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code")).toThrow("フェーズ定義の形式が不正です");
   });
 
   it("test_add_rejects_invalid_phase_format_too_many_colons", () => {
@@ -175,7 +174,7 @@ describe("cmdAdd", () => {
 
   it("test_add_with_multi_agent_creates_agents_in_workflow", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク", "explore:plan:dev1+dev2,review:review",
+    cmdAdd(ctx, "タスク", "explore:plan:dev1+dev2,review:review:reviewer",
       "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
     const job = ctx.jobStore.load("J000001");
     expect(job.body).toContain("agents:");
@@ -185,7 +184,7 @@ describe("cmdAdd", () => {
 
   it("test_add_with_multi_agent_and_constraint", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク", "explore:plan:dev[類似機能の調査]+dev[アーキテクチャの調査],review:review",
+    cmdAdd(ctx, "タスク", "explore:plan:dev[類似機能の調査]+dev[アーキテクチャの調査],review:review:reviewer",
       "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
     const job = ctx.jobStore.load("J000001");
     expect(job.body).toContain("agents:");
@@ -195,7 +194,7 @@ describe("cmdAdd", () => {
 
   it("test_add_with_multi_agent_mixed_constraint", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク", "explore:plan:dev[調査]+dev,review:review",
+    cmdAdd(ctx, "タスク", "explore:plan:dev[調査]+dev,review:review:reviewer",
       "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
     const job = ctx.jobStore.load("J000001");
     expect(job.body).toContain("constraint: 調査");
@@ -210,7 +209,7 @@ describe("cmdAdd", () => {
 
   it("test_add_rejects_unclosed_bracket_in_constraint", () => {
     const { ctx } = setup();
-    expect(() => cmdAdd(ctx, "タスク", "explore:plan:dev[unclosed+dev,review:review",
+    expect(() => cmdAdd(ctx, "タスク", "explore:plan:dev[unclosed+dev,review:review:reviewer",
       "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore")).toThrow("閉じ括弧");
   });
 });
