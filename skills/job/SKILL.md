@@ -102,7 +102,7 @@ ccsquad job add "タイトル" \
   [--description "説明"] [--priority N] [--depends-on ID1,ID2] [--max-iterations N]
 
 # 一覧・詳細
-ccsquad job list
+ccsquad job list [--exclude-status completed,cancelled]
 ccsquad job show <ID> [--format json]
 
 # 実行・遷移
