@@ -24,9 +24,21 @@ ls .claude/agents/
 
 ## ワークフローテンプレート
 
-### 基本パターン: plan → execute → review
+### レビュー方式の選び方
+
+| 条件 | 方式 | フェーズ定義 |
+|------|------|-------------|
+| 品質や安全性が重要、本番に影響する変更 | **人間レビュー**（デフォルト） | `review:review:reviewer` |
+| 定型的な修正、リスクが低い変更 | **自動レビュー** | `review:review:reviewer:auto` |
+
+- **デフォルトは人間レビュー**。`:auto` を付けない限り review フェーズで一時停止し、人間が `job approve` / `job reject` で判断する
+- review フェーズでも **agent 指定は必須**（`:auto` 時にエージェントが実行する。人間レビュー時は使われないが構文上必要）
+- 迷ったら人間レビューを選ぶ。自動化の暴走防止がハーネスの本質的な価値
+
+### 基本パターン: plan → execute → review（人間レビュー）
 
 スコープが明確な小〜中規模タスク向け。迷ったらこれから始める。
+review フェーズで一時停止し、人間が承認/却下を判断する。
 
 ```bash
 ccsquad job add "タスク名" \
@@ -36,7 +48,7 @@ ccsquad job add "タスク名" \
 
 ### 自動レビューパターン: plan → execute → auto review
 
-reviewer エージェントによる自動レビュー。人間の確認が不要な場合に使用。
+reviewer エージェントによる自動レビュー。リスクが低く人間の確認が不要な場合のみ使用。
 
 ```bash
 ccsquad job add "タスク名" \
@@ -44,7 +56,7 @@ ccsquad job add "タスク名" \
   --transitions "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code"
 ```
 
-### 調査分離パターン: research → design → execute → review
+### 調査分離パターン: research → design → execute → review（人間レビュー）
 
 未知の技術・ドメインを含むタスク向け。調査と設計を分離する。
 
@@ -54,7 +66,7 @@ ccsquad job add "タスク名" \
   --transitions "research:completed>design,research:failed>ABORT,design:completed>code,design:failed>ABORT,code:completed>review,code:failed>design,review:approved>COMPLETE,review:rejected>code"
 ```
 
-### 二段階レビューパターン: plan → execute → review → verify
+### 二段階レビューパターン: plan → execute → review → verify（人間レビュー）
 
 品質要求が高いタスク向け。コードレビューと動作確認を分離する。
 
@@ -64,7 +76,7 @@ ccsquad job add "タスク名" \
   --transitions "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>verify,review:rejected>code,verify:approved>COMPLETE,verify:rejected>code"
 ```
 
-### 並列探索パターン: explore(並列) → design → execute → review
+### 並列探索パターン: explore(並列) → design → execute → review（人間レビュー）
 
 大規模タスクや複数の設計選択肢があるタスク向け。複数エージェントが異なる視点で並列調査し、結果を統合してから設計に進む。
 
