@@ -16,9 +16,11 @@ program.name("ccsquad").description("ステートマシン型ワークフロー�
 // ===== job commands =====
 const jobCmd = program.command("job").description("ジョブ管理");
 
-jobCmd.command("list").description("ジョブ一覧を表示").action(() => {
-  cmdList(createProjectContext());
-});
+jobCmd.command("list").description("ジョブ一覧を表示")
+  .option("--exclude-status <statuses>", "除外するステータス (カンマ区切り)")
+  .action((opts: { excludeStatus?: string }) => {
+    cmdList(createProjectContext(), { excludeStatus: opts.excludeStatus });
+  });
 
 jobCmd.command("show <id>").description("ジョブ詳細を表示")
   .option("--format <format>", "出力形式 (text|json)", "text")

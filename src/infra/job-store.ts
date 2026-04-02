@@ -4,8 +4,7 @@ import { stringify, parse as parseYaml } from "yaml";
 import { parse as parseFrontmatter, write as writeFrontmatter } from "./frontmatter.js";
 import { CcsquadError } from "../error.js";
 import type { Job, JobFrontmatter, JobStatus } from "../domain/types.js";
-
-const VALID_STATUSES: readonly JobStatus[] = ["pending", "running", "completed", "failed", "aborted", "cancelled"];
+import { ALL_JOB_STATUSES } from "../domain/types.js";
 
 function serializeFrontmatter(fm: JobFrontmatter): string {
   const obj: Record<string, unknown> = {
@@ -115,8 +114,8 @@ export class JobStore {
     if (typeof raw["status"] !== "string") {
       throw new CcsquadError("serialization", "frontmatter が不正です: status が文字列ではありません");
     }
-    if (!VALID_STATUSES.includes(raw["status"] as JobStatus)) {
-      throw new CcsquadError("serialization", `frontmatter が不正です: 不正な status '${raw["status"]}' (${VALID_STATUSES.join(", ")} のいずれかを指定してください)`);
+    if (!ALL_JOB_STATUSES.includes(raw["status"] as JobStatus)) {
+      throw new CcsquadError("serialization", `frontmatter が不正です: 不正な status '${raw["status"]}' (${ALL_JOB_STATUSES.join(", ")} のいずれかを指定してください)`);
     }
 
     // Apply defaults for iteration fields

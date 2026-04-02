@@ -371,6 +371,41 @@ describe("cmdList", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toBe("ジョブはありません。");
   });
+
+  it("test_list_exclude_status_filters_jobs", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    ctx.jobStore.save(makeJob("J000002", "completed"));
+    ctx.jobStore.save(makeJob("J000003", "running"));
+    const lines = captureLog(() => cmdList(ctx, { excludeStatus: "completed" }));
+    expect(lines.some((l) => l.includes("J000001"))).toBe(true);
+    expect(lines.some((l) => l.includes("J000002"))).toBe(false);
+    expect(lines.some((l) => l.includes("J000003"))).toBe(true);
+  });
+
+  it("test_list_exclude_status_multiple_statuses", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    ctx.jobStore.save(makeJob("J000002", "completed"));
+    ctx.jobStore.save(makeJob("J000003", "cancelled"));
+    const lines = captureLog(() => cmdList(ctx, { excludeStatus: "completed,cancelled" }));
+    expect(lines.some((l) => l.includes("J000001"))).toBe(true);
+    expect(lines.some((l) => l.includes("J000002"))).toBe(false);
+    expect(lines.some((l) => l.includes("J000003"))).toBe(false);
+  });
+
+  it("test_list_exclude_status_all_filtered_shows_empty_message", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "completed"));
+    const lines = captureLog(() => cmdList(ctx, { excludeStatus: "completed" }));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toBe("ジョブはありません。");
+  });
+
+  it("test_list_exclude_status_invalid_throws_error", () => {
+    const { ctx } = setup();
+    expect(() => cmdList(ctx, { excludeStatus: "invalid" })).toThrow("不正なステータス: invalid");
+  });
 });
 
 // ─── cmdShow ─────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
-import type { Job, PhaseType, PhaseConfig, TransitionCondition, WorkflowConfig, AgentSpec } from "../../domain/types.js";
-import { ALL_PHASE_TYPES, ALL_CONDITIONS, resolveAgent, resolveAgents, isMultiAgent } from "../../domain/types.js";
+import type { Job, JobStatus, PhaseType, PhaseConfig, TransitionCondition, WorkflowConfig, AgentSpec } from "../../domain/types.js";
+import { ALL_PHASE_TYPES, ALL_CONDITIONS, ALL_JOB_STATUSES, resolveAgent, resolveAgents, isMultiAgent } from "../../domain/types.js";
 import { getPhase, parseTransitionCondition, parseWorkflowFromBody } from "../../domain/workflow.js";
 import { CcsquadError } from "../../error.js";
 import type { ProjectContext } from "../../app/project-context.js";
@@ -70,8 +70,23 @@ function printTransitionResult(result: TransitionResult): void {
   }
 }
 
-export function cmdList(ctx: ProjectContext): void {
-  const jobs = ctx.jobStore.listAll();
+export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string }): void {
+  let excludeSet: Set<string> | undefined;
+  if (opts?.excludeStatus) {
+    const excluded = opts.excludeStatus.split(",").map((s) => s.trim()).filter(Boolean);
+    for (const s of excluded) {
+      if (!ALL_JOB_STATUSES.includes(s as JobStatus)) {
+        throw new CcsquadError("config", `不正なステータス: ${s} (${ALL_JOB_STATUSES.join(", ")} のいずれかを指定してください)`);
+      }
+    }
+    excludeSet = new Set<string>(excluded);
+  }
+
+  let jobs = ctx.jobStore.listAll();
+  if (excludeSet) {
+    jobs = jobs.filter((j) => !excludeSet.has(j.frontmatter.status));
+  }
+
   if (jobs.length === 0) {
     console.log("ジョブはありません。");
     return;

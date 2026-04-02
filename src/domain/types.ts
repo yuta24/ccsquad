@@ -42,6 +42,7 @@ export interface WorkflowConfig {
 // ── Job ──
 
 export type JobStatus = "pending" | "running" | "completed" | "failed" | "aborted" | "cancelled";
+export const ALL_JOB_STATUSES: readonly JobStatus[] = ["pending", "running", "completed", "failed", "aborted", "cancelled"];
 
 export interface JobFrontmatter {
   id: string;
