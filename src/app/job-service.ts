@@ -144,9 +144,19 @@ export class JobService {
 
   update(
     jobId: string,
-    opts: { title?: string; priority?: number; description?: string },
+    opts: { title?: string; priority?: number; description?: string; workflowConfig?: WorkflowConfig },
   ): Job {
     const job = this.loadJob(jobId);
+
+    if (opts.workflowConfig !== undefined) {
+      if (job.frontmatter.status !== "pending") {
+        throw new CcsquadError(
+          "job",
+          `ジョブ '${jobId}' は pending 状態でないためワークフローを変更できません (status: ${job.frontmatter.status})`,
+        );
+      }
+      job.body = replaceWorkflowSection(job.body, opts.workflowConfig);
+    }
 
     if (opts.title !== undefined) {
       job.frontmatter.title = opts.title;
@@ -259,6 +269,22 @@ function replaceDescriptionSection(body: string, description: string): string {
     return body.replace(existing, `## 説明\n${description}\n`);
   }
   return newSection + body;
+}
+
+function replaceWorkflowSection(body: string, workflowConfig: WorkflowConfig): string {
+  const newSection = generateWorkflowSection(workflowConfig);
+  // Use indexOf-based approach (same as extractWorkflowSection in workflow.ts)
+  const header = /^## Workflow\s*$/m;
+  const match = body.match(header);
+  if (!match || match.index === undefined) {
+    return body + "\n" + newSection;
+  }
+  const start = match.index;
+  const nextHeader = body.indexOf("\n## ", start + match[0].length);
+  if (nextHeader !== -1) {
+    return body.slice(0, start) + newSection.trimEnd() + body.slice(nextHeader);
+  }
+  return body.slice(0, start) + newSection.trimEnd() + "\n";
 }
 
 export function checkCircularDependency(

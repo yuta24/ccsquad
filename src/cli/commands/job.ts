@@ -196,7 +196,7 @@ export function cmdAdd(
   console.log(`ジョブを作成しました: ${job.frontmatter.id}`);
 }
 
-function buildWorkflowConfig(phasesStr: string, transitionsStr: string): WorkflowConfig {
+export function buildWorkflowConfig(phasesStr: string, transitionsStr: string): WorkflowConfig {
   // Parse phases: "research:plan,design:plan:planner,code:execute,explore:execute:explorer+explorer,review:review:auto"
   const phaseDefs = phasesStr.split(",").map((pair) => {
     const trimmed = pair.trim();
@@ -312,7 +312,7 @@ export function cmdCancel(ctx: ProjectContext, id: string, opts?: { force?: bool
 export function cmdUpdate(
   ctx: ProjectContext,
   id: string,
-  opts: { title?: string; priority?: number; description?: string },
+  opts: { title?: string; priority?: number; description?: string; workflowConfig?: WorkflowConfig },
 ): void {
   const jobService = new JobService(ctx);
   const job = jobService.update(id, opts);

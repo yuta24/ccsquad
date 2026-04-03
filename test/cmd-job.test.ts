@@ -11,6 +11,8 @@ import {
   cmdApprove,
   cmdReject,
   cmdAbort,
+  cmdUpdate,
+  buildWorkflowConfig,
 } from "../src/cli/commands/job.js";
 import { JobStore } from "../src/infra/job-store.js";
 import type { Job, JobStatus } from "../src/domain/types.js";
@@ -461,5 +463,58 @@ describe("cmdShow", () => {
   it("test_show_throws_for_nonexistent_job", () => {
     const { ctx } = setup();
     expect(() => cmdShow(ctx, "J999999", "text")).toThrow();
+  });
+});
+
+// ─── cmdUpdate (workflow) ───────────────────────────────────────────────────
+
+const NEW_PHASES = "plan:plan:planner,code:execute:coder,test:execute:tester,review:review:reviewer";
+const NEW_TRANSITIONS = "plan:completed>code,plan:failed>ABORT,code:completed>test,code:failed>plan,test:completed>review,test:failed>code,review:approved>COMPLETE,review:rejected>code";
+
+describe("cmdUpdate workflow", () => {
+  it("test_update_workflow_on_pending_job", () => {
+    const { ctx } = setup();
+    cmdAdd(ctx, "タスク", PHASES, TRANSITIONS);
+    const workflowConfig = buildWorkflowConfig(NEW_PHASES, NEW_TRANSITIONS);
+    cmdUpdate(ctx, "J000001", { workflowConfig });
+    const job = ctx.jobStore.load("J000001");
+    expect(job.body).toContain("agent: planner");
+    expect(job.body).toContain("agent: coder");
+    expect(job.body).toContain("agent: tester");
+    expect(job.body).toContain("agent: reviewer");
+    // 古い定義が残っていない
+    expect(job.body).not.toContain("agent: developer");
+  });
+
+  it("test_update_workflow_rejects_running_job", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    cmdRun(ctx, "J000001");
+    const workflowConfig = buildWorkflowConfig(NEW_PHASES, NEW_TRANSITIONS);
+    expect(() => cmdUpdate(ctx, "J000001", { workflowConfig })).toThrow("pending 状態でない");
+  });
+
+  it("test_update_workflow_with_title_updates_both", () => {
+    const { ctx } = setup();
+    cmdAdd(ctx, "旧タイトル", PHASES, TRANSITIONS);
+    const workflowConfig = buildWorkflowConfig(NEW_PHASES, NEW_TRANSITIONS);
+    cmdUpdate(ctx, "J000001", { title: "新タイトル", workflowConfig });
+    const job = ctx.jobStore.load("J000001");
+    expect(job.frontmatter.title).toBe("新タイトル");
+    expect(job.body).toContain("agent: tester");
+  });
+
+  it("test_update_workflow_preserves_description_section", () => {
+    const { ctx } = setup();
+    cmdAdd(ctx, "タスク", PHASES, TRANSITIONS, "重要な説明文");
+    const workflowConfig = buildWorkflowConfig(NEW_PHASES, NEW_TRANSITIONS);
+    cmdUpdate(ctx, "J000001", { workflowConfig });
+    const job = ctx.jobStore.load("J000001");
+    expect(job.body).toContain("重要な説明文");
+    expect(job.body).toContain("agent: tester");
+    // Workflow セクションが重複していないこと
+    expect(job.body.match(/## Workflow/g)?.length).toBe(1);
+    // 古い agent 定義が残っていないこと
+    expect(job.body).not.toContain("agent: developer");
   });
 });

@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import {
   cmdList, cmdShow, cmdAdd, cmdRun, cmdTransition,
   cmdApprove, cmdReject, cmdAbort, cmdCancel, cmdSummary, cmdTree, cmdUpdate,
+  buildWorkflowConfig,
 } from "./cli/commands/job.js";
 import { cmdDagRun, cmdDagResume, cmdDagStatus, cmdDagClean } from "./cli/commands/dag.js";
 
@@ -89,8 +90,15 @@ jobCmd.command("update <id>").description("ジョブを更新")
   .option("--title <title>", "タイトル")
   .option("--priority <priority>", "優先度")
   .option("--description <description>", "説明 (- で stdin から読み込み)")
-  .action((id: string, opts: { title?: string; priority?: string; description?: string }) => {
+  .option("--phases <phases>", "フェーズ定義 (name:type:agent のカンマ区切り)")
+  .option("--transitions <transitions>", "遷移ルール (phase:condition>target のカンマ区切り)")
+  .action((id: string, opts: { title?: string; priority?: string; description?: string; phases?: string; transitions?: string }) => {
     const ctx = createProjectContext();
+
+    if ((opts.phases && !opts.transitions) || (!opts.phases && opts.transitions)) {
+      console.error("エラー: --phases と --transitions は両方指定してください");
+      process.exit(1);
+    }
 
     let description: string | undefined;
     if (opts.description === "-") {
@@ -100,13 +108,14 @@ jobCmd.command("update <id>").description("ジョブを更新")
     }
 
     const priority = opts.priority !== undefined ? (parseInt(opts.priority, 10) || 0) : undefined;
+    const workflowConfig = opts.phases ? buildWorkflowConfig(opts.phases, opts.transitions!) : undefined;
 
-    if (opts.title === undefined && priority === undefined && description === undefined) {
-      console.error("エラー: --title, --priority, --description のいずれかを指定してください");
+    if (opts.title === undefined && priority === undefined && description === undefined && workflowConfig === undefined) {
+      console.error("エラー: --title, --priority, --description, --phases/--transitions のいずれかを指定してください");
       process.exit(1);
     }
 
-    cmdUpdate(ctx, id, { title: opts.title, priority, description });
+    cmdUpdate(ctx, id, { title: opts.title, priority, description, workflowConfig });
   });
 
 // ===== dag commands =====
