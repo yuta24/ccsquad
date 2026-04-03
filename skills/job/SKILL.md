@@ -22,23 +22,33 @@ ls .claude/agents/
 - カスタムエージェントが存在する場合、対応するフェーズに割り当てる
 - エージェント指定は必須。省略するとエラーになる
 
-## ワークフローテンプレート
+## ワークフロー定義
 
-### レビュー方式の選び方
+ワークフローはジョブの frontmatter に YAML で保存される。定義方法は2通り:
 
-| 条件 | 方式 | フェーズ定義 |
-|------|------|-------------|
-| 品質や安全性が重要、本番に影響する変更 | **人間レビュー**（デフォルト） | `review:review:reviewer` |
-| 定型的な修正、リスクが低い変更 | **自動レビュー** | `review:review:reviewer:auto` |
+### 方法1: `--workflow` オプション（推奨）
 
-- **デフォルトは人間レビュー**。`:auto` を付けない限り review フェーズで一時停止し、人間が `job approve` / `job reject` で判断する
-- review フェーズでも **agent 指定は必須**（`:auto` 時にエージェントが実行する。人間レビュー時は使われないが構文上必要）
-- 迷ったら人間レビューを選ぶ。自動化の暴走防止がハーネスの本質的な価値
+JSON/YAML 文字列、ファイルパス、または stdin からワークフロー定義を渡す。
+エージェントが動的にワークフローを組み立てる場合に最適。
 
-### 基本パターン: plan → execute → review（人間レビュー）
+```bash
+# JSON 文字列で指定
+ccsquad job add "タスク名" --workflow '{
+  "plan": {"type":"plan","agent":"developer","on":{"completed":"code","failed":"ABORT"}},
+  "code": {"type":"execute","agent":"developer","on":{"completed":"review","failed":"plan"}},
+  "review": {"type":"review","agent":"reviewer","on":{"approved":"COMPLETE","rejected":"code"}}
+}'
 
-スコープが明確な小〜中規模タスク向け。迷ったらこれから始める。
-review フェーズで一時停止し、人間が承認/却下を判断する。
+# YAML ファイルで指定
+ccsquad job add "タスク名" --workflow workflow.yaml
+
+# stdin から読み込み
+cat workflow.yaml | ccsquad job add "タスク名" --workflow -
+```
+
+### 方法2: `--phases` + `--transitions` オプション
+
+インラインでフェーズと遷移ルールを個別に指定する。
 
 ```bash
 ccsquad job add "タスク名" \
@@ -46,14 +56,43 @@ ccsquad job add "タスク名" \
   --transitions "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code"
 ```
 
+`--workflow` と `--phases/--transitions` は排他。同時指定はエラーになる。
+
+## レビュー方式の選び方
+
+| 条件 | 方式 | 設定 |
+|------|------|------|
+| 品質や安全性が重要、本番に影響する変更 | **人間レビュー**（デフォルト） | `auto` なし |
+| 定型的な修正、リスクが低い変更 | **自動レビュー** | `"auto": true` |
+
+- **デフォルトは人間レビュー**。`auto: true` を付けない限り review フェーズで一時停止し、人間が `job approve` / `job reject` で判断する
+- review フェーズでも **agent 指定は必須**（`auto` 時にエージェントが実行する。人間レビュー時は使われないが構文上必要）
+- 迷ったら人間レビューを選ぶ。自動化の暴走防止がハーネスの本質的な価値
+
+## ワークフローテンプレート
+
+### 基本パターン: plan → execute → review（人間レビュー）
+
+スコープが明確な小〜中規模タスク向け。迷ったらこれから始める。
+
+```bash
+ccsquad job add "タスク名" --workflow '{
+  "plan": {"type":"plan","agent":"developer","on":{"completed":"code","failed":"ABORT"}},
+  "code": {"type":"execute","agent":"developer","on":{"completed":"review","failed":"plan"}},
+  "review": {"type":"review","agent":"reviewer","on":{"approved":"COMPLETE","rejected":"code"}}
+}'
+```
+
 ### 自動レビューパターン: plan → execute → auto review
 
 reviewer エージェントによる自動レビュー。リスクが低く人間の確認が不要な場合のみ使用。
 
 ```bash
-ccsquad job add "タスク名" \
-  --phases "plan:plan:developer,code:execute:developer,review:review:reviewer:auto" \
-  --transitions "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code"
+ccsquad job add "タスク名" --workflow '{
+  "plan": {"type":"plan","agent":"developer","on":{"completed":"code","failed":"ABORT"}},
+  "code": {"type":"execute","agent":"developer","on":{"completed":"review","failed":"plan"}},
+  "review": {"type":"review","agent":"reviewer","auto":true,"on":{"approved":"COMPLETE","rejected":"code"}}
+}'
 ```
 
 ### 調査分離パターン: research → design → execute → review（人間レビュー）
@@ -61,9 +100,12 @@ ccsquad job add "タスク名" \
 未知の技術・ドメインを含むタスク向け。調査と設計を分離する。
 
 ```bash
-ccsquad job add "タスク名" \
-  --phases "research:plan:developer,design:plan:developer,code:execute:developer,review:review:reviewer" \
-  --transitions "research:completed>design,research:failed>ABORT,design:completed>code,design:failed>ABORT,code:completed>review,code:failed>design,review:approved>COMPLETE,review:rejected>code"
+ccsquad job add "タスク名" --workflow '{
+  "research": {"type":"plan","agent":"developer","on":{"completed":"design","failed":"ABORT"}},
+  "design": {"type":"plan","agent":"developer","on":{"completed":"code","failed":"ABORT"}},
+  "code": {"type":"execute","agent":"developer","on":{"completed":"review","failed":"design"}},
+  "review": {"type":"review","agent":"reviewer","on":{"approved":"COMPLETE","rejected":"code"}}
+}'
 ```
 
 ### 二段階レビューパターン: plan → execute → review → verify（人間レビュー）
@@ -71,24 +113,36 @@ ccsquad job add "タスク名" \
 品質要求が高いタスク向け。コードレビューと動作確認を分離する。
 
 ```bash
-ccsquad job add "タスク名" \
-  --phases "plan:plan:developer,code:execute:developer,review:review:reviewer,verify:review:reviewer" \
-  --transitions "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>verify,review:rejected>code,verify:approved>COMPLETE,verify:rejected>code"
+ccsquad job add "タスク名" --workflow '{
+  "plan": {"type":"plan","agent":"developer","on":{"completed":"code","failed":"ABORT"}},
+  "code": {"type":"execute","agent":"developer","on":{"completed":"review","failed":"plan"}},
+  "review": {"type":"review","agent":"reviewer","on":{"approved":"verify","rejected":"code"}},
+  "verify": {"type":"review","agent":"reviewer","on":{"approved":"COMPLETE","rejected":"code"}}
+}'
 ```
 
 ### 並列探索パターン: explore(並列) → design → execute → review（人間レビュー）
 
 大規模タスクや複数の設計選択肢があるタスク向け。複数エージェントが異なる視点で並列調査し、結果を統合してから設計に進む。
 
-`--phases` で `agent[constraint]+agent[constraint]` の形式でマルチエージェントと constraint を指定できる。
-
 ```bash
-ccsquad job add "タスク名" \
-  --phases "explore:plan:explorer[類似機能の実装パターンと再利用可能なコードを調査]+explorer[アーキテクチャ層・モジュール境界・抽象化パターンを調査]+explorer[テスト慣習・統合ポイント・外部依存を調査],design:plan:developer,code:execute:developer,review:review:reviewer" \
-  --transitions "explore:completed>design,explore:failed>ABORT,design:completed>code,design:failed>ABORT,code:completed>review,code:failed>design,review:approved>COMPLETE,review:rejected>code"
+ccsquad job add "タスク名" --workflow '{
+  "explore": {
+    "type": "plan",
+    "agents": [
+      {"agent":"explorer","constraint":"類似機能の実装パターンと再利用可能なコードを調査"},
+      {"agent":"explorer","constraint":"アーキテクチャ層・モジュール境界・抽象化パターンを調査"},
+      {"agent":"explorer","constraint":"テスト慣習・統合ポイント・外部依存を調査"}
+    ],
+    "on": {"completed":"design","failed":"ABORT"}
+  },
+  "design": {"type":"plan","agent":"developer","on":{"completed":"code","failed":"ABORT"}},
+  "code": {"type":"execute","agent":"developer","on":{"completed":"review","failed":"design"}},
+  "review": {"type":"review","agent":"reviewer","on":{"approved":"COMPLETE","rejected":"code"}}
+}'
 ```
 
-constraint を省略して `explorer+explorer+explorer` とすることも可能。constraint の設計指針は `harness` スキルを参照。
+constraint の設計指針は `harness` スキルを参照。
 
 ## Acceptance Criteria の運用
 
@@ -107,7 +161,11 @@ constraint を省略して `explorer+explorer+explorer` とすることも可能
 ## CLI コマンド
 
 ```bash
-# 作成（--phases, --transitions は必須）
+# 作成（--workflow または --phases/--transitions のいずれか必須）
+ccsquad job add "タイトル" \
+  --workflow '<JSON/YAML文字列 or ファイルパス or ->' \
+  [--description "説明"] [--priority N] [--depends-on ID1,ID2] [--max-iterations N]
+
 ccsquad job add "タイトル" \
   --phases "name:type:agent,..." \
   --transitions "phase:condition>target,..." \
@@ -125,8 +183,9 @@ ccsquad job transition <ID> <completed|failed> [--message "..."]
 ccsquad job approve <ID> [--message "..."]
 ccsquad job reject <ID> --message "却下理由"
 
-# 更新
+# 更新（--workflow または --phases/--transitions でワークフロー変更可能、pending 時のみ）
 ccsquad job update <ID> [--title "新タイトル"] [--priority N] [--description "説明"]
+ccsquad job update <ID> --workflow '<JSON/YAML文字列 or ファイルパス or ->'
 cat long_desc.md | ccsquad job update <ID> --description -   # stdin から長文読み込み
 
 # 中断
