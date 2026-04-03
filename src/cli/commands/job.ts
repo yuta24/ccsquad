@@ -1,12 +1,41 @@
+import { readFileSync, existsSync } from "node:fs";
+import YAML from "yaml";
 import type { Job, JobStatus, PhaseType, PhaseConfig, TransitionCondition, WorkflowConfig, AgentSpec } from "../../domain/types.js";
 import { ALL_PHASE_TYPES, ALL_CONDITIONS, ALL_JOB_STATUSES, resolveAgent, resolveAgents, isMultiAgent } from "../../domain/types.js";
-import { getPhase, parseTransitionCondition } from "../../domain/workflow.js";
+import { getPhase, parseTransitionCondition, parseWorkflowObject } from "../../domain/workflow.js";
 import { CcsquadError } from "../../error.js";
 import type { ProjectContext } from "../../app/project-context.js";
 import { JobService, checkCircularDependency } from "../../app/job-service.js";
 import type { TransitionResult } from "../../app/job-service.js";
 import { truncate, padRight } from "../../util.js";
 import { computeMetrics, formatMetricsText, formatMetricsJson } from "../../domain/metrics.js";
+
+// Parse --workflow input: JSON/YAML string, file path, or "-" (stdin)
+export function parseWorkflowInput(input: string): WorkflowConfig {
+  let raw: string;
+
+  if (input === "-") {
+    raw = readFileSync(0, "utf-8");
+  } else if (!input.trimStart().startsWith("{") && !input.trimStart().startsWith("---") && !input.includes(":") && existsSync(input)) {
+    // Looks like a file path (no JSON/YAML markers and file exists)
+    raw = readFileSync(input, "utf-8");
+  } else if (existsSync(input)) {
+    // Ambiguous but file exists — treat as file
+    raw = readFileSync(input, "utf-8");
+  } else {
+    // Treat as inline JSON/YAML string
+    raw = input;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = YAML.parse(raw);
+  } catch {
+    throw new CcsquadError("config", "ワークフロー定義の YAML/JSON パースに失敗しました");
+  }
+
+  return parseWorkflowObject(parsed);
+}
 
 // Parse "agent1[constraint1]+agent2[constraint2]" or "agent1+agent2" into AgentSpec[]
 function parseAgentSpecs(raw: string): AgentSpec[] {
@@ -166,15 +195,12 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
 export function cmdAdd(
   ctx: ProjectContext,
   title: string,
-  phasesStr: string,
-  transitionsStr: string,
+  workflowConfig: WorkflowConfig,
   description?: string,
   priority: number = 0,
   dependsOn: string[] = [],
   maxIterations: number = 10,
 ): void {
-  const workflowConfig = buildWorkflowConfig(phasesStr, transitionsStr);
-
   if (dependsOn.length > 0) {
     for (const depId of dependsOn) {
       ctx.jobStore.load(depId);

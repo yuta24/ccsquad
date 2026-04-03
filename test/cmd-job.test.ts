@@ -1,5 +1,5 @@
 import { describe, it, expect, spyOn } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -13,6 +13,7 @@ import {
   cmdAbort,
   cmdUpdate,
   buildWorkflowConfig,
+  parseWorkflowInput,
 } from "../src/cli/commands/job.js";
 import { JobStore } from "../src/infra/job-store.js";
 import type { Job, JobStatus, WorkflowConfig } from "../src/domain/types.js";
@@ -68,7 +69,7 @@ function setup(): { ctx: ProjectContext } {
 describe("cmdAdd", () => {
   it("test_add_creates_job_with_correct_frontmatter", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "新機能の実装", PHASES, TRANSITIONS);
+    cmdAdd(ctx, "新機能の実装", WORKFLOW);
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.id).toBe("J000001");
     expect(job.frontmatter.title).toBe("新機能の実装");
@@ -79,7 +80,7 @@ describe("cmdAdd", () => {
 
   it("test_add_creates_workflow_in_frontmatter", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク", PHASES, TRANSITIONS);
+    cmdAdd(ctx, "タスク", WORKFLOW);
     const job = ctx.jobStore.load("J000001");
     const wf = job.frontmatter.workflow;
     expect(wf.phases).toHaveLength(3);
@@ -90,7 +91,7 @@ describe("cmdAdd", () => {
 
   it("test_add_with_description_sets_body", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク", PHASES, TRANSITIONS, "詳細な説明文");
+    cmdAdd(ctx, "タスク", WORKFLOW, "詳細な説明文");
     const job = ctx.jobStore.load("J000001");
     expect(job.body).toContain("## 説明");
     expect(job.body).toContain("詳細な説明文");
@@ -98,7 +99,7 @@ describe("cmdAdd", () => {
 
   it("test_add_without_description_has_empty_body", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク", PHASES, TRANSITIONS);
+    cmdAdd(ctx, "タスク", WORKFLOW);
     const job = ctx.jobStore.load("J000001");
     expect(job.body).not.toContain("## 説明");
   });
@@ -106,98 +107,153 @@ describe("cmdAdd", () => {
   it("test_add_with_depends_on", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "completed"));
-    cmdAdd(ctx, "後続タスク", PHASES, TRANSITIONS, undefined, 0, ["J000001"]);
+    cmdAdd(ctx, "後続タスク", WORKFLOW, undefined, 0, ["J000001"]);
     const job = ctx.jobStore.load("J000002");
     expect(job.frontmatter.depends_on).toEqual(["J000001"]);
   });
 
   it("test_add_with_priority", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "高優先度タスク", PHASES, TRANSITIONS, undefined, 5);
+    cmdAdd(ctx, "高優先度タスク", WORKFLOW, undefined, 5);
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.priority).toBe(5);
   });
 
   it("test_add_with_max_iterations", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク", PHASES, TRANSITIONS, undefined, 0, [], 5);
+    cmdAdd(ctx, "タスク", WORKFLOW, undefined, 0, [], 5);
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.max_iterations).toBe(5);
   });
 
   it("test_add_increments_id_sequentially", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク1", PHASES, TRANSITIONS);
-    cmdAdd(ctx, "タスク2", PHASES, TRANSITIONS);
+    cmdAdd(ctx, "タスク1", WORKFLOW);
+    cmdAdd(ctx, "タスク2", WORKFLOW);
     const job1 = ctx.jobStore.load("J000001");
     const job2 = ctx.jobStore.load("J000002");
     expect(job1.frontmatter.id).toBe("J000001");
     expect(job2.frontmatter.id).toBe("J000002");
   });
 
-  it("test_add_rejects_invalid_phase_type", () => {
-    const { ctx } = setup();
-    expect(() => cmdAdd(ctx, "タスク", "plan:invalid:dev", "plan:completed>COMPLETE")).toThrow();
-  });
-
   it("test_add_with_agent_creates_workflow_with_agent", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク", "plan:plan:planner,code:execute:coder,review:review:reviewer",
+    const wf = buildWorkflowConfig("plan:plan:planner,code:execute:coder,review:review:reviewer",
       "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code");
+    cmdAdd(ctx, "タスク", wf);
     const job = ctx.jobStore.load("J000001");
-    const wf = job.frontmatter.workflow;
-    expect(wf.phases[0].agent).toBe("planner");
-    expect(wf.phases[1].agent).toBe("coder");
-    expect(wf.phases[2].agent).toBe("reviewer");
-  });
-
-  it("test_add_rejects_phase_without_agent", () => {
-    const { ctx } = setup();
-    expect(() => cmdAdd(ctx, "タスク", "plan:plan,code:execute:coder,review:review",
-      "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code")).toThrow("フェーズ定義の形式が不正です");
-  });
-
-  it("test_add_rejects_invalid_phase_format_too_many_colons", () => {
-    const { ctx } = setup();
-    expect(() => cmdAdd(ctx, "タスク", "plan:plan:agent:auto:extra", "plan:completed>COMPLETE")).toThrow("フェーズ定義の形式が不正です");
+    expect(job.frontmatter.workflow.phases[0].agent).toBe("planner");
+    expect(job.frontmatter.workflow.phases[1].agent).toBe("coder");
+    expect(job.frontmatter.workflow.phases[2].agent).toBe("reviewer");
   });
 
   it("test_add_with_multi_agent_creates_agents_in_workflow", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク", "explore:plan:dev1+dev2,review:review:reviewer",
+    const wf = buildWorkflowConfig("explore:plan:dev1+dev2,review:review:reviewer",
       "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
+    cmdAdd(ctx, "タスク", wf);
     const job = ctx.jobStore.load("J000001");
-    const wf = job.frontmatter.workflow;
-    expect(wf.phases[0].agents).toHaveLength(2);
-    expect(wf.phases[0].agents![0].agent).toBe("dev1");
-    expect(wf.phases[0].agents![1].agent).toBe("dev2");
+    expect(job.frontmatter.workflow.phases[0].agents).toHaveLength(2);
+    expect(job.frontmatter.workflow.phases[0].agents![0].agent).toBe("dev1");
+    expect(job.frontmatter.workflow.phases[0].agents![1].agent).toBe("dev2");
   });
 
   it("test_add_with_multi_agent_and_constraint", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク", "explore:plan:dev[類似機能の調査]+dev[アーキテクチャの調査],review:review:reviewer",
+    const wf = buildWorkflowConfig("explore:plan:dev[類似機能の調査]+dev[アーキテクチャの調査],review:review:reviewer",
       "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
+    cmdAdd(ctx, "タスク", wf);
     const job = ctx.jobStore.load("J000001");
-    const wf = job.frontmatter.workflow;
-    expect(wf.phases[0].agents![0].constraint).toBe("類似機能の調査");
-    expect(wf.phases[0].agents![1].constraint).toBe("アーキテクチャの調査");
+    expect(job.frontmatter.workflow.phases[0].agents![0].constraint).toBe("類似機能の調査");
+    expect(job.frontmatter.workflow.phases[0].agents![1].constraint).toBe("アーキテクチャの調査");
   });
 
   it("test_add_with_multi_agent_mixed_constraint", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク", "explore:plan:dev[調査]+dev,review:review:reviewer",
+    const wf = buildWorkflowConfig("explore:plan:dev[調査]+dev,review:review:reviewer",
       "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
+    cmdAdd(ctx, "タスク", wf);
     const job = ctx.jobStore.load("J000001");
-    const wf = job.frontmatter.workflow;
-    expect(wf.phases[0].agents![0].constraint).toBe("調査");
-    // dev without constraint should not have constraint field
-    expect(wf.phases[0].agents![1].constraint).toBeUndefined();
+    expect(job.frontmatter.workflow.phases[0].agents![0].constraint).toBe("調査");
+    expect(job.frontmatter.workflow.phases[0].agents![1].constraint).toBeUndefined();
+  });
+});
+
+// ─── buildWorkflowConfig ────────────────────────────────────────────────────
+
+describe("buildWorkflowConfig", () => {
+  it("test_rejects_invalid_phase_type", () => {
+    expect(() => buildWorkflowConfig("plan:invalid:dev", "plan:completed>COMPLETE")).toThrow();
   });
 
-  it("test_add_rejects_unclosed_bracket_in_constraint", () => {
-    const { ctx } = setup();
-    expect(() => cmdAdd(ctx, "タスク", "explore:plan:dev[unclosed+dev,review:review:reviewer",
+  it("test_rejects_phase_without_agent", () => {
+    expect(() => buildWorkflowConfig("plan:plan,code:execute:coder,review:review",
+      "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code")).toThrow("フェーズ定義の形式が不正です");
+  });
+
+  it("test_rejects_invalid_phase_format_too_many_colons", () => {
+    expect(() => buildWorkflowConfig("plan:plan:agent:auto:extra", "plan:completed>COMPLETE")).toThrow("フェーズ定義の形式が不正です");
+  });
+
+  it("test_rejects_unclosed_bracket_in_constraint", () => {
+    expect(() => buildWorkflowConfig("explore:plan:dev[unclosed+dev,review:review:reviewer",
       "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore")).toThrow("閉じ括弧");
+  });
+});
+
+// ─── parseWorkflowInput ─────────────────────────────────────────────────────
+
+describe("parseWorkflowInput", () => {
+  it("test_parses_json_string", () => {
+    const json = JSON.stringify({
+      plan: { type: "plan", agent: "developer", on: { completed: "COMPLETE", failed: "ABORT" } },
+    });
+    const wf = parseWorkflowInput(json);
+    expect(wf.phases).toHaveLength(1);
+    expect(wf.phases[0].name).toBe("plan");
+    expect(wf.phases[0].agent).toBe("developer");
+  });
+
+  it("test_parses_yaml_string", () => {
+    const yaml = `plan:
+  type: plan
+  agent: developer
+  on:
+    completed: code
+    failed: ABORT
+code:
+  type: execute
+  agent: developer
+  on:
+    completed: COMPLETE
+    failed: plan`;
+    const wf = parseWorkflowInput(yaml);
+    expect(wf.phases).toHaveLength(2);
+    expect(wf.phases[0].name).toBe("plan");
+    expect(wf.phases[1].name).toBe("code");
+  });
+
+  it("test_parses_file_path", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ccsquad-wf-input-"));
+    const filePath = join(dir, "workflow.yaml");
+    writeFileSync(filePath, `plan:
+  type: plan
+  agent: developer
+  on:
+    completed: COMPLETE
+    failed: ABORT
+`, "utf-8");
+    const wf = parseWorkflowInput(filePath);
+    expect(wf.phases).toHaveLength(1);
+    expect(wf.phases[0].name).toBe("plan");
+  });
+
+  it("test_rejects_invalid_yaml", () => {
+    expect(() => parseWorkflowInput("{{invalid yaml")).toThrow();
+  });
+
+  it("test_rejects_invalid_workflow_structure", () => {
+    expect(() => parseWorkflowInput('{"plan": {"type": "invalid", "agent": "dev", "on": {"completed": "COMPLETE"}}}')).toThrow("不正なフェーズタイプ");
   });
 });
 
@@ -338,7 +394,7 @@ function captureLog(fn: () => void): string[] {
 describe("cmdList", () => {
   it("test_list_shows_correct_columns", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "テストタスク", PHASES, TRANSITIONS);
+    cmdAdd(ctx, "テストタスク", WORKFLOW);
     const lines = captureLog(() => cmdList(ctx));
     const header = lines[0];
     expect(header).toContain("ID");
@@ -400,7 +456,7 @@ describe("cmdList", () => {
 describe("cmdShow", () => {
   it("test_show_text_format_displays_job_details", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "表示テスト", PHASES, TRANSITIONS);
+    cmdAdd(ctx, "表示テスト", WORKFLOW);
     const lines = captureLog(() => cmdShow(ctx, "J000001", "text"));
     expect(lines.some((l) => l.includes("J000001"))).toBe(true);
     expect(lines.some((l) => l.includes("表示テスト"))).toBe(true);
@@ -459,7 +515,7 @@ const NEW_TRANSITIONS = "plan:completed>code,plan:failed>ABORT,code:completed>te
 describe("cmdUpdate workflow", () => {
   it("test_update_workflow_on_pending_job", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク", PHASES, TRANSITIONS);
+    cmdAdd(ctx, "タスク", WORKFLOW);
     const workflowConfig = buildWorkflowConfig(NEW_PHASES, NEW_TRANSITIONS);
     cmdUpdate(ctx, "J000001", { workflowConfig });
     const job = ctx.jobStore.load("J000001");
@@ -482,7 +538,7 @@ describe("cmdUpdate workflow", () => {
 
   it("test_update_workflow_with_title_updates_both", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "旧タイトル", PHASES, TRANSITIONS);
+    cmdAdd(ctx, "旧タイトル", WORKFLOW);
     const workflowConfig = buildWorkflowConfig(NEW_PHASES, NEW_TRANSITIONS);
     cmdUpdate(ctx, "J000001", { title: "新タイトル", workflowConfig });
     const job = ctx.jobStore.load("J000001");
@@ -492,7 +548,7 @@ describe("cmdUpdate workflow", () => {
 
   it("test_update_workflow_preserves_description_section", () => {
     const { ctx } = setup();
-    cmdAdd(ctx, "タスク", PHASES, TRANSITIONS, "重要な説明文");
+    cmdAdd(ctx, "タスク", WORKFLOW, "重要な説明文");
     const workflowConfig = buildWorkflowConfig(NEW_PHASES, NEW_TRANSITIONS);
     cmdUpdate(ctx, "J000001", { workflowConfig });
     const job = ctx.jobStore.load("J000001");

@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import {
   cmdList, cmdShow, cmdAdd, cmdRun, cmdTransition,
   cmdApprove, cmdReject, cmdAbort, cmdCancel, cmdSummary, cmdTree, cmdUpdate,
-  buildWorkflowConfig,
+  buildWorkflowConfig, parseWorkflowInput,
 } from "./cli/commands/job.js";
 import { cmdDagRun, cmdDagResume, cmdDagStatus, cmdDagClean } from "./cli/commands/dag.js";
 
@@ -30,16 +30,38 @@ jobCmd.command("show <id>").description("ジョブ詳細を表示")
   });
 
 jobCmd.command("add <title>").description("ジョブを追加")
-  .requiredOption("--phases <phases>", "フェーズ定義 (name:type, name:type:agent, name:type:agent1[constraint]+agent2[constraint] のカンマ区切り)")
-  .requiredOption("--transitions <transitions>", "遷移ルール (phase:condition>target のカンマ区切り)")
+  .option("--workflow <workflow>", "ワークフロー定義 (JSON/YAML 文字列、ファイルパス、または - で stdin)")
+  .option("--phases <phases>", "フェーズ定義 (name:type:agent のカンマ区切り)")
+  .option("--transitions <transitions>", "遷移ルール (phase:condition>target のカンマ区切り)")
   .option("--description <description>", "説明")
   .option("--priority <priority>", "優先度", "0")
   .option("--depends-on <ids>", "依存ジョブ ID (カンマ区切り)")
   .option("--max-iterations <n>", "最大イテレーション数", "10")
-  .action((title: string, opts: { phases: string; transitions: string; description?: string; priority: string; dependsOn?: string; maxIterations: string }) => {
+  .action((title: string, opts: { workflow?: string; phases?: string; transitions?: string; description?: string; priority: string; dependsOn?: string; maxIterations: string }) => {
     const ctx = createProjectContext();
+
+    if (opts.workflow && (opts.phases || opts.transitions)) {
+      console.error("エラー: --workflow と --phases/--transitions は同時に指定できません");
+      process.exit(1);
+    }
+    if (!opts.workflow && !opts.phases) {
+      console.error("エラー: --workflow または --phases/--transitions を指定してください");
+      process.exit(1);
+    }
+
+    let workflowConfig;
+    if (opts.workflow) {
+      workflowConfig = parseWorkflowInput(opts.workflow);
+    } else {
+      if (!opts.transitions) {
+        console.error("エラー: --phases と --transitions は両方指定してください");
+        process.exit(1);
+      }
+      workflowConfig = buildWorkflowConfig(opts.phases!, opts.transitions);
+    }
+
     const dependsOn = opts.dependsOn ? opts.dependsOn.split(",").map((s) => s.trim()).filter(Boolean) : [];
-    cmdAdd(ctx, title, opts.phases, opts.transitions, opts.description, parseInt(opts.priority, 10) || 0, dependsOn, parseInt(opts.maxIterations, 10) || 10);
+    cmdAdd(ctx, title, workflowConfig, opts.description, parseInt(opts.priority, 10) || 0, dependsOn, parseInt(opts.maxIterations, 10) || 10);
   });
 
 jobCmd.command("run <id>").description("ジョブを開始").action((id: string) => {
@@ -90,11 +112,16 @@ jobCmd.command("update <id>").description("ジョブを更新")
   .option("--title <title>", "タイトル")
   .option("--priority <priority>", "優先度")
   .option("--description <description>", "説明 (- で stdin から読み込み)")
+  .option("--workflow <workflow>", "ワークフロー定義 (JSON/YAML 文字列、ファイルパス、または - で stdin)")
   .option("--phases <phases>", "フェーズ定義 (name:type:agent のカンマ区切り)")
   .option("--transitions <transitions>", "遷移ルール (phase:condition>target のカンマ区切り)")
-  .action((id: string, opts: { title?: string; priority?: string; description?: string; phases?: string; transitions?: string }) => {
+  .action((id: string, opts: { title?: string; priority?: string; description?: string; workflow?: string; phases?: string; transitions?: string }) => {
     const ctx = createProjectContext();
 
+    if (opts.workflow && (opts.phases || opts.transitions)) {
+      console.error("エラー: --workflow と --phases/--transitions は同時に指定できません");
+      process.exit(1);
+    }
     if ((opts.phases && !opts.transitions) || (!opts.phases && opts.transitions)) {
       console.error("エラー: --phases と --transitions は両方指定してください");
       process.exit(1);
@@ -108,10 +135,15 @@ jobCmd.command("update <id>").description("ジョブを更新")
     }
 
     const priority = opts.priority !== undefined ? (parseInt(opts.priority, 10) || 0) : undefined;
-    const workflowConfig = opts.phases ? buildWorkflowConfig(opts.phases, opts.transitions!) : undefined;
+    let workflowConfig;
+    if (opts.workflow) {
+      workflowConfig = parseWorkflowInput(opts.workflow);
+    } else if (opts.phases) {
+      workflowConfig = buildWorkflowConfig(opts.phases, opts.transitions!);
+    }
 
     if (opts.title === undefined && priority === undefined && description === undefined && workflowConfig === undefined) {
-      console.error("エラー: --title, --priority, --description, --phases/--transitions のいずれかを指定してください");
+      console.error("エラー: --title, --priority, --description, --workflow, --phases/--transitions のいずれかを指定してください");
       process.exit(1);
     }
 
