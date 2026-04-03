@@ -1,6 +1,6 @@
 import type { Job, JobStatus, PhaseType, PhaseConfig, TransitionCondition, WorkflowConfig, AgentSpec } from "../../domain/types.js";
 import { ALL_PHASE_TYPES, ALL_CONDITIONS, ALL_JOB_STATUSES, resolveAgent, resolveAgents, isMultiAgent } from "../../domain/types.js";
-import { getPhase, parseTransitionCondition, parseWorkflowFromBody } from "../../domain/workflow.js";
+import { getPhase, parseTransitionCondition } from "../../domain/workflow.js";
 import { CcsquadError } from "../../error.js";
 import type { ProjectContext } from "../../app/project-context.js";
 import { JobService, checkCircularDependency } from "../../app/job-service.js";
@@ -121,18 +121,14 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
     };
     if (job.frontmatter.current_phase !== undefined) {
       output.current_phase = job.frontmatter.current_phase;
-      try {
-        const wf = parseWorkflowFromBody(job.body);
-        const phase = getPhase(wf, job.frontmatter.current_phase);
-        if (phase) {
-          if (isMultiAgent(phase)) {
-            output.phase_config = { type: phase.type, agents: resolveAgents(phase), auto: phase.auto ?? false };
-          } else {
-            output.phase_config = { type: phase.type, agent: resolveAgent(phase), auto: phase.auto ?? false };
-          }
+      const wf = job.frontmatter.workflow;
+      const phase = getPhase(wf, job.frontmatter.current_phase);
+      if (phase) {
+        if (isMultiAgent(phase)) {
+          output.phase_config = { type: phase.type, agents: resolveAgents(phase), auto: phase.auto ?? false };
+        } else {
+          output.phase_config = { type: phase.type, agent: resolveAgent(phase), auto: phase.auto ?? false };
         }
-      } catch {
-        // skip if workflow parse fails
       }
     }
     console.log(JSON.stringify(output, null, 2));
@@ -142,19 +138,15 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
     console.log(`ステータス: ${fm.status}`);
     if (fm.current_phase) {
       console.log(`現在のフェーズ: ${fm.current_phase}`);
-      try {
-        const wf = parseWorkflowFromBody(job.body);
-        const phase = getPhase(wf, fm.current_phase);
-        if (phase) {
-          console.log(`  タイプ: ${phase.type}`);
-          if (isMultiAgent(phase)) {
-            console.log(`  エージェント: ${resolveAgents(phase).map((s) => s.agent).join(", ")}`);
-          } else {
-            console.log(`  エージェント: ${resolveAgent(phase)}`);
-          }
+      const wf = fm.workflow;
+      const phase = getPhase(wf, fm.current_phase);
+      if (phase) {
+        console.log(`  タイプ: ${phase.type}`);
+        if (isMultiAgent(phase)) {
+          console.log(`  エージェント: ${resolveAgents(phase).map((s) => s.agent).join(", ")}`);
+        } else {
+          console.log(`  エージェント: ${resolveAgent(phase)}`);
         }
-      } catch {
-        // skip
       }
     }
     console.log(`イテレーション: ${fm.iteration}/${fm.max_iterations}`);

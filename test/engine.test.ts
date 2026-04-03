@@ -2,59 +2,26 @@ import { describe, it, expect } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { JobStatus, Job } from "../src/domain/types.js";
+import type { JobStatus, Job, WorkflowConfig } from "../src/domain/types.js";
 import { JobStore } from "../src/infra/job-store.js";
 import { JobService, checkCircularDependency } from "../src/app/job-service.js";
 import type { ProjectContext } from "../src/app/project-context.js";
 import { createTestContext } from "./helpers.js";
 
-const DEV_WORKFLOW_BODY = `## Acceptance Criteria
+const DEV_WORKFLOW: WorkflowConfig = {
+  phases: [
+    { name: "plan", type: "plan", agent: "developer", on: { completed: "code", failed: "ABORT" } },
+    { name: "code", type: "execute", agent: "developer", on: { completed: "review", failed: "plan" } },
+    { name: "review", type: "review", agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
+  ],
+};
+
+const DEV_BODY_WITH_AC = `## Acceptance Criteria
 
 - [ ] テスト基準
-
-## Workflow
-
-plan:
-  type: plan
-  agent: developer
-  on:
-    completed: code
-    failed: ABORT
-code:
-  type: execute
-  agent: developer
-  on:
-    completed: review
-    failed: plan
-review:
-  type: review
-  agent: reviewer
-  on:
-    approved: COMPLETE
-    rejected: code
 `;
 
-const DEV_WORKFLOW_BODY_NO_AC = `## Workflow
-
-plan:
-  type: plan
-  agent: developer
-  on:
-    completed: code
-    failed: ABORT
-code:
-  type: execute
-  agent: developer
-  on:
-    completed: review
-    failed: plan
-review:
-  type: review
-  agent: reviewer
-  on:
-    approved: COMPLETE
-    rejected: code
-`;
+const DEV_BODY_NO_AC = "";
 
 function makeJob(id: string, status: JobStatus): Job {
   const now = new Date().toISOString();
@@ -67,10 +34,11 @@ function makeJob(id: string, status: JobStatus): Job {
       max_iterations: 10,
       priority: 0,
       depends_on: [],
+      workflow: DEV_WORKFLOW,
       created_at: now,
       updated_at: now,
     },
-    body: DEV_WORKFLOW_BODY,
+    body: DEV_BODY_WITH_AC,
   };
 }
 
@@ -145,36 +113,16 @@ describe("JobService (replaces WorkflowEngine)", () => {
 
   it("test_auto_review_does_not_pause", () => {
     const { ctx, jobService } = setup();
-    const autoReviewBody = `## Acceptance Criteria
-
-- [ ] テスト基準
-
-## Workflow
-
-plan:
-  type: plan
-  agent: developer
-  on:
-    completed: code
-    failed: ABORT
-code:
-  type: execute
-  agent: developer
-  on:
-    completed: review
-    failed: plan
-review:
-  type: review
-  agent: reviewer
-  auto: true
-  on:
-    approved: COMPLETE
-    rejected: code
-`;
-    ctx.jobStore.save({
-      frontmatter: makeJob("J000001", "pending").frontmatter,
-      body: autoReviewBody,
-    });
+    const autoReviewWorkflow: WorkflowConfig = {
+      phases: [
+        { name: "plan", type: "plan", agent: "developer", on: { completed: "code", failed: "ABORT" } },
+        { name: "code", type: "execute", agent: "developer", on: { completed: "review", failed: "plan" } },
+        { name: "review", type: "review", agent: "reviewer", auto: true, on: { approved: "COMPLETE", rejected: "code" } },
+      ],
+    };
+    const job = makeJob("J000001", "pending");
+    job.frontmatter.workflow = autoReviewWorkflow;
+    ctx.jobStore.save(job);
     jobService.start("J000001");
 
     // plan -> completed -> code
@@ -304,7 +252,7 @@ review:
   it("test_transition_to_execute_without_ac_throws", () => {
     const { ctx, jobService } = setup();
     const job = makeJob("J000001", "pending");
-    job.body = DEV_WORKFLOW_BODY_NO_AC;
+    job.body = DEV_BODY_NO_AC;
     ctx.jobStore.save(job);
     jobService.start("J000001");
 

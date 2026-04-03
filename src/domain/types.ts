@@ -39,6 +39,24 @@ export interface WorkflowConfig {
   phases: PhaseConfig[];
 }
 
+// ── Workflow serialization ──
+
+export function workflowToObject(wf: WorkflowConfig): Record<string, Record<string, unknown>> {
+  const obj: Record<string, Record<string, unknown>> = {};
+  for (const phase of wf.phases) {
+    const entry: Record<string, unknown> = { type: phase.type };
+    if (phase.agents && phase.agents.length > 0) {
+      entry.agents = phase.agents;
+    } else if (phase.agent) {
+      entry.agent = phase.agent;
+    }
+    if (phase.auto) entry.auto = true;
+    entry.on = { ...phase.on };
+    obj[phase.name] = entry;
+  }
+  return obj;
+}
+
 // ── Job ──
 
 export type JobStatus = "pending" | "running" | "completed" | "failed" | "aborted" | "cancelled";
@@ -53,6 +71,7 @@ export interface JobFrontmatter {
   max_iterations: number;
   priority: number;
   depends_on: string[];
+  workflow: WorkflowConfig;
   created_at: string;
   updated_at: string;
 }

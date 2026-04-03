@@ -1,6 +1,6 @@
 import { CcsquadError } from "../error.js";
 import type { Job, TransitionCondition, PhaseConfig, WorkflowConfig } from "../domain/types.js";
-import { initialPhase, parseWorkflowFromBody, generateWorkflowSection } from "../domain/workflow.js";
+import { initialPhase } from "../domain/workflow.js";
 import { computeTransition } from "../domain/state-machine.js";
 import type { TransitionDecision } from "../domain/state-machine.js";
 import { buildPhaseLogEntry, appendPhaseLog } from "../domain/phase-log.js";
@@ -20,10 +20,6 @@ export class JobService {
     return job;
   }
 
-  private getWorkflowForJob(job: Job): WorkflowConfig {
-    return parseWorkflowFromBody(job.body);
-  }
-
   create(
     title: string,
     workflowConfig: WorkflowConfig,
@@ -32,8 +28,7 @@ export class JobService {
     const id = this.ctx.jobStore.nextId();
     const now = new Date().toISOString();
 
-    const workflowBody = generateWorkflowSection(workflowConfig);
-    const descBody = opts?.description ? `## 説明\n${opts.description}\n\n` : "";
+    const descBody = opts?.description ? `## 説明\n${opts.description}\n` : "";
 
     const job: Job = {
       frontmatter: {
@@ -44,10 +39,11 @@ export class JobService {
         max_iterations: opts?.maxIterations ?? 10,
         priority: opts?.priority ?? 0,
         depends_on: opts?.dependsOn ?? [],
+        workflow: workflowConfig,
         created_at: now,
         updated_at: now,
       },
-      body: descBody + workflowBody,
+      body: descBody,
     };
     this.ctx.jobStore.save(job);
     return job;
@@ -73,7 +69,7 @@ export class JobService {
       }
     }
 
-    const wf = this.getWorkflowForJob(job);
+    const wf = job.frontmatter.workflow;
     const initial = initialPhase(wf);
     job.frontmatter.status = "running";
     job.frontmatter.current_phase = initial.name;
@@ -85,7 +81,7 @@ export class JobService {
 
   transition(jobId: string, condition: TransitionCondition, message: string): TransitionResult {
     const job = this.loadJob(jobId);
-    const wf = this.getWorkflowForJob(job);
+    const wf = job.frontmatter.workflow;
 
     const decision = computeTransition({ job, workflow: wf, condition });
     const phaseName = job.frontmatter.current_phase!;
@@ -155,7 +151,7 @@ export class JobService {
           `ジョブ '${jobId}' は pending 状態でないためワークフローを変更できません (status: ${job.frontmatter.status})`,
         );
       }
-      job.body = replaceWorkflowSection(job.body, opts.workflowConfig);
+      job.frontmatter.workflow = opts.workflowConfig;
     }
 
     if (opts.title !== undefined) {
@@ -261,30 +257,14 @@ export class JobService {
 }
 
 function replaceDescriptionSection(body: string, description: string): string {
-  const newSection = `## 説明\n${description}\n\n`;
+  const newSection = `## 説明\n${description}\n`;
   // Match "## 説明" at line start, then everything until the next "## " heading or end of string.
   // Do NOT use the m flag — $ must match end of string, not end of line.
   const existing = /^## 説明\n[\s\S]*?(?=\n## )|^## 説明\n[\s\S]*$/;
   if (existing.test(body)) {
-    return body.replace(existing, `## 説明\n${description}\n`);
+    return body.replace(existing, newSection.trimEnd());
   }
   return newSection + body;
-}
-
-function replaceWorkflowSection(body: string, workflowConfig: WorkflowConfig): string {
-  const newSection = generateWorkflowSection(workflowConfig);
-  // Use indexOf-based approach (same as extractWorkflowSection in workflow.ts)
-  const header = /^## Workflow\s*$/m;
-  const match = body.match(header);
-  if (!match || match.index === undefined) {
-    return body + "\n" + newSection;
-  }
-  const start = match.index;
-  const nextHeader = body.indexOf("\n## ", start + match[0].length);
-  if (nextHeader !== -1) {
-    return body.slice(0, start) + newSection.trimEnd() + body.slice(nextHeader);
-  }
-  return body.slice(0, start) + newSection.trimEnd() + "\n";
 }
 
 export function checkCircularDependency(

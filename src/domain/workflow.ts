@@ -1,4 +1,3 @@
-import YAML from "yaml";
 import { CcsquadError } from "../error.js";
 import type {
   WorkflowConfig,
@@ -63,28 +62,11 @@ export function validateConditionForPhase(
   }
 }
 
-// ── Workflow parser (from job body) ──
+// ── Workflow parser (from raw object, e.g. frontmatter YAML) ──
 
-export function parseWorkflowFromBody(body: string): WorkflowConfig {
-  const section = extractWorkflowSection(body);
-  if (!section) {
-    throw new CcsquadError("workflow", "ジョブに Workflow セクションが定義されていません");
-  }
-
-  const trimmed = section.trim();
-  if (!trimmed) {
-    throw new CcsquadError("workflow", "Workflow セクションにフェーズが定義されていません");
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = YAML.parse(trimmed);
-  } catch {
-    throw new CcsquadError("workflow", "Workflow セクションの YAML パースに失敗しました");
-  }
-
+export function parseWorkflowObject(parsed: unknown): WorkflowConfig {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new CcsquadError("workflow", "Workflow セクションにフェーズが定義されていません");
+    throw new CcsquadError("workflow", "workflow はオブジェクトで指定してください");
   }
 
   const phases: PhaseConfig[] = [];
@@ -148,37 +130,8 @@ export function parseWorkflowFromBody(body: string): WorkflowConfig {
   }
 
   if (phases.length === 0) {
-    throw new CcsquadError("workflow", "Workflow セクションにフェーズが定義されていません");
+    throw new CcsquadError("workflow", "workflow にフェーズが定義されていません");
   }
 
   return { phases };
-}
-
-export function generateWorkflowSection(wf: WorkflowConfig): string {
-  const obj: Record<string, Record<string, unknown>> = {};
-  for (const phase of wf.phases) {
-    const entry: Record<string, unknown> = { type: phase.type };
-    if (phase.agents && phase.agents.length > 0) {
-      entry.agents = phase.agents;
-    } else if (phase.agent) {
-      entry.agent = phase.agent;
-    }
-    if (phase.auto) entry.auto = true;
-    entry.on = { ...phase.on };
-    obj[phase.name] = entry;
-  }
-  return `## Workflow\n\n${YAML.stringify(obj)}`;
-}
-
-function extractWorkflowSection(body: string): string | null {
-  const header = /^## Workflow\s*$/m;
-  const match = body.match(header);
-  if (!match || match.index === undefined) return null;
-
-  const start = match.index + match[0].length;
-  const nextHeader = body.indexOf("\n## ", start);
-  if (nextHeader !== -1) {
-    return body.slice(start, nextHeader);
-  }
-  return body.slice(start);
 }

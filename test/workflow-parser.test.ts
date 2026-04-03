@@ -1,30 +1,15 @@
 import { describe, it, expect } from "bun:test";
-import { parseWorkflowFromBody, generateWorkflowSection } from "../src/domain/workflow.js";
+import { parseWorkflowObject } from "../src/domain/workflow.js";
+import { workflowToObject } from "../src/domain/types.js";
 
-describe("parseWorkflowFromBody", () => {
+describe("parseWorkflowObject", () => {
   it("基本的なワークフローをパースする", () => {
-    const body = `## Workflow
-
-plan:
-  type: plan
-  agent: developer
-  on:
-    completed: code
-    failed: ABORT
-code:
-  type: execute
-  agent: developer
-  on:
-    completed: review
-    failed: plan
-review:
-  type: review
-  agent: reviewer
-  on:
-    approved: COMPLETE
-    rejected: code
-`;
-    const wf = parseWorkflowFromBody(body);
+    const obj = {
+      plan: { type: "plan", agent: "developer", on: { completed: "code", failed: "ABORT" } },
+      code: { type: "execute", agent: "developer", on: { completed: "review", failed: "plan" } },
+      review: { type: "review", agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
+    };
+    const wf = parseWorkflowObject(obj);
     expect(wf.phases).toHaveLength(3);
     expect(wf.phases[0].name).toBe("plan");
     expect(wf.phases[0].type).toBe("plan");
@@ -38,201 +23,111 @@ review:
     expect(wf.phases[2].on.rejected).toBe("code");
   });
 
-  it("他のセクションがある場合も Workflow セクションのみパースする", () => {
-    const body = `## 説明
-何かの説明
-
-## Workflow
-
-plan:
-  type: plan
-  agent: developer
-  on:
-    completed: COMPLETE
-
-## フェーズログ
-### plan (completed → COMPLETE) - 2026-01-01
-`;
-    const wf = parseWorkflowFromBody(body);
-    expect(wf.phases).toHaveLength(1);
-    expect(wf.phases[0].name).toBe("plan");
+  it("非オブジェクトの場合エラーをスローする", () => {
+    expect(() => parseWorkflowObject("invalid")).toThrow("オブジェクト");
+    expect(() => parseWorkflowObject(null)).toThrow("オブジェクト");
+    expect(() => parseWorkflowObject([1, 2])).toThrow("オブジェクト");
   });
 
-  it("Workflow セクションがない場合エラーをスローする", () => {
-    const body = `## 説明
-何かの説明
-`;
-    expect(() => parseWorkflowFromBody(body)).toThrow("Workflow セクション");
-  });
-
-  it("Workflow セクションが空の場合エラーをスローする", () => {
-    const body = `## Workflow
-
-## 次のセクション
-`;
-    expect(() => parseWorkflowFromBody(body)).toThrow("Workflow セクション");
+  it("空オブジェクトの場合エラーをスローする", () => {
+    expect(() => parseWorkflowObject({})).toThrow("フェーズが定義されていません");
   });
 
   it("不正なフェーズタイプの場合エラーをスローする", () => {
-    const body = `## Workflow
-
-plan:
-  type: invalid
-  on:
-    completed: COMPLETE
-`;
-    expect(() => parseWorkflowFromBody(body)).toThrow("不正なフェーズタイプ");
+    const obj = { plan: { type: "invalid", agent: "dev", on: { completed: "COMPLETE" } } };
+    expect(() => parseWorkflowObject(obj)).toThrow("不正なフェーズタイプ");
   });
 
   it("on が未定義の場合エラーをスローする", () => {
-    const body = `## Workflow
-
-plan:
-  type: plan
-  agent: developer
-`;
-    expect(() => parseWorkflowFromBody(body)).toThrow("on (遷移ルール) が定義されていません");
+    const obj = { plan: { type: "plan", agent: "developer" } };
+    expect(() => parseWorkflowObject(obj)).toThrow("on (遷移ルール) が定義されていません");
   });
 
   it("不明な遷移条件の場合エラーをスローする", () => {
-    const body = `## Workflow
-
-plan:
-  type: plan
-  agent: developer
-  on:
-    unknown: COMPLETE
-`;
-    expect(() => parseWorkflowFromBody(body)).toThrow("不明な遷移条件");
+    const obj = { plan: { type: "plan", agent: "developer", on: { unknown: "COMPLETE" } } };
+    expect(() => parseWorkflowObject(obj)).toThrow("不明な遷移条件");
   });
 
   it("agent 指定ありのフェーズをパースする", () => {
-    const body = `## Workflow
-
-research:
-  type: plan
-  agent: planner
-  on:
-    completed: code
-    failed: ABORT
-code:
-  type: execute
-  agent: coder
-  on:
-    completed: review
-    failed: research
-review:
-  type: review
-  agent: reviewer
-  on:
-    approved: COMPLETE
-    rejected: code
-`;
-    const wf = parseWorkflowFromBody(body);
+    const obj = {
+      research: { type: "plan", agent: "planner", on: { completed: "code", failed: "ABORT" } },
+      code: { type: "execute", agent: "coder", on: { completed: "review", failed: "research" } },
+      review: { type: "review", agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
+    };
+    const wf = parseWorkflowObject(obj);
     expect(wf.phases[0].agent).toBe("planner");
     expect(wf.phases[1].agent).toBe("coder");
     expect(wf.phases[2].agent).toBe("reviewer");
   });
 
   it("agent 省略時はエラーをスローする", () => {
-    const body = `## Workflow
-
-plan:
-  type: plan
-  on:
-    completed: COMPLETE
-`;
-    expect(() => parseWorkflowFromBody(body)).toThrow("agent または agents を指定してください");
-  });
-
-  it("agent 指定ありと省略の混在はエラーをスローする", () => {
-    const body = `## Workflow
-
-plan:
-  type: plan
-  on:
-    completed: code
-    failed: ABORT
-code:
-  type: execute
-  agent: coder
-  on:
-    completed: COMPLETE
-`;
-    expect(() => parseWorkflowFromBody(body)).toThrow("agent または agents を指定してください");
+    const obj = { plan: { type: "plan", on: { completed: "COMPLETE" } } };
+    expect(() => parseWorkflowObject(obj)).toThrow("agent または agents を指定してください");
   });
 
   it("auto キーワードをパースする", () => {
-    const body = `## Workflow
-
-plan:
-  type: plan
-  agent: developer
-  on:
-    completed: code
-    failed: ABORT
-code:
-  type: execute
-  agent: developer
-  on:
-    completed: review
-    failed: plan
-review:
-  type: review
-  agent: reviewer
-  auto: true
-  on:
-    approved: COMPLETE
-    rejected: code
-`;
-    const wf = parseWorkflowFromBody(body);
+    const obj = {
+      plan: { type: "plan", agent: "developer", on: { completed: "code", failed: "ABORT" } },
+      code: { type: "execute", agent: "developer", on: { completed: "review", failed: "plan" } },
+      review: { type: "review", agent: "reviewer", auto: true, on: { approved: "COMPLETE", rejected: "code" } },
+    };
+    const wf = parseWorkflowObject(obj);
     expect(wf.phases[2].auto).toBe(true);
     expect(wf.phases[0].auto).toBeUndefined();
   });
 
   it("agent と auto の両方を指定できる", () => {
-    const body = `## Workflow
-
-review:
-  type: review
-  agent: my-reviewer
-  auto: true
-  on:
-    approved: COMPLETE
-    rejected: code
-`;
-    const wf = parseWorkflowFromBody(body);
+    const obj = {
+      review: { type: "review", agent: "my-reviewer", auto: true, on: { approved: "COMPLETE", rejected: "code" } },
+    };
+    const wf = parseWorkflowObject(obj);
     expect(wf.phases[0].agent).toBe("my-reviewer");
     expect(wf.phases[0].auto).toBe(true);
   });
 
-  it("auto 指定ありで generateWorkflowSection が正しく出力する", () => {
-    const body = `## Workflow
+  it("agents (マルチエージェント) をパースする", () => {
+    const obj = {
+      explore: {
+        type: "plan",
+        agents: [
+          { agent: "explorer", constraint: "類似機能の調査" },
+          { agent: "explorer", constraint: "アーキテクチャの調査" },
+        ],
+        on: { completed: "COMPLETE", failed: "ABORT" },
+      },
+    };
+    const wf = parseWorkflowObject(obj);
+    expect(wf.phases[0].agents).toHaveLength(2);
+    expect(wf.phases[0].agents![0].agent).toBe("explorer");
+    expect(wf.phases[0].agents![0].constraint).toBe("類似機能の調査");
+  });
 
-plan:
-  type: plan
-  agent: developer
-  on:
-    completed: review
-    failed: ABORT
-review:
-  type: review
-  agent: reviewer
-  auto: true
-  on:
-    approved: COMPLETE
-    rejected: plan
-`;
-    const wf = parseWorkflowFromBody(body);
-    const output = generateWorkflowSection(wf);
-    expect(output).toContain("type: review");
-    expect(output).toContain("agent: reviewer");
-    expect(output).toContain("auto: true");
+  it("agents が 1 件の場合エラーをスローする", () => {
+    const obj = {
+      explore: {
+        type: "plan",
+        agents: [{ agent: "explorer" }],
+        on: { completed: "COMPLETE" },
+      },
+    };
+    expect(() => parseWorkflowObject(obj)).toThrow("2 件以上");
+  });
+
+  it("agent と agents を同時に指定するとエラーをスローする", () => {
+    const obj = {
+      explore: {
+        type: "plan",
+        agent: "dev",
+        agents: [{ agent: "explorer" }, { agent: "explorer" }],
+        on: { completed: "COMPLETE" },
+      },
+    };
+    expect(() => parseWorkflowObject(obj)).toThrow("同時に指定できません");
   });
 });
 
-describe("generateWorkflowSection", () => {
-  it("WorkflowConfig からテキストを生成する", () => {
+describe("workflowToObject", () => {
+  it("WorkflowConfig からオブジェクトを生成する", () => {
     const wf = {
       phases: [
         { name: "plan", type: "plan" as const, agent: "developer", on: { completed: "code", failed: "ABORT" } },
@@ -240,17 +135,14 @@ describe("generateWorkflowSection", () => {
         { name: "review", type: "review" as const, agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
       ],
     };
-    const text = generateWorkflowSection(wf);
-    expect(text).toContain("## Workflow");
-    expect(text).toContain("plan:");
-    expect(text).toContain("type: plan");
-    expect(text).toContain("code:");
-    expect(text).toContain("type: execute");
-    expect(text).toContain("review:");
-    expect(text).toContain("type: review");
+    const obj = workflowToObject(wf);
+    expect(obj.plan.type).toBe("plan");
+    expect(obj.plan.agent).toBe("developer");
+    expect(obj.code.type).toBe("execute");
+    expect(obj.review.type).toBe("review");
   });
 
-  it("ラウンドトリップ: generate → parse が同一のワークフローを返す", () => {
+  it("ラウンドトリップ: toObject → parse が同一のワークフローを返す", () => {
     const original = {
       phases: [
         { name: "research", type: "plan" as const, agent: "planner", on: { completed: "code", failed: "ABORT" } },
@@ -258,8 +150,8 @@ describe("generateWorkflowSection", () => {
         { name: "review", type: "review" as const, agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
       ],
     };
-    const text = generateWorkflowSection(original);
-    const parsed = parseWorkflowFromBody(text);
+    const obj = workflowToObject(original);
+    const parsed = parseWorkflowObject(obj);
 
     expect(parsed.phases).toHaveLength(original.phases.length);
     for (let i = 0; i < original.phases.length; i++) {
@@ -269,19 +161,7 @@ describe("generateWorkflowSection", () => {
     }
   });
 
-  it("異なるエージェント指定のワークフローを生成する", () => {
-    const wf = {
-      phases: [
-        { name: "plan", type: "plan" as const, agent: "planner", on: { completed: "code", failed: "ABORT" } },
-        { name: "code", type: "execute" as const, agent: "developer", on: { completed: "COMPLETE" } },
-      ],
-    };
-    const text = generateWorkflowSection(wf);
-    expect(text).toContain("agent: planner");
-    expect(text).toContain("agent: developer");
-  });
-
-  it("ラウンドトリップ (agent あり): generate → parse で agent が保持される", () => {
+  it("ラウンドトリップ (agent あり): toObject → parse で agent が保持される", () => {
     const original = {
       phases: [
         { name: "research", type: "plan" as const, agent: "planner", on: { completed: "code", failed: "ABORT" } },
@@ -289,11 +169,23 @@ describe("generateWorkflowSection", () => {
         { name: "review", type: "review" as const, agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
       ],
     };
-    const text = generateWorkflowSection(original);
-    const parsed = parseWorkflowFromBody(text);
+    const obj = workflowToObject(original);
+    const parsed = parseWorkflowObject(obj);
 
     expect(parsed.phases[0].agent).toBe("planner");
     expect(parsed.phases[1].agent).toBe("developer");
     expect(parsed.phases[2].agent).toBe("reviewer");
+  });
+
+  it("auto 指定ありでラウンドトリップが正しい", () => {
+    const original = {
+      phases: [
+        { name: "plan", type: "plan" as const, agent: "developer", on: { completed: "review", failed: "ABORT" } },
+        { name: "review", type: "review" as const, agent: "reviewer", auto: true, on: { approved: "COMPLETE", rejected: "plan" } },
+      ],
+    };
+    const obj = workflowToObject(original);
+    const parsed = parseWorkflowObject(obj);
+    expect(parsed.phases[1].auto).toBe(true);
   });
 });

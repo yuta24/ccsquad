@@ -3,69 +3,30 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JobStore } from "../src/infra/job-store.js";
-import type { Job, JobStatus } from "../src/domain/types.js";
+import type { Job, JobStatus, WorkflowConfig } from "../src/domain/types.js";
 import { JobService } from "../src/app/job-service.js";
 import { validateConditionForPhase } from "../src/domain/workflow.js";
 import type { ProjectContext } from "../src/app/project-context.js";
 import { createTestContext } from "./helpers.js";
 
-const WORKFLOW_BODY = `## Acceptance Criteria
+const WORKFLOW: WorkflowConfig = {
+  phases: [
+    { name: "plan", type: "plan", agent: "developer", on: { completed: "code", failed: "ABORT" } },
+    { name: "code", type: "execute", agent: "developer", on: { completed: "review", failed: "plan" } },
+    { name: "review", type: "review", agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
+  ],
+};
+
+const BODY_WITH_AC = `## Acceptance Criteria
 
 - [ ] テスト基準
-
-## Workflow
-
-plan:
-  type: plan
-  agent: developer
-  on:
-    completed: code
-    failed: ABORT
-code:
-  type: execute
-  agent: developer
-  on:
-    completed: review
-    failed: plan
-review:
-  type: review
-  agent: reviewer
-  on:
-    approved: COMPLETE
-    rejected: code
-`;
-
-const WORKFLOW_BODY_MAX3 = `## Acceptance Criteria
-
-- [ ] テスト基準
-
-## Workflow
-
-plan:
-  type: plan
-  agent: developer
-  on:
-    completed: code
-    failed: ABORT
-code:
-  type: execute
-  agent: developer
-  on:
-    completed: review
-    failed: plan
-review:
-  type: review
-  agent: reviewer
-  on:
-    approved: COMPLETE
-    rejected: code
 `;
 
 function makeTmpDir(): string {
   return mkdtempSync(join(tmpdir(), "ccsquad-svc-transition-"));
 }
 
-function makeJob(id: string, status: JobStatus, body = WORKFLOW_BODY): Job {
+function makeJob(id: string, status: JobStatus, body = BODY_WITH_AC): Job {
   const now = new Date().toISOString();
   return {
     frontmatter: {
@@ -76,6 +37,7 @@ function makeJob(id: string, status: JobStatus, body = WORKFLOW_BODY): Job {
       max_iterations: 3,
       priority: 0,
       depends_on: [],
+      workflow: WORKFLOW,
       created_at: now,
       updated_at: now,
     },

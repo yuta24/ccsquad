@@ -5,38 +5,20 @@ import { join } from "node:path";
 import { parsePhaseLog } from "../src/domain/phase-log.js";
 import type { PhaseLogEntry } from "../src/domain/phase-log.js";
 import { computeMetrics, formatDuration, formatMetricsText, formatMetricsJson } from "../src/domain/metrics.js";
-import type { Job } from "../src/domain/types.js";
+import type { Job, WorkflowConfig } from "../src/domain/types.js";
 import { cmdSummary } from "../src/cli/commands/job.js";
 import { JobStore } from "../src/infra/job-store.js";
 import type { ProjectContext } from "../src/app/project-context.js";
 import { createTestContext } from "./helpers.js";
 
-const WORKFLOW_BODY = `## Workflow
-
-research:
-  type: plan
-  agent: planner
-  on:
-    completed: design
-    failed: ABORT
-design:
-  type: plan
-  agent: planner
-  on:
-    completed: code
-code:
-  type: execute
-  agent: developer
-  on:
-    completed: review
-    failed: design
-review:
-  type: review
-  agent: reviewer
-  on:
-    approved: COMPLETE
-    rejected: code
-`;
+const WORKFLOW: WorkflowConfig = {
+  phases: [
+    { name: "research", type: "plan", agent: "planner", on: { completed: "design", failed: "ABORT" } },
+    { name: "design", type: "plan", agent: "planner", on: { completed: "code" } },
+    { name: "code", type: "execute", agent: "developer", on: { completed: "review", failed: "design" } },
+    { name: "review", type: "review", agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
+  ],
+};
 
 const PHASE_LOG = `## フェーズログ
 ### research (completed → design) - 2026-03-24T09:30:00Z
@@ -67,10 +49,11 @@ function makeJobWithLog(overrides?: Partial<{ status: string; body: string }>): 
       max_iterations: 10,
       priority: 0,
       depends_on: [],
+      workflow: WORKFLOW,
       created_at: "2026-03-24T09:00:00Z",
       updated_at: "2026-03-24T13:10:00Z",
     },
-    body: overrides?.body ?? (WORKFLOW_BODY + "\n" + PHASE_LOG),
+    body: overrides?.body ?? PHASE_LOG,
   };
 }
 
@@ -78,7 +61,7 @@ function makeJobWithLog(overrides?: Partial<{ status: string; body: string }>): 
 
 describe("parsePhaseLog", () => {
   it("parses all entries from phase log", () => {
-    const entries = parsePhaseLog(WORKFLOW_BODY + "\n" + PHASE_LOG);
+    const entries = parsePhaseLog(PHASE_LOG);
     expect(entries).toHaveLength(8);
     expect(entries[0]).toEqual({
       phase: "research",
@@ -95,7 +78,7 @@ describe("parsePhaseLog", () => {
   });
 
   it("returns empty array when no phase log section", () => {
-    const entries = parsePhaseLog(WORKFLOW_BODY);
+    const entries = parsePhaseLog("some body content");
     expect(entries).toEqual([]);
   });
 
@@ -105,7 +88,7 @@ describe("parsePhaseLog", () => {
   });
 
   it("parses entries with various result types", () => {
-    const entries = parsePhaseLog(WORKFLOW_BODY + "\n" + PHASE_LOG);
+    const entries = parsePhaseLog(PHASE_LOG);
     const results = entries.map((e) => e.result);
     expect(results).toContain("completed");
     expect(results).toContain("failed");
@@ -118,7 +101,7 @@ describe("parsePhaseLog", () => {
 
 describe("computeMetrics", () => {
   it("returns null when no phase log entries", () => {
-    const job = makeJobWithLog({ body: WORKFLOW_BODY });
+    const job = makeJobWithLog({ body: "" });
     const metrics = computeMetrics(job);
     expect(metrics).toBeNull();
   });
@@ -302,7 +285,7 @@ describe("cmdSummary", () => {
 
   it("shows message when no phase log (text)", () => {
     const { ctx } = setup();
-    ctx.jobStore.save(makeJobWithLog({ body: WORKFLOW_BODY }));
+    ctx.jobStore.save(makeJobWithLog({ body: "" }));
     const lines = captureLog(() => cmdSummary(ctx, "J000001", "text"));
     const output = lines.join("\n");
     expect(output).toContain("フェーズログがありません");
@@ -310,7 +293,7 @@ describe("cmdSummary", () => {
 
   it("shows error in json when no phase log", () => {
     const { ctx } = setup();
-    ctx.jobStore.save(makeJobWithLog({ body: WORKFLOW_BODY }));
+    ctx.jobStore.save(makeJobWithLog({ body: "" }));
     const lines = captureLog(() => cmdSummary(ctx, "J000001", "json"));
     const json = JSON.parse(lines.join("\n"));
     expect(json.error).toBe("フェーズログがありません");

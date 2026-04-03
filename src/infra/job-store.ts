@@ -4,7 +4,8 @@ import { stringify, parse as parseYaml } from "yaml";
 import { parse as parseFrontmatter, write as writeFrontmatter } from "./frontmatter.js";
 import { CcsquadError } from "../error.js";
 import type { Job, JobFrontmatter, JobStatus } from "../domain/types.js";
-import { ALL_JOB_STATUSES } from "../domain/types.js";
+import { ALL_JOB_STATUSES, workflowToObject } from "../domain/types.js";
+import { parseWorkflowObject } from "../domain/workflow.js";
 
 function serializeFrontmatter(fm: JobFrontmatter): string {
   const obj: Record<string, unknown> = {
@@ -21,6 +22,7 @@ function serializeFrontmatter(fm: JobFrontmatter): string {
   if ((fm.depends_on ?? []).length > 0) {
     obj.depends_on = fm.depends_on;
   }
+  obj.workflow = workflowToObject(fm.workflow);
   obj.created_at = fm.created_at;
   obj.updated_at = fm.updated_at;
   return stringify(obj);
@@ -142,7 +144,26 @@ export class JobStore {
       }
     }
 
-    const fm = parsed as JobFrontmatter;
+    // Parse workflow
+    if (raw["workflow"] === undefined || raw["workflow"] === null) {
+      throw new CcsquadError("serialization", "frontmatter が不正です: workflow が定義されていません");
+    }
+    const workflow = parseWorkflowObject(raw["workflow"]);
+
+    const fm: JobFrontmatter = {
+      id: raw["id"] as string,
+      title: raw["title"] as string,
+      status: raw["status"] as JobStatus,
+      current_phase: raw["current_phase"] as string | undefined,
+      iteration: raw["iteration"] as number,
+      max_iterations: raw["max_iterations"] as number,
+      priority: (raw["priority"] as number) ?? 0,
+      depends_on: (raw["depends_on"] as string[]) ?? [],
+      workflow,
+      created_at: raw["created_at"] as string,
+      updated_at: raw["updated_at"] as string,
+    };
+
     return { frontmatter: fm, body };
   }
 

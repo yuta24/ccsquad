@@ -15,37 +15,24 @@ import {
   buildWorkflowConfig,
 } from "../src/cli/commands/job.js";
 import { JobStore } from "../src/infra/job-store.js";
-import type { Job, JobStatus } from "../src/domain/types.js";
+import type { Job, JobStatus, WorkflowConfig } from "../src/domain/types.js";
 import type { ProjectContext } from "../src/app/project-context.js";
 import { createTestContext } from "./helpers.js";
 
 const PHASES = "plan:plan:developer,code:execute:developer,review:review:reviewer";
 const TRANSITIONS = "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code";
 
-const WORKFLOW_BODY = `## Acceptance Criteria
+const WORKFLOW: WorkflowConfig = {
+  phases: [
+    { name: "plan", type: "plan", agent: "developer", on: { completed: "code", failed: "ABORT" } },
+    { name: "code", type: "execute", agent: "developer", on: { completed: "review", failed: "plan" } },
+    { name: "review", type: "review", agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
+  ],
+};
+
+const BODY_WITH_AC = `## Acceptance Criteria
 
 - [ ] テスト基準
-
-## Workflow
-
-plan:
-  type: plan
-  agent: developer
-  on:
-    completed: code
-    failed: ABORT
-code:
-  type: execute
-  agent: developer
-  on:
-    completed: review
-    failed: plan
-review:
-  type: review
-  agent: reviewer
-  on:
-    approved: COMPLETE
-    rejected: code
 `;
 
 function makeTmpDir(): string {
@@ -63,10 +50,11 @@ function makeJob(id: string, status: JobStatus): Job {
       max_iterations: 10,
       priority: 0,
       depends_on: [],
+      workflow: WORKFLOW,
       created_at: now,
       updated_at: now,
     },
-    body: WORKFLOW_BODY,
+    body: BODY_WITH_AC,
   };
 }
 
@@ -89,14 +77,15 @@ describe("cmdAdd", () => {
     expect(job.frontmatter.depends_on ?? []).toEqual([]);
   });
 
-  it("test_add_creates_workflow_section_in_body", () => {
+  it("test_add_creates_workflow_in_frontmatter", () => {
     const { ctx } = setup();
     cmdAdd(ctx, "タスク", PHASES, TRANSITIONS);
     const job = ctx.jobStore.load("J000001");
-    expect(job.body).toContain("## Workflow");
-    expect(job.body).toContain("type: plan");
-    expect(job.body).toContain("type: execute");
-    expect(job.body).toContain("type: review");
+    const wf = job.frontmatter.workflow;
+    expect(wf.phases).toHaveLength(3);
+    expect(wf.phases[0].type).toBe("plan");
+    expect(wf.phases[1].type).toBe("execute");
+    expect(wf.phases[2].type).toBe("review");
   });
 
   it("test_add_with_description_sets_body", () => {
@@ -105,15 +94,13 @@ describe("cmdAdd", () => {
     const job = ctx.jobStore.load("J000001");
     expect(job.body).toContain("## 説明");
     expect(job.body).toContain("詳細な説明文");
-    expect(job.body).toContain("## Workflow");
   });
 
-  it("test_add_without_description_has_workflow_only", () => {
+  it("test_add_without_description_has_empty_body", () => {
     const { ctx } = setup();
     cmdAdd(ctx, "タスク", PHASES, TRANSITIONS);
     const job = ctx.jobStore.load("J000001");
     expect(job.body).not.toContain("## 説明");
-    expect(job.body).toContain("## Workflow");
   });
 
   it("test_add_with_depends_on", () => {
@@ -150,7 +137,7 @@ describe("cmdAdd", () => {
 
   it("test_add_rejects_invalid_phase_type", () => {
     const { ctx } = setup();
-    expect(() => cmdAdd(ctx, "タスク", "plan:invalid", "plan:completed>COMPLETE")).toThrow();
+    expect(() => cmdAdd(ctx, "タスク", "plan:invalid:dev", "plan:completed>COMPLETE")).toThrow();
   });
 
   it("test_add_with_agent_creates_workflow_with_agent", () => {
@@ -158,9 +145,10 @@ describe("cmdAdd", () => {
     cmdAdd(ctx, "タスク", "plan:plan:planner,code:execute:coder,review:review:reviewer",
       "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code");
     const job = ctx.jobStore.load("J000001");
-    expect(job.body).toContain("agent: planner");
-    expect(job.body).toContain("agent: coder");
-    expect(job.body).toContain("agent: reviewer");
+    const wf = job.frontmatter.workflow;
+    expect(wf.phases[0].agent).toBe("planner");
+    expect(wf.phases[1].agent).toBe("coder");
+    expect(wf.phases[2].agent).toBe("reviewer");
   });
 
   it("test_add_rejects_phase_without_agent", () => {
@@ -179,9 +167,10 @@ describe("cmdAdd", () => {
     cmdAdd(ctx, "タスク", "explore:plan:dev1+dev2,review:review:reviewer",
       "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
     const job = ctx.jobStore.load("J000001");
-    expect(job.body).toContain("agents:");
-    expect(job.body).toContain("agent: dev1");
-    expect(job.body).toContain("agent: dev2");
+    const wf = job.frontmatter.workflow;
+    expect(wf.phases[0].agents).toHaveLength(2);
+    expect(wf.phases[0].agents![0].agent).toBe("dev1");
+    expect(wf.phases[0].agents![1].agent).toBe("dev2");
   });
 
   it("test_add_with_multi_agent_and_constraint", () => {
@@ -189,9 +178,9 @@ describe("cmdAdd", () => {
     cmdAdd(ctx, "タスク", "explore:plan:dev[類似機能の調査]+dev[アーキテクチャの調査],review:review:reviewer",
       "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
     const job = ctx.jobStore.load("J000001");
-    expect(job.body).toContain("agents:");
-    expect(job.body).toContain("constraint: 類似機能の調査");
-    expect(job.body).toContain("constraint: アーキテクチャの調査");
+    const wf = job.frontmatter.workflow;
+    expect(wf.phases[0].agents![0].constraint).toBe("類似機能の調査");
+    expect(wf.phases[0].agents![1].constraint).toBe("アーキテクチャの調査");
   });
 
   it("test_add_with_multi_agent_mixed_constraint", () => {
@@ -199,14 +188,10 @@ describe("cmdAdd", () => {
     cmdAdd(ctx, "タスク", "explore:plan:dev[調査]+dev,review:review:reviewer",
       "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
     const job = ctx.jobStore.load("J000001");
-    expect(job.body).toContain("constraint: 調査");
+    const wf = job.frontmatter.workflow;
+    expect(wf.phases[0].agents![0].constraint).toBe("調査");
     // dev without constraint should not have constraint field
-    const body = job.body;
-    const agentsSection = body.slice(body.indexOf("agents:"));
-    const lines = agentsSection.split("\n");
-    // Count constraint occurrences - should be exactly 1
-    const constraintLines = lines.filter(l => l.includes("constraint:"));
-    expect(constraintLines).toHaveLength(1);
+    expect(wf.phases[0].agents![1].constraint).toBeUndefined();
   });
 
   it("test_add_rejects_unclosed_bracket_in_constraint", () => {
@@ -478,12 +463,13 @@ describe("cmdUpdate workflow", () => {
     const workflowConfig = buildWorkflowConfig(NEW_PHASES, NEW_TRANSITIONS);
     cmdUpdate(ctx, "J000001", { workflowConfig });
     const job = ctx.jobStore.load("J000001");
-    expect(job.body).toContain("agent: planner");
-    expect(job.body).toContain("agent: coder");
-    expect(job.body).toContain("agent: tester");
-    expect(job.body).toContain("agent: reviewer");
+    const wf = job.frontmatter.workflow;
+    expect(wf.phases.find(p => p.agent === "planner")).toBeDefined();
+    expect(wf.phases.find(p => p.agent === "coder")).toBeDefined();
+    expect(wf.phases.find(p => p.agent === "tester")).toBeDefined();
+    expect(wf.phases.find(p => p.agent === "reviewer")).toBeDefined();
     // 古い定義が残っていない
-    expect(job.body).not.toContain("agent: developer");
+    expect(wf.phases.find(p => p.agent === "developer")).toBeUndefined();
   });
 
   it("test_update_workflow_rejects_running_job", () => {
@@ -501,7 +487,7 @@ describe("cmdUpdate workflow", () => {
     cmdUpdate(ctx, "J000001", { title: "新タイトル", workflowConfig });
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.title).toBe("新タイトル");
-    expect(job.body).toContain("agent: tester");
+    expect(job.frontmatter.workflow.phases.find(p => p.agent === "tester")).toBeDefined();
   });
 
   it("test_update_workflow_preserves_description_section", () => {
@@ -511,10 +497,8 @@ describe("cmdUpdate workflow", () => {
     cmdUpdate(ctx, "J000001", { workflowConfig });
     const job = ctx.jobStore.load("J000001");
     expect(job.body).toContain("重要な説明文");
-    expect(job.body).toContain("agent: tester");
-    // Workflow セクションが重複していないこと
-    expect(job.body.match(/## Workflow/g)?.length).toBe(1);
+    expect(job.frontmatter.workflow.phases.find(p => p.agent === "tester")).toBeDefined();
     // 古い agent 定義が残っていないこと
-    expect(job.body).not.toContain("agent: developer");
+    expect(job.frontmatter.workflow.phases.find(p => p.agent === "developer")).toBeUndefined();
   });
 });

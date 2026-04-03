@@ -3,8 +3,15 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JobStore } from "../src/infra/job-store.js";
-import type { Job, JobFrontmatter } from "../src/domain/types.js";
+import type { Job, JobFrontmatter, WorkflowConfig } from "../src/domain/types.js";
 import { buildPhaseLogEntry, appendPhaseLog } from "../src/domain/phase-log.js";
+
+const WORKFLOW: WorkflowConfig = {
+  phases: [
+    { name: "plan", type: "plan", agent: "developer", on: { completed: "code", failed: "ABORT" } },
+    { name: "code", type: "execute", agent: "developer", on: { completed: "COMPLETE", failed: "plan" } },
+  ],
+};
 
 function makeTempStore(): JobStore {
   const dir = mkdtempSync(join(tmpdir(), "ccsquad-job-test-"));
@@ -23,6 +30,7 @@ function makeJob(id: string, title: string): Job {
     max_iterations: 10,
     priority: 0,
     depends_on: [],
+    workflow: WORKFLOW,
     created_at: now,
     updated_at: now,
   };
@@ -42,6 +50,17 @@ describe("JobStore", () => {
     expect(loaded.frontmatter.title).toBe("テスト");
     expect(loaded.frontmatter.status).toBe("pending");
     expect(loaded.body).toContain("テストジョブです");
+  });
+
+  it("ワークフローが frontmatter に保存される", () => {
+    const store = makeTempStore();
+    const job = makeJob("J000001", "テスト");
+    store.save(job);
+    const loaded = store.load("J000001");
+    expect(loaded.frontmatter.workflow.phases).toHaveLength(2);
+    expect(loaded.frontmatter.workflow.phases[0].name).toBe("plan");
+    expect(loaded.frontmatter.workflow.phases[0].agent).toBe("developer");
+    expect(loaded.frontmatter.workflow.phases[1].name).toBe("code");
   });
 
   it("空ディレクトリでJ000001", () => {
