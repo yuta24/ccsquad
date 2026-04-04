@@ -2,7 +2,7 @@
 name: job
 description: |
   ccsquad CLI を使ったジョブ管理とステートマシン型ワークフローの操作。
-  ジョブの作成・更新・一覧・状態確認・フェーズ遷移・レビュー承認/却下・中断を行う。
+  ジョブの作成・更新・一覧・状態確認・フェーズ遷移・中断を行う。
   ユーザーがジョブやワークフローの操作を依頼した場合、またはタスクの進行管理が
   必要な場合にこのスキルを使用する。
 ---
@@ -65,7 +65,7 @@ ccsquad job add "タスク名" \
 | 品質や安全性が重要、本番に影響する変更 | **人間レビュー**（デフォルト） | `auto` なし |
 | 定型的な修正、リスクが低い変更 | **自動レビュー** | `"auto": true` |
 
-- **デフォルトは人間レビュー**。`auto: true` を付けない限り review フェーズで一時停止し、人間が `job approve` / `job reject` で判断する
+- **デフォルトは人間レビュー**。`auto: true` を付けない限り review フェーズで一時停止（status: paused）し、人間が `job transition <ID> approved` / `job transition <ID> rejected` で判断する
 - review フェーズでも **agent 指定は必須**（`auto` 時にエージェントが実行する。人間レビュー時は使われないが構文上必要）
 - 迷ったら人間レビューを選ぶ。自動化の暴走防止がハーネスの本質的な価値
 
@@ -146,16 +146,19 @@ constraint の設計指針は `harness` スキルを参照。
 
 ## Acceptance Criteria の運用
 
-- **plan フェーズ完了前**: `## Acceptance Criteria` を具体的なチェックリストに更新する。曖昧なまま execute に入らない
-- **execute フェーズ**: Acceptance Criteria の各項目を満たす実装を行う
+AC は frontmatter の構造化配列 `acceptance_criteria` で管理される。
+
+- **plan フェーズ完了前**: AC を具体的な条件に更新する。曖昧なまま execute に入らない
+- **execute フェーズ**: AC の各項目を満たす実装を行い、`done: true` に更新する
 - **review フェーズ**: 各項目を検証し、未達なら reject 時にどの基準が未達か明記する
-- execute への遷移には `## Acceptance Criteria` セクションが必須（CLI がガードする）
+- execute への遷移には `acceptance_criteria` が1件以上必須（CLI がガードする）
 
-```markdown
-## Acceptance Criteria
-
-- [ ] 基準1: 具体的な完了条件
-- [ ] 基準2: 具体的な完了条件
+```yaml
+acceptance_criteria:
+  - description: "具体的な完了条件1"
+    done: false
+  - description: "具体的な完了条件2"
+    done: false
 ```
 
 ## CLI コマンド
@@ -171,28 +174,22 @@ ccsquad job add "タイトル" \
   --transitions "phase:condition>target,..." \
   [--description "説明"] [--priority N] [--depends-on ID1,ID2] [--max-iterations N]
 
-# 一覧・詳細
-ccsquad job list [--exclude-status completed,cancelled]
+# 一覧・詳細（show はメトリクスサマリーも含む）
+ccsquad job list [--exclude-status completed,aborted]
 ccsquad job show <ID> [--format json]
 
 # 実行・遷移
-ccsquad job run <ID>                                    # pending → running
-ccsquad job transition <ID> <completed|failed> [--message "..."]
-
-# レビュー（review フェーズのみ）
-ccsquad job approve <ID> [--message "..."]
-ccsquad job reject <ID> --message "却下理由"
+ccsquad job run <ID>                                              # pending → running
+ccsquad job transition <ID> <completed|failed> [--message "..."]  # agent フェーズ
+ccsquad job transition <ID> <approved|rejected> [--message "..."] # review フェーズ
 
 # 更新（--workflow または --phases/--transitions でワークフロー変更可能、pending 時のみ）
 ccsquad job update <ID> [--title "新タイトル"] [--priority N] [--description "説明"]
 ccsquad job update <ID> --workflow '<JSON/YAML文字列 or ファイルパス or ->'
 cat long_desc.md | ccsquad job update <ID> --description -   # stdin から長文読み込み
 
-# 中断
+# 中断（pending, running, paused のいずれからも可能）
 ccsquad job abort <ID>
-
-# サマリー
-ccsquad job summary <ID> [--format json]
 ```
 
 ## DAG 並列実行
@@ -216,9 +213,12 @@ ccsquad dag clean                         # 孤立 worktree の削除
 ## ライフサイクル
 
 ```
-pending → running (最初のフェーズ) → running (次のフェーズ) → ... → completed/failed
-                                                                    ↑
-abort ─────────────────────────────────────────────────────────> aborted
+pending → running (agent フェーズ) ⇄ paused (review 待ち / max_iterations) → ... → completed/failed
+  ↓           ↓                          ↓
+  └───────── aborted ←──────────────────┘
 ```
 
-終了したジョブ（completed/failed/aborted）は再実行できない。
+- review フェーズ到達時: `running → paused` (pause_reason: human_review)
+- max_iterations 到達時: `running → paused` (pause_reason: max_iterations)
+- 人間が `job transition` で判断後: `paused → running`
+- 終了したジョブ（completed/failed/aborted）は再実行できない

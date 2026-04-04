@@ -17,6 +17,7 @@ description: |
 ┌─ Step 1: ccsquad job show <ID> --format json
 │    ├─ pending → ccsquad job run <ID> → Step 2
 │    ├─ running → Step 2
+│    ├─ paused → Step 5（人間レビュー待ち or max_iterations）
 │    └─ completed/failed/aborted → 報告して終了
 │
 ├─ Step 2: phase_config を判定
@@ -105,8 +106,8 @@ description: |
 ジョブ {ID} が review フェーズ「{current_phase}」に到達しました。
 
 レビュー後、以下のいずれかを実行してください:
-  ccsquad job approve {ID} --message "承認理由"
-  ccsquad job reject {ID} --message "却下理由（どの基準が未達か明記）"
+  ccsquad job transition {ID} approved --message "承認理由"
+  ccsquad job transition {ID} rejected --message "却下理由（どの基準が未達か明記）"
 ```
 
 ## ルール

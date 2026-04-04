@@ -78,4 +78,4 @@ dag run [ids...]
 
 - ジョブが review フェーズに到達すると、そのジョブの worktree とプロセスはクリーンアップされる
 - 他の独立したジョブは引き続き実行される
-- review 承認後は `ccsquad dag resume` で再開する（running かつ worktree なしのジョブを自動検出）
+- review 承認後は `ccsquad dag resume` で再開する（running/paused かつ worktree なしのジョブを自動検出）
