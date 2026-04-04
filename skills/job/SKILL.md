@@ -167,11 +167,13 @@ acceptance_criteria:
 # 作成（--workflow または --phases/--transitions のいずれか必須）
 ccsquad job add "タイトル" \
   --workflow '<JSON/YAML文字列 or ファイルパス or ->' \
+  [--ac '<JSON/YAML文字列 or ファイルパス or ->'] \
   [--description "説明"] [--priority N] [--depends-on ID1,ID2] [--max-iterations N]
 
 ccsquad job add "タイトル" \
   --phases "name:type:agent,..." \
   --transitions "phase:condition>target,..." \
+  [--ac '<JSON/YAML文字列 or ファイルパス or ->'] \
   [--description "説明"] [--priority N] [--depends-on ID1,ID2] [--max-iterations N]
 
 # 一覧・詳細（show はメトリクスサマリーも含む）
@@ -183,9 +185,11 @@ ccsquad job run <ID>                                              # pending → 
 ccsquad job transition <ID> <completed|failed> [--message "..."]  # agent フェーズ
 ccsquad job transition <ID> <approved|rejected> [--message "..."] # review フェーズ
 
-# 更新（--workflow または --phases/--transitions でワークフロー変更可能、pending 時のみ）
+# 更新（--workflow は pending 時のみ、--ac はいつでも変更可能）
 ccsquad job update <ID> [--title "新タイトル"] [--priority N] [--description "説明"]
 ccsquad job update <ID> --workflow '<JSON/YAML文字列 or ファイルパス or ->'
+ccsquad job update <ID> --ac '[{"description":"条件1","done":false}]'
+ccsquad job update <ID> --ac '["条件1","条件2"]'   # 文字列配列も可（done:false で自動補完）
 cat long_desc.md | ccsquad job update <ID> --description -   # stdin から長文読み込み
 
 # 中断（pending, running, paused のいずれからも可能）

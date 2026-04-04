@@ -1,5 +1,5 @@
 import { CcsquadError } from "../error.js";
-import type { Job, TransitionCondition, PhaseConfig, WorkflowConfig, PauseReason } from "../domain/types.js";
+import type { Job, TransitionCondition, PhaseConfig, WorkflowConfig, PauseReason, AcceptanceCriterion } from "../domain/types.js";
 import { initialPhase } from "../domain/workflow.js";
 import { computeTransition } from "../domain/state-machine.js";
 import type { TransitionDecision } from "../domain/state-machine.js";
@@ -23,7 +23,7 @@ export class JobService {
   create(
     title: string,
     workflowConfig: WorkflowConfig,
-    opts?: { description?: string; priority?: number; dependsOn?: string[]; maxIterations?: number },
+    opts?: { description?: string; priority?: number; dependsOn?: string[]; maxIterations?: number; acceptanceCriteria?: AcceptanceCriterion[] },
   ): Job {
     const id = this.ctx.jobStore.nextId();
     const now = new Date().toISOString();
@@ -39,7 +39,7 @@ export class JobService {
         max_iterations: opts?.maxIterations ?? 10,
         priority: opts?.priority ?? 0,
         depends_on: opts?.dependsOn ?? [],
-        acceptance_criteria: [],
+        acceptance_criteria: opts?.acceptanceCriteria ?? [],
         workflow: workflowConfig,
         created_at: now,
         updated_at: now,
@@ -116,7 +116,7 @@ export class JobService {
 
   update(
     jobId: string,
-    opts: { title?: string; priority?: number; description?: string; workflowConfig?: WorkflowConfig },
+    opts: { title?: string; priority?: number; description?: string; workflowConfig?: WorkflowConfig; acceptanceCriteria?: AcceptanceCriterion[] },
   ): Job {
     const job = this.loadJob(jobId);
 
@@ -138,6 +138,9 @@ export class JobService {
     }
     if (opts.description !== undefined) {
       job.body = replaceDescriptionSection(job.body, opts.description);
+    }
+    if (opts.acceptanceCriteria !== undefined) {
+      job.frontmatter.acceptance_criteria = opts.acceptanceCriteria;
     }
 
     job.frontmatter.updated_at = new Date().toISOString();

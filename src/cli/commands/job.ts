@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import YAML from "yaml";
-import type { Job, JobStatus, PhaseType, PhaseConfig, TransitionCondition, WorkflowConfig, AgentSpec } from "../../domain/types.js";
+import type { Job, JobStatus, PhaseType, PhaseConfig, TransitionCondition, WorkflowConfig, AgentSpec, AcceptanceCriterion } from "../../domain/types.js";
 import { ALL_PHASE_TYPES, ALL_CONDITIONS, ALL_JOB_STATUSES, resolveAgent, resolveAgents, isMultiAgent } from "../../domain/types.js";
 import { getPhase, parseTransitionCondition, parseWorkflowObject } from "../../domain/workflow.js";
 import { CcsquadError } from "../../error.js";
@@ -35,6 +35,43 @@ export function parseWorkflowInput(input: string): WorkflowConfig {
   }
 
   return parseWorkflowObject(parsed);
+}
+
+// Parse --ac input: JSON/YAML string, file path, or "-" (stdin)
+export function parseAcInput(input: string): AcceptanceCriterion[] {
+  let raw: string;
+
+  if (input === "-") {
+    raw = readFileSync(0, "utf-8");
+  } else if (!input.trimStart().startsWith("[") && !input.trimStart().startsWith("-") && existsSync(input)) {
+    raw = readFileSync(input, "utf-8");
+  } else if (existsSync(input)) {
+    raw = readFileSync(input, "utf-8");
+  } else {
+    raw = input;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = YAML.parse(raw);
+  } catch {
+    throw new CcsquadError("config", "Acceptance Criteria の YAML/JSON パースに失敗しました");
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new CcsquadError("config", "Acceptance Criteria は配列で指定してください");
+  }
+
+  return parsed.map((item: unknown, i: number) => {
+    if (typeof item === "string") {
+      return { description: item, done: false };
+    }
+    if (typeof item !== "object" || item === null || typeof (item as Record<string, unknown>).description !== "string") {
+      throw new CcsquadError("config", `Acceptance Criteria[${i}] は { description: string, done?: boolean } または文字列で指定してください`);
+    }
+    const ac = item as Record<string, unknown>;
+    return { description: String(ac.description), done: ac.done === true };
+  });
 }
 
 // Parse "agent1[constraint1]+agent2[constraint2]" or "agent1+agent2" into AgentSpec[]
@@ -218,6 +255,7 @@ export function cmdAdd(
   priority: number = 0,
   dependsOn: string[] = [],
   maxIterations: number = 10,
+  acceptanceCriteria?: AcceptanceCriterion[],
 ): void {
   if (dependsOn.length > 0) {
     for (const depId of dependsOn) {
@@ -228,7 +266,7 @@ export function cmdAdd(
   }
 
   const jobService = new JobService(ctx);
-  const job = jobService.create(title, workflowConfig, { description, priority, dependsOn, maxIterations });
+  const job = jobService.create(title, workflowConfig, { description, priority, dependsOn, maxIterations, acceptanceCriteria });
   console.log(`ジョブを作成しました: ${job.frontmatter.id}`);
 }
 
@@ -330,7 +368,7 @@ export function cmdAbort(ctx: ProjectContext, id: string): void {
 export function cmdUpdate(
   ctx: ProjectContext,
   id: string,
-  opts: { title?: string; priority?: number; description?: string; workflowConfig?: WorkflowConfig },
+  opts: { title?: string; priority?: number; description?: string; workflowConfig?: WorkflowConfig; acceptanceCriteria?: AcceptanceCriterion[] },
 ): void {
   const jobService = new JobService(ctx);
   const job = jobService.update(id, opts);

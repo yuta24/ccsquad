@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import {
   cmdList, cmdShow, cmdAdd, cmdRun, cmdTransition,
   cmdAbort, cmdTree, cmdUpdate,
-  buildWorkflowConfig, parseWorkflowInput,
+  buildWorkflowConfig, parseWorkflowInput, parseAcInput,
 } from "./cli/commands/job.js";
 import { cmdDagRun, cmdDagResume, cmdDagStatus, cmdDagClean } from "./cli/commands/dag.js";
 
@@ -37,7 +37,8 @@ jobCmd.command("add <title>").description("ジョブを追加")
   .option("--priority <priority>", "優先度", "0")
   .option("--depends-on <ids>", "依存ジョブ ID (カンマ区切り)")
   .option("--max-iterations <n>", "最大イテレーション数", "10")
-  .action((title: string, opts: { workflow?: string; phases?: string; transitions?: string; description?: string; priority: string; dependsOn?: string; maxIterations: string }) => {
+  .option("--ac <ac>", "Acceptance Criteria (JSON/YAML 文字列、ファイルパス、または - で stdin)")
+  .action((title: string, opts: { workflow?: string; phases?: string; transitions?: string; description?: string; priority: string; dependsOn?: string; maxIterations: string; ac?: string }) => {
     const ctx = createProjectContext();
 
     if (opts.workflow && (opts.phases || opts.transitions)) {
@@ -61,7 +62,8 @@ jobCmd.command("add <title>").description("ジョブを追加")
     }
 
     const dependsOn = opts.dependsOn ? opts.dependsOn.split(",").map((s) => s.trim()).filter(Boolean) : [];
-    cmdAdd(ctx, title, workflowConfig, opts.description, parseInt(opts.priority, 10) || 0, dependsOn, parseInt(opts.maxIterations, 10) || 10);
+    const ac = opts.ac ? parseAcInput(opts.ac) : undefined;
+    cmdAdd(ctx, title, workflowConfig, opts.description, parseInt(opts.priority, 10) || 0, dependsOn, parseInt(opts.maxIterations, 10) || 10, ac);
   });
 
 jobCmd.command("run <id>").description("ジョブを開始").action((id: string) => {
@@ -91,7 +93,8 @@ jobCmd.command("update <id>").description("ジョブを更新")
   .option("--workflow <workflow>", "ワークフロー定義 (JSON/YAML 文字列、ファイルパス、または - で stdin)")
   .option("--phases <phases>", "フェーズ定義 (name:type:agent のカンマ区切り)")
   .option("--transitions <transitions>", "遷移ルール (phase:condition>target のカンマ区切り)")
-  .action((id: string, opts: { title?: string; priority?: string; description?: string; workflow?: string; phases?: string; transitions?: string }) => {
+  .option("--ac <ac>", "Acceptance Criteria (JSON/YAML 文字列、ファイルパス、または - で stdin)")
+  .action((id: string, opts: { title?: string; priority?: string; description?: string; workflow?: string; phases?: string; transitions?: string; ac?: string }) => {
     const ctx = createProjectContext();
 
     if (opts.workflow && (opts.phases || opts.transitions)) {
@@ -118,12 +121,17 @@ jobCmd.command("update <id>").description("ジョブを更新")
       workflowConfig = buildWorkflowConfig(opts.phases, opts.transitions!);
     }
 
-    if (opts.title === undefined && priority === undefined && description === undefined && workflowConfig === undefined) {
-      console.error("エラー: --title, --priority, --description, --workflow, --phases/--transitions のいずれかを指定してください");
+    let acceptanceCriteria;
+    if (opts.ac) {
+      acceptanceCriteria = parseAcInput(opts.ac);
+    }
+
+    if (opts.title === undefined && priority === undefined && description === undefined && workflowConfig === undefined && acceptanceCriteria === undefined) {
+      console.error("エラー: --title, --priority, --description, --workflow, --phases/--transitions, --ac のいずれかを指定してください");
       process.exit(1);
     }
 
-    cmdUpdate(ctx, id, { title: opts.title, priority, description, workflowConfig });
+    cmdUpdate(ctx, id, { title: opts.title, priority, description, workflowConfig, acceptanceCriteria });
   });
 
 // ===== dag commands =====

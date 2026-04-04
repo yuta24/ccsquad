@@ -43,7 +43,7 @@ LLM エージェントの長時間タスクには2つの構造的な障害があ
 
 execute に入る前に「何をもって完了とするか」を合意する。曖昧なまま実装に入るとループが収束しない。
 
-- plan フェーズで Acceptance Criteria を具体的チェックリストとして定義する
+- plan フェーズで `ccsquad job update <ID> --ac '...'` で Acceptance Criteria を具体的に定義する
 - review では各項目を検証し、reject 時はどの基準が未達か明記する
 
 ### 4. 反復による品質収束
@@ -94,7 +94,7 @@ explore (並列 plan)  →  design (plan)  →  code (execute)  →  review
 ```
 
 1. **explore フェーズ**: `agents:` で 2〜3 エージェントを並列起動し、それぞれ異なる constraint で調査する。各エージェントの調査結果はフェーズログに統合される
-2. **design フェーズ**: explore の結果を踏まえて単一の設計方針を決定する。Acceptance Criteria を具体化する
+2. **design フェーズ**: explore の結果を踏まえて単一の設計方針を決定する。`ccsquad job update --ac` で Acceptance Criteria を具体化する
 3. **code / review**: 通常の execute → review ループ
 
 #### constraint の設計原則

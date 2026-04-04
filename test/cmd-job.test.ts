@@ -12,6 +12,7 @@ import {
   cmdUpdate,
   buildWorkflowConfig,
   parseWorkflowInput,
+  parseAcInput,
 } from "../src/cli/commands/job.js";
 import { JobStore } from "../src/infra/job-store.js";
 import type { Job, JobStatus, WorkflowConfig } from "../src/domain/types.js";
@@ -250,6 +251,68 @@ code:
 
   it("test_rejects_invalid_workflow_structure", () => {
     expect(() => parseWorkflowInput('{"plan": {"type": "invalid", "agent": "dev", "on": {"completed": "COMPLETE"}}}')).toThrow("不正なフェーズタイプ");
+  });
+});
+
+// ─── parseAcInput ───────────────────────────────────────────────────────────
+
+describe("parseAcInput", () => {
+  it("test_parses_json_object_array", () => {
+    const ac = parseAcInput('[{"description":"条件1","done":false},{"description":"条件2","done":true}]');
+    expect(ac).toHaveLength(2);
+    expect(ac[0]).toEqual({ description: "条件1", done: false });
+    expect(ac[1]).toEqual({ description: "条件2", done: true });
+  });
+
+  it("test_parses_json_string_array", () => {
+    const ac = parseAcInput('["条件A","条件B","条件C"]');
+    expect(ac).toHaveLength(3);
+    expect(ac[0]).toEqual({ description: "条件A", done: false });
+    expect(ac[1]).toEqual({ description: "条件B", done: false });
+    expect(ac[2]).toEqual({ description: "条件C", done: false });
+  });
+
+  it("test_parses_yaml_string", () => {
+    const yaml = `- description: 条件1
+  done: false
+- description: 条件2
+  done: true`;
+    const ac = parseAcInput(yaml);
+    expect(ac).toHaveLength(2);
+    expect(ac[0]).toEqual({ description: "条件1", done: false });
+    expect(ac[1]).toEqual({ description: "条件2", done: true });
+  });
+
+  it("test_parses_mixed_string_and_object", () => {
+    const ac = parseAcInput('["シンプル条件",{"description":"詳細条件","done":true}]');
+    expect(ac).toHaveLength(2);
+    expect(ac[0]).toEqual({ description: "シンプル条件", done: false });
+    expect(ac[1]).toEqual({ description: "詳細条件", done: true });
+  });
+
+  it("test_parses_file_path", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ccsquad-ac-input-"));
+    const filePath = join(dir, "ac.yaml");
+    writeFileSync(filePath, `- description: ファイル条件1
+  done: false
+- description: ファイル条件2
+  done: false
+`, "utf-8");
+    const ac = parseAcInput(filePath);
+    expect(ac).toHaveLength(2);
+    expect(ac[0].description).toBe("ファイル条件1");
+  });
+
+  it("test_rejects_non_array", () => {
+    expect(() => parseAcInput('{"description":"条件"}')).toThrow("配列で指定");
+  });
+
+  it("test_rejects_invalid_element", () => {
+    expect(() => parseAcInput('[{"done":true}]')).toThrow("Acceptance Criteria[0]");
+  });
+
+  it("test_rejects_invalid_yaml", () => {
+    expect(() => parseAcInput("{{invalid")).toThrow();
   });
 });
 

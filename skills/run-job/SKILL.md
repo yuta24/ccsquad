@@ -64,11 +64,14 @@ description: |
 - タイトル: {title}
 - イテレーション: {iteration}/{max_iterations}
 
+## Acceptance Criteria
+{acceptance_criteria を箇条書き}
+
 ## ジョブ body
 {body 全文}
 
 ## 指示
-- plan フェーズ: 調査・設計を行い、Acceptance Criteria を具体化する
+- plan フェーズ: 調査・設計を行い、ccsquad job update {id} --ac '...' で Acceptance Criteria を具体化する
 - execute フェーズ: Acceptance Criteria に基づいて実装・テストを行う
 - 結果を { result: "completed"|"failed", message: "要約" } で返す
 ```
@@ -85,6 +88,9 @@ description: |
 - タイトル: {title}
 - イテレーション: {iteration}/{max_iterations}
 
+## Acceptance Criteria
+{acceptance_criteria を箇条書き}
+
 ## ジョブ body
 {body 全文}
 
@@ -93,7 +99,7 @@ description: |
 {constraint}
 
 ## 指示
-- plan フェーズ: 調査・設計を行い、Acceptance Criteria を具体化する
+- plan フェーズ: 調査・設計を行い、ccsquad job update {id} --ac '...' で Acceptance Criteria を具体化する
 - execute フェーズ: Acceptance Criteria に基づいて実装・テストを行う
 - 結果を { result: "completed"|"failed", message: "要約" } で返す
 ```
