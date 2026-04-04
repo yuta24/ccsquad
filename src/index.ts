@@ -6,7 +6,7 @@ import { CcsquadError } from "./error.js";
 import { readFileSync } from "node:fs";
 import {
   cmdList, cmdShow, cmdAdd, cmdRun, cmdTransition,
-  cmdApprove, cmdReject, cmdAbort, cmdCancel, cmdSummary, cmdTree, cmdUpdate,
+  cmdAbort, cmdTree, cmdUpdate,
   buildWorkflowConfig, parseWorkflowInput,
 } from "./cli/commands/job.js";
 import { cmdDagRun, cmdDagResume, cmdDagStatus, cmdDagClean } from "./cli/commands/dag.js";
@@ -74,33 +74,9 @@ jobCmd.command("transition <id> <result>").description("フェーズ遷移")
     cmdTransition(createProjectContext(), id, result, opts.message);
   });
 
-jobCmd.command("approve <id>").description("レビュー承認")
-  .option("--message <message>", "メッセージ", "")
-  .action((id: string, opts: { message: string }) => {
-    cmdApprove(createProjectContext(), id, opts.message);
-  });
-
-jobCmd.command("reject <id>").description("レビュー却下")
-  .option("--message <message>", "メッセージ")
-  .action((id: string, opts: { message?: string }) => {
-    cmdReject(createProjectContext(), id, opts.message ?? "");
-  });
-
 jobCmd.command("abort <id>").description("ジョブを中断").action((id: string) => {
   cmdAbort(createProjectContext(), id);
 });
-
-jobCmd.command("cancel <id>").description("ジョブを取り下げ")
-  .option("--force", "依存ジョブがある場合も強制的に取り下げ")
-  .action((id: string, opts: { force?: boolean }) => {
-    cmdCancel(createProjectContext(), id, { force: opts.force });
-  });
-
-jobCmd.command("summary <id>").description("ジョブのメトリクスサマリーを表示")
-  .option("--format <format>", "出力形式 (text|json)", "text")
-  .action((id: string, opts: { format: string }) => {
-    cmdSummary(createProjectContext(), id, opts.format === "json" ? "json" : "text");
-  });
 
 jobCmd.command("tree").description("ジョブ依存関係をツリー表示")
   .option("--format <format>", "出力形式 (text|json)", "text")

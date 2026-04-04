@@ -11,10 +11,10 @@ function statusIcon(status: string): string {
       return "!";
     case "pending":
       return "-";
+    case "paused":
+      return "|";
     case "aborted":
       return "x";
-    case "cancelled":
-      return "~";
     default:
       return "?";
   }
@@ -30,10 +30,10 @@ function statusColor(status: string): string {
       return "red";
     case "pending":
       return "gray";
+    case "paused":
+      return "yellow";
     case "aborted":
       return "red";
-    case "cancelled":
-      return "gray";
     default:
       return "white";
   }

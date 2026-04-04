@@ -65,7 +65,7 @@ export async function cmdDagRun(
 
 export async function cmdDagStatus(ctx: ProjectContext, format: "text" | "json"): Promise<void> {
   const allJobs = ctx.jobStore.listAll();
-  const runningJobs = allJobs.filter((j) => j.frontmatter.status === "running");
+  const runningJobs = allJobs.filter((j) => j.frontmatter.status === "running" || j.frontmatter.status === "paused");
 
   if (format === "json") {
     const output = runningJobs.map((j) => ({
@@ -105,7 +105,7 @@ export async function cmdDagResume(
     const allJobs = ctx.jobStore.listAll();
     targetIds = allJobs
       .filter((j) =>
-        j.frontmatter.status === "running" &&
+        (j.frontmatter.status === "running" || j.frontmatter.status === "paused") &&
         j.frontmatter.current_phase !== undefined &&
         !ctx.worktreeManager.exists(j.frontmatter.id),
       )
@@ -120,8 +120,8 @@ export async function cmdDagResume(
   // Validate that all specified jobs are in a resumable state
   for (const id of targetIds) {
     const job = ctx.jobStore.load(id);
-    if (job.frontmatter.status !== "running") {
-      console.error(`ジョブ ${id} は running 状態ではありません (status: ${job.frontmatter.status})`);
+    if (job.frontmatter.status !== "running" && job.frontmatter.status !== "paused") {
+      console.error(`ジョブ ${id} は running/paused 状態ではありません (status: ${job.frontmatter.status})`);
       return;
     }
   }
@@ -158,7 +158,7 @@ export async function cmdDagClean(ctx: ProjectContext): Promise<void> {
       const job = ctx.jobStore.load(wt.jobId);
       const status = job.frontmatter.status;
       // Remove worktrees for jobs that are no longer running
-      if (status !== "running") {
+      if (status !== "running" && status !== "paused") {
         await ctx.worktreeManager.remove(wt.jobId);
         console.log(`削除: ${wt.worktreePath} (ジョブ ${wt.jobId}: ${status})`);
         cleaned++;

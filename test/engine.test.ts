@@ -16,12 +16,9 @@ const DEV_WORKFLOW: WorkflowConfig = {
   ],
 };
 
-const DEV_BODY_WITH_AC = `## Acceptance Criteria
+const DEV_AC = [{ description: "テスト基準", done: false }];
 
-- [ ] テスト基準
-`;
-
-const DEV_BODY_NO_AC = "";
+const DEV_AC_EMPTY: { description: string; done: boolean }[] = [];
 
 function makeJob(id: string, status: JobStatus): Job {
   const now = new Date().toISOString();
@@ -34,11 +31,12 @@ function makeJob(id: string, status: JobStatus): Job {
       max_iterations: 10,
       priority: 0,
       depends_on: [],
+      acceptance_criteria: DEV_AC,
       workflow: DEV_WORKFLOW,
       created_at: now,
       updated_at: now,
     },
-    body: DEV_BODY_WITH_AC,
+    body: "",
   };
 }
 
@@ -252,7 +250,7 @@ describe("JobService (replaces WorkflowEngine)", () => {
   it("test_transition_to_execute_without_ac_throws", () => {
     const { ctx, jobService } = setup();
     const job = makeJob("J000001", "pending");
-    job.body = DEV_BODY_NO_AC;
+    job.frontmatter.acceptance_criteria = DEV_AC_EMPTY;
     ctx.jobStore.save(job);
     jobService.start("J000001");
 
@@ -282,70 +280,6 @@ describe("JobService (replaces WorkflowEngine)", () => {
     expect(ctx.jobStore.load("J000001").frontmatter.iteration).toBe(0);
   });
 
-  it("test_cancel_pending_job", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "pending"));
-
-    const job = jobService.cancel("J000001");
-    expect(job.frontmatter.status).toBe("cancelled");
-    expect(job.frontmatter.current_phase).toBeUndefined();
-    expect(job.frontmatter.iteration).toBe(0);
-  });
-
-  it("test_cancel_aborted_job", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "pending"));
-    jobService.start("J000001");
-    jobService.abort("J000001");
-    expect(ctx.jobStore.load("J000001").frontmatter.status).toBe("aborted");
-
-    const job = jobService.cancel("J000001");
-    expect(job.frontmatter.status).toBe("cancelled");
-  });
-
-  it("test_cancel_running_job_throws", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "pending"));
-    jobService.start("J000001");
-
-    expect(() => jobService.cancel("J000001")).toThrow("取り下げできません");
-  });
-
-  it("test_cancel_completed_job_throws", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "completed"));
-
-    expect(() => jobService.cancel("J000001")).toThrow("取り下げできません");
-  });
-
-  it("test_cancel_cancelled_job_throws", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "pending"));
-    jobService.cancel("J000001");
-
-    expect(() => jobService.cancel("J000001")).toThrow("取り下げできません");
-  });
-
-  it("test_cancel_with_dependents_throws_without_force", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "pending"));
-    const job2 = makeJob("J000002", "pending");
-    job2.frontmatter.depends_on = ["J000001"];
-    ctx.jobStore.save(job2);
-
-    expect(() => jobService.cancel("J000001")).toThrow("--force");
-  });
-
-  it("test_cancel_with_dependents_succeeds_with_force", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "pending"));
-    const job2 = makeJob("J000002", "pending");
-    job2.frontmatter.depends_on = ["J000001"];
-    ctx.jobStore.save(job2);
-
-    const job = jobService.cancel("J000001", { force: true });
-    expect(job.frontmatter.status).toBe("cancelled");
-  });
 });
 
 describe("JobService.getStatus", () => {

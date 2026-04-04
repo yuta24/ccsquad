@@ -14,8 +14,6 @@ export interface TransitionInput {
   condition: TransitionCondition;
 }
 
-const AC_HEADING_RE = /^##\s+Acceptance\s+Criteria/mi;
-
 /**
  * Pure function: given current state, compute the transition decision.
  * No I/O, no saves, no side effects.
@@ -28,7 +26,7 @@ export function computeTransition(input: TransitionInput): TransitionDecision {
     throw new CcsquadError("workflow", "現在のフェーズが設定されていません");
   }
 
-  if (job.frontmatter.status !== "running") {
+  if (job.frontmatter.status !== "running" && job.frontmatter.status !== "paused") {
     throw new CcsquadError(
       "job",
       `ジョブ '${job.frontmatter.id}' は実行中ではありません (status: ${job.frontmatter.status})`,
@@ -59,10 +57,10 @@ export function computeTransition(input: TransitionInput): TransitionDecision {
   }
 
   // Acceptance Criteria guard: block transition into execute phase without AC
-  if (nextPhaseConfig.type === "execute" && !AC_HEADING_RE.test(job.body)) {
+  if (nextPhaseConfig.type === "execute" && job.frontmatter.acceptance_criteria.length === 0) {
     throw new CcsquadError(
       "workflow",
-      `execute フェーズ '${next}' への遷移には Acceptance Criteria が必要です。ジョブ body に '## Acceptance Criteria' セクションを追加してください`,
+      `execute フェーズ '${next}' への遷移には Acceptance Criteria が必要です。acceptance_criteria を追加してください`,
     );
   }
 

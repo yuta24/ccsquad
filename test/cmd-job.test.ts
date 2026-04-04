@@ -8,8 +8,6 @@ import {
   cmdShow,
   cmdRun,
   cmdTransition,
-  cmdApprove,
-  cmdReject,
   cmdAbort,
   cmdUpdate,
   buildWorkflowConfig,
@@ -31,10 +29,7 @@ const WORKFLOW: WorkflowConfig = {
   ],
 };
 
-const BODY_WITH_AC = `## Acceptance Criteria
-
-- [ ] テスト基準
-`;
+const AC_LIST = [{ description: "テスト基準", done: false }];
 
 function makeTmpDir(): string {
   return mkdtempSync(join(tmpdir(), "ccsquad-cmd-job-"));
@@ -51,11 +46,12 @@ function makeJob(id: string, status: JobStatus): Job {
       max_iterations: 10,
       priority: 0,
       depends_on: [],
+      acceptance_criteria: AC_LIST,
       workflow: WORKFLOW,
       created_at: now,
       updated_at: now,
     },
-    body: BODY_WITH_AC,
+    body: "",
   };
 }
 
@@ -304,7 +300,7 @@ describe("cmdTransition", () => {
     cmdRun(ctx, "J000001");
     cmdTransition(ctx, "J000001", "completed", "");
     cmdTransition(ctx, "J000001", "completed", "");
-    cmdApprove(ctx, "J000001", "LGTM");
+    cmdTransition(ctx, "J000001", "approved", "LGTM");
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.status).toBe("completed");
   });
@@ -320,16 +316,16 @@ describe("cmdTransition", () => {
   });
 });
 
-// ─── cmdApprove / cmdReject ──────────────────────────────────────────────────
+// ─── cmdTransition (approve / reject) ───────────────────────────────────────
 
-describe("cmdApprove", () => {
+describe("cmdTransition (approve)", () => {
   it("test_approve_reviewer_phase_completes_job", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
     cmdRun(ctx, "J000001");
     cmdTransition(ctx, "J000001", "completed", "");
     cmdTransition(ctx, "J000001", "completed", "");
-    cmdApprove(ctx, "J000001", "LGTM");
+    cmdTransition(ctx, "J000001", "approved", "LGTM");
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.status).toBe("completed");
   });
@@ -338,18 +334,18 @@ describe("cmdApprove", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
     cmdRun(ctx, "J000001");
-    expect(() => cmdApprove(ctx, "J000001", "")).toThrow("通常フェーズ");
+    expect(() => cmdTransition(ctx, "J000001", "approved", "")).toThrow("通常フェーズ");
   });
 });
 
-describe("cmdReject", () => {
+describe("cmdTransition (reject)", () => {
   it("test_reject_reviewer_phase_goes_back_to_code", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
     cmdRun(ctx, "J000001");
     cmdTransition(ctx, "J000001", "completed", "");
     cmdTransition(ctx, "J000001", "completed", "");
-    cmdReject(ctx, "J000001", "テスト不足");
+    cmdTransition(ctx, "J000001", "rejected", "テスト不足");
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.current_phase).toBe("code");
     expect(job.frontmatter.status).toBe("running");
@@ -430,8 +426,8 @@ describe("cmdList", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
     ctx.jobStore.save(makeJob("J000002", "completed"));
-    ctx.jobStore.save(makeJob("J000003", "cancelled"));
-    const lines = captureLog(() => cmdList(ctx, { excludeStatus: "completed,cancelled" }));
+    ctx.jobStore.save(makeJob("J000003", "aborted"));
+    const lines = captureLog(() => cmdList(ctx, { excludeStatus: "completed,aborted" }));
     expect(lines.some((l) => l.includes("J000001"))).toBe(true);
     expect(lines.some((l) => l.includes("J000002"))).toBe(false);
     expect(lines.some((l) => l.includes("J000003"))).toBe(false);

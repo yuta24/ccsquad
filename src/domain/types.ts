@@ -59,18 +59,27 @@ export function workflowToObject(wf: WorkflowConfig): Record<string, Record<stri
 
 // ── Job ──
 
-export type JobStatus = "pending" | "running" | "completed" | "failed" | "aborted" | "cancelled";
-export const ALL_JOB_STATUSES: readonly JobStatus[] = ["pending", "running", "completed", "failed", "aborted", "cancelled"];
+export type JobStatus = "pending" | "running" | "paused" | "completed" | "failed" | "aborted";
+export const ALL_JOB_STATUSES: readonly JobStatus[] = ["pending", "running", "paused", "completed", "failed", "aborted"];
+
+export type PauseReason = "human_review" | "max_iterations";
+
+export interface AcceptanceCriterion {
+  description: string;
+  done: boolean;
+}
 
 export interface JobFrontmatter {
   id: string;
   title: string;
   status: JobStatus;
   current_phase?: string;
+  pause_reason?: PauseReason;
   iteration: number;
   max_iterations: number;
   priority: number;
   depends_on: string[];
+  acceptance_criteria: AcceptanceCriterion[];
   workflow: WorkflowConfig;
   created_at: string;
   updated_at: string;

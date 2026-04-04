@@ -30,6 +30,7 @@ function makeJob(id: string, title: string): Job {
     max_iterations: 10,
     priority: 0,
     depends_on: [],
+    acceptance_criteria: [],
     workflow: WORKFLOW,
     created_at: now,
     updated_at: now,

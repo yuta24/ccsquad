@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { stringify, parse as parseYaml } from "yaml";
 import { parse as parseFrontmatter, write as writeFrontmatter } from "./frontmatter.js";
 import { CcsquadError } from "../error.js";
-import type { Job, JobFrontmatter, JobStatus } from "../domain/types.js";
+import type { Job, JobFrontmatter, JobStatus, AcceptanceCriterion, PauseReason } from "../domain/types.js";
 import { ALL_JOB_STATUSES, workflowToObject } from "../domain/types.js";
 import { parseWorkflowObject } from "../domain/workflow.js";
 
@@ -16,11 +16,17 @@ function serializeFrontmatter(fm: JobFrontmatter): string {
   if (fm.current_phase !== undefined) {
     obj.current_phase = fm.current_phase;
   }
+  if (fm.pause_reason !== undefined) {
+    obj.pause_reason = fm.pause_reason;
+  }
   obj.iteration = fm.iteration;
   obj.max_iterations = fm.max_iterations;
   obj.priority = fm.priority;
   if ((fm.depends_on ?? []).length > 0) {
     obj.depends_on = fm.depends_on;
+  }
+  if (fm.acceptance_criteria.length > 0) {
+    obj.acceptance_criteria = fm.acceptance_criteria;
   }
   obj.workflow = workflowToObject(fm.workflow);
   obj.created_at = fm.created_at;
@@ -144,6 +150,27 @@ export class JobStore {
       }
     }
 
+    // Parse acceptance_criteria
+    let acceptanceCriteria: AcceptanceCriterion[] = [];
+    if (raw["acceptance_criteria"] !== undefined) {
+      if (!Array.isArray(raw["acceptance_criteria"])) {
+        throw new CcsquadError("serialization", "frontmatter が不正です: acceptance_criteria は配列でなければなりません");
+      }
+      acceptanceCriteria = (raw["acceptance_criteria"] as unknown[]).map((item, i) => {
+        if (typeof item !== "object" || item === null || typeof (item as Record<string, unknown>).description !== "string") {
+          throw new CcsquadError("serialization", `frontmatter が不正です: acceptance_criteria[${i}] は { description: string, done: boolean } でなければなりません`);
+        }
+        const ac = item as Record<string, unknown>;
+        return { description: String(ac.description), done: ac.done === true };
+      });
+    }
+
+    // Parse pause_reason
+    const pauseReason = raw["pause_reason"] as PauseReason | undefined;
+    if (pauseReason !== undefined && pauseReason !== "human_review" && pauseReason !== "max_iterations") {
+      throw new CcsquadError("serialization", `frontmatter が不正です: 不正な pause_reason '${pauseReason}'`);
+    }
+
     // Parse workflow
     if (raw["workflow"] === undefined || raw["workflow"] === null) {
       throw new CcsquadError("serialization", "frontmatter が不正です: workflow が定義されていません");
@@ -155,10 +182,12 @@ export class JobStore {
       title: raw["title"] as string,
       status: raw["status"] as JobStatus,
       current_phase: raw["current_phase"] as string | undefined,
+      pause_reason: pauseReason,
       iteration: raw["iteration"] as number,
       max_iterations: raw["max_iterations"] as number,
       priority: (raw["priority"] as number) ?? 0,
       depends_on: (raw["depends_on"] as string[]) ?? [],
+      acceptance_criteria: acceptanceCriteria,
       workflow,
       created_at: raw["created_at"] as string,
       updated_at: raw["updated_at"] as string,

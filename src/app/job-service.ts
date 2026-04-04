@@ -1,5 +1,5 @@
 import { CcsquadError } from "../error.js";
-import type { Job, TransitionCondition, PhaseConfig, WorkflowConfig } from "../domain/types.js";
+import type { Job, TransitionCondition, PhaseConfig, WorkflowConfig, PauseReason } from "../domain/types.js";
 import { initialPhase } from "../domain/workflow.js";
 import { computeTransition } from "../domain/state-machine.js";
 import type { TransitionDecision } from "../domain/state-machine.js";
@@ -39,6 +39,7 @@ export class JobService {
         max_iterations: opts?.maxIterations ?? 10,
         priority: opts?.priority ?? 0,
         depends_on: opts?.dependsOn ?? [],
+        acceptance_criteria: [],
         workflow: workflowConfig,
         created_at: now,
         updated_at: now,
@@ -92,46 +93,21 @@ export class JobService {
   abort(jobId: string): Job {
     const job = this.loadJob(jobId);
 
-    if (job.frontmatter.status !== "pending" && job.frontmatter.status !== "running") {
+    if (job.frontmatter.status !== "pending" && job.frontmatter.status !== "running" && job.frontmatter.status !== "paused") {
       throw new CcsquadError(
         "job",
         `ジョブ '${jobId}' は中断できません (status: ${job.frontmatter.status})`,
       );
     }
 
-    if (job.frontmatter.status === "running" && job.frontmatter.current_phase !== undefined) {
+    if ((job.frontmatter.status === "running" || job.frontmatter.status === "paused") && job.frontmatter.current_phase !== undefined) {
       const entry = buildPhaseLogEntry(job.frontmatter.current_phase, "aborted", "ABORT", "手動中断");
       job.body = appendPhaseLog(job.body, entry);
     }
 
     job.frontmatter.status = "aborted";
     job.frontmatter.current_phase = undefined;
-    job.frontmatter.iteration = 0;
-    job.frontmatter.updated_at = new Date().toISOString();
-    this.ctx.jobStore.save(job);
-    return job;
-  }
-
-  cancel(jobId: string, opts?: { force?: boolean }): Job {
-    const job = this.loadJob(jobId);
-
-    if (job.frontmatter.status !== "pending" && job.frontmatter.status !== "aborted") {
-      throw new CcsquadError(
-        "job",
-        `ジョブ '${jobId}' は取り下げできません (status: ${job.frontmatter.status})`,
-      );
-    }
-
-    const dependents = this.findDependents(jobId);
-    if (dependents.length > 0 && !opts?.force) {
-      throw new CcsquadError(
-        "job",
-        `ジョブ '${jobId}' に依存するジョブがあります (${dependents.join(", ")})。取り下げるには --force を指定してください`,
-      );
-    }
-
-    job.frontmatter.status = "cancelled";
-    job.frontmatter.current_phase = undefined;
+    job.frontmatter.pause_reason = undefined;
     job.frontmatter.iteration = 0;
     job.frontmatter.updated_at = new Date().toISOString();
     this.ctx.jobStore.save(job);
@@ -210,6 +186,7 @@ export class JobService {
         job.body = appendPhaseLog(job.body, entry);
         job.frontmatter.status = targetStatus;
         job.frontmatter.current_phase = undefined;
+        job.frontmatter.pause_reason = undefined;
         job.frontmatter.iteration = 0;
         job.frontmatter.updated_at = new Date().toISOString();
         this.ctx.jobStore.save(job);
@@ -217,18 +194,15 @@ export class JobService {
       }
 
       case "pause": {
-        if (decision.reason === "max_iterations") {
-          const entry = buildPhaseLogEntry(phaseName, condition, decision.nextPhase, message);
-          job.body = appendPhaseLog(job.body, entry);
-          job.frontmatter.updated_at = new Date().toISOString();
-          this.ctx.jobStore.save(job);
-        } else {
-          const entry = buildPhaseLogEntry(phaseName, condition, decision.nextPhase, message);
-          job.body = appendPhaseLog(job.body, entry);
+        const entry = buildPhaseLogEntry(phaseName, condition, decision.nextPhase, message);
+        job.body = appendPhaseLog(job.body, entry);
+        job.frontmatter.status = "paused";
+        job.frontmatter.pause_reason = decision.reason;
+        if (decision.reason === "human_review") {
           job.frontmatter.current_phase = decision.nextPhase;
-          job.frontmatter.updated_at = new Date().toISOString();
-          this.ctx.jobStore.save(job);
         }
+        job.frontmatter.updated_at = new Date().toISOString();
+        this.ctx.jobStore.save(job);
         return {
           type: "pause",
           jobId,
@@ -241,7 +215,9 @@ export class JobService {
       case "continue": {
         const entry = buildPhaseLogEntry(phaseName, condition, decision.nextPhase, message);
         job.body = appendPhaseLog(job.body, entry);
+        job.frontmatter.status = "running";
         job.frontmatter.current_phase = decision.nextPhase;
+        job.frontmatter.pause_reason = undefined;
         job.frontmatter.iteration += 1;
         job.frontmatter.updated_at = new Date().toISOString();
         this.ctx.jobStore.save(job);

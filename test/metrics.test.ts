@@ -1,15 +1,7 @@
-import { describe, it, expect, spyOn } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, it, expect } from "bun:test";
 import { parsePhaseLog } from "../src/domain/phase-log.js";
-import type { PhaseLogEntry } from "../src/domain/phase-log.js";
 import { computeMetrics, formatDuration, formatMetricsText, formatMetricsJson } from "../src/domain/metrics.js";
 import type { Job, WorkflowConfig } from "../src/domain/types.js";
-import { cmdSummary } from "../src/cli/commands/job.js";
-import { JobStore } from "../src/infra/job-store.js";
-import type { ProjectContext } from "../src/app/project-context.js";
-import { createTestContext } from "./helpers.js";
 
 const WORKFLOW: WorkflowConfig = {
   phases: [
@@ -49,6 +41,7 @@ function makeJobWithLog(overrides?: Partial<{ status: string; body: string }>): 
       max_iterations: 10,
       priority: 0,
       depends_on: [],
+      acceptance_criteria: [],
       workflow: WORKFLOW,
       created_at: "2026-03-24T09:00:00Z",
       updated_at: "2026-03-24T13:10:00Z",
@@ -243,64 +236,3 @@ describe("formatMetricsJson", () => {
   });
 });
 
-// ─── cmdSummary ─────────────────────────────────────────────────────────────
-
-function captureLog(fn: () => void): string[] {
-  const lines: string[] = [];
-  const spy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-    lines.push(args.join(" "));
-  });
-  try {
-    fn();
-  } finally {
-    spy.mockRestore();
-  }
-  return lines;
-}
-
-function setup(): { ctx: ProjectContext } {
-  return { ctx: createTestContext("ccsquad-metrics-") };
-}
-
-describe("cmdSummary", () => {
-  it("displays text summary for job with phase log", () => {
-    const { ctx } = setup();
-    ctx.jobStore.save(makeJobWithLog());
-    const lines = captureLog(() => cmdSummary(ctx, "J000001", "text"));
-    const output = lines.join("\n");
-    expect(output).toContain("ジョブ: J000001");
-    expect(output).toContain("ステータス: completed");
-    expect(output).toContain("フェーズ別:");
-  });
-
-  it("displays json summary for job with phase log", () => {
-    const { ctx } = setup();
-    ctx.jobStore.save(makeJobWithLog());
-    const lines = captureLog(() => cmdSummary(ctx, "J000001", "json"));
-    const json = JSON.parse(lines.join("\n"));
-    expect(json.id).toBe("J000001");
-    expect(json.reject_count).toBe(1);
-    expect(json.phases).toHaveLength(4);
-  });
-
-  it("shows message when no phase log (text)", () => {
-    const { ctx } = setup();
-    ctx.jobStore.save(makeJobWithLog({ body: "" }));
-    const lines = captureLog(() => cmdSummary(ctx, "J000001", "text"));
-    const output = lines.join("\n");
-    expect(output).toContain("フェーズログがありません");
-  });
-
-  it("shows error in json when no phase log", () => {
-    const { ctx } = setup();
-    ctx.jobStore.save(makeJobWithLog({ body: "" }));
-    const lines = captureLog(() => cmdSummary(ctx, "J000001", "json"));
-    const json = JSON.parse(lines.join("\n"));
-    expect(json.error).toBe("フェーズログがありません");
-  });
-
-  it("throws for nonexistent job", () => {
-    const { ctx } = setup();
-    expect(() => cmdSummary(ctx, "J999999", "text")).toThrow();
-  });
-});

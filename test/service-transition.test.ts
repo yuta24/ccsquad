@@ -17,16 +17,13 @@ const WORKFLOW: WorkflowConfig = {
   ],
 };
 
-const BODY_WITH_AC = `## Acceptance Criteria
-
-- [ ] テスト基準
-`;
+const AC_LIST = [{ description: "テスト基準", done: false }];
 
 function makeTmpDir(): string {
   return mkdtempSync(join(tmpdir(), "ccsquad-svc-transition-"));
 }
 
-function makeJob(id: string, status: JobStatus, body = BODY_WITH_AC): Job {
+function makeJob(id: string, status: JobStatus): Job {
   const now = new Date().toISOString();
   return {
     frontmatter: {
@@ -37,11 +34,12 @@ function makeJob(id: string, status: JobStatus, body = BODY_WITH_AC): Job {
       max_iterations: 3,
       priority: 0,
       depends_on: [],
+      acceptance_criteria: AC_LIST,
       workflow: WORKFLOW,
       created_at: now,
       updated_at: now,
     },
-    body,
+    body: "",
   };
 }
 

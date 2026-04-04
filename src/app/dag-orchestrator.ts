@@ -200,10 +200,11 @@ export class DagOrchestrator {
         return { status: "completed" };
       case "failed":
       case "aborted":
-      case "cancelled":
         return { status: "failed" };
+      case "paused":
+        return { status: "paused", reason: job.frontmatter.pause_reason ?? "human_review" };
       case "running":
-        // Still running means review pause or process exited without completing
+        // Still running means process exited without completing
         if (job.frontmatter.current_phase) {
           return { status: "paused", reason: "human_review" };
         }

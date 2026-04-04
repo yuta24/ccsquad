@@ -134,6 +134,7 @@ export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string }):
 
 export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"): void {
   const job = ctx.jobStore.load(id);
+  const metrics = computeMetrics(job);
 
   if (format === "json") {
     const output: Record<string, unknown> = {
@@ -144,6 +145,7 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
       max_iterations: job.frontmatter.max_iterations,
       priority: job.frontmatter.priority,
       depends_on: job.frontmatter.depends_on,
+      acceptance_criteria: job.frontmatter.acceptance_criteria,
       created_at: job.frontmatter.created_at,
       updated_at: job.frontmatter.updated_at,
       body: job.body,
@@ -160,11 +162,17 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
         }
       }
     }
+    if (job.frontmatter.pause_reason !== undefined) {
+      output.pause_reason = job.frontmatter.pause_reason;
+    }
+    if (metrics) {
+      output.metrics = formatMetricsJson(metrics);
+    }
     console.log(JSON.stringify(output, null, 2));
   } else {
     const fm = job.frontmatter;
     console.log(`${fm.id}: ${fm.title}`);
-    console.log(`ステータス: ${fm.status}`);
+    console.log(`ステータス: ${fm.status}${fm.pause_reason ? ` (${fm.pause_reason})` : ""}`);
     if (fm.current_phase) {
       console.log(`現在のフェーズ: ${fm.current_phase}`);
       const wf = fm.workflow;
@@ -183,8 +191,18 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
     if (fm.depends_on && fm.depends_on.length > 0) {
       console.log(`依存: ${fm.depends_on.join(", ")}`);
     }
+    if (fm.acceptance_criteria.length > 0) {
+      console.log(`Acceptance Criteria:`);
+      for (const ac of fm.acceptance_criteria) {
+        console.log(`  [${ac.done ? "x" : " "}] ${ac.description}`);
+      }
+    }
     console.log(`作成日時: ${fm.created_at}`);
     console.log(`更新日時: ${fm.updated_at}`);
+    if (metrics) {
+      console.log();
+      console.log(formatMetricsText(metrics));
+    }
     if (job.body.length > 0) {
       console.log();
       process.stdout.write(job.body);
@@ -303,28 +321,10 @@ export function cmdTransition(ctx: ProjectContext, id: string, result: string, m
   printTransitionResult(txResult);
 }
 
-export function cmdApprove(ctx: ProjectContext, id: string, message: string): void {
-  const jobService = new JobService(ctx);
-  const txResult = jobService.transition(id, "approved", message);
-  printTransitionResult(txResult);
-}
-
-export function cmdReject(ctx: ProjectContext, id: string, message: string): void {
-  const jobService = new JobService(ctx);
-  const txResult = jobService.transition(id, "rejected", message);
-  printTransitionResult(txResult);
-}
-
 export function cmdAbort(ctx: ProjectContext, id: string): void {
   const jobService = new JobService(ctx);
   jobService.abort(id);
   console.log(`ジョブを中断しました: ${id}`);
-}
-
-export function cmdCancel(ctx: ProjectContext, id: string, opts?: { force?: boolean }): void {
-  const jobService = new JobService(ctx);
-  jobService.cancel(id, { force: opts?.force });
-  console.log(`ジョブを取り下げました: ${id}`);
 }
 
 export function cmdUpdate(
@@ -335,28 +335,6 @@ export function cmdUpdate(
   const jobService = new JobService(ctx);
   const job = jobService.update(id, opts);
   console.log(`ジョブを更新しました: ${job.frontmatter.id}`);
-}
-
-export function cmdSummary(ctx: ProjectContext, id: string, format: "text" | "json"): void {
-  const job = ctx.jobStore.load(id);
-  const metrics = computeMetrics(job);
-
-  if (metrics === null) {
-    if (format === "json") {
-      console.log(JSON.stringify({ id: job.frontmatter.id, error: "フェーズログがありません" }, null, 2));
-    } else {
-      console.log(`${job.frontmatter.id}: ${job.frontmatter.title}`);
-      console.log(`ステータス: ${job.frontmatter.status}`);
-      console.log("フェーズログがありません。");
-    }
-    return;
-  }
-
-  if (format === "json") {
-    console.log(JSON.stringify(formatMetricsJson(metrics), null, 2));
-  } else {
-    console.log(formatMetricsText(metrics));
-  }
 }
 
 // ── job tree ──
