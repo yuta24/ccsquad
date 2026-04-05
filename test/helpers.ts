@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JobStore } from "../src/infra/job-store.js";
 import { PhaseLogStore } from "../src/infra/phase-log-store.js";
+import { RetrospectiveStore } from "../src/infra/retrospective-store.js";
 import { WorktreeManager } from "../src/infra/worktree-manager.js";
 import { ProcessRunner } from "../src/infra/process-runner.js";
 import type { ProjectContext } from "../src/app/project-context.js";
@@ -12,12 +13,14 @@ export function createTestContext(prefix = "ccsquad-test-"): ProjectContext {
   const jobsDir = join(dir, "jobs");
   const worktreesDir = join(dir, "worktrees");
   const logsDir = join(dir, "logs");
+  const retrospectivesDir = join(dir, "retrospectives");
   const store = new JobStore(jobsDir);
   store.ensureDir();
 
   return {
     jobStore: store,
     phaseLogStore: new PhaseLogStore(logsDir),
+    retrospectiveStore: new RetrospectiveStore(retrospectivesDir),
     worktreeManager: new WorktreeManager(dir, worktreesDir),
     processRunner: new ProcessRunner(logsDir),
     projectRoot: dir,
@@ -25,5 +28,6 @@ export function createTestContext(prefix = "ccsquad-test-"): ProjectContext {
     jobsDir,
     worktreesDir,
     logsDir,
+    retrospectivesDir,
   };
 }

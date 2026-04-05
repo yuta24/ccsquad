@@ -1,3 +1,7 @@
+// ── Common ──
+
+export type Severity = "info" | "warning" | "critical";
+
 // ── Transition & Phase ──
 
 export type TransitionCondition = "completed" | "failed" | "rejected" | "approved";
