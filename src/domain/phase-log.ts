@@ -20,13 +20,11 @@ export interface PhaseLogEntry {
 
 const PHASE_LOG_HEADER_RE = /^###\s+(\S+)\s+\((\S+)\s*→\s*(\S+)\)\s*-\s*(.+)$/;
 
-export function parsePhaseLog(body: string): PhaseLogEntry[] {
+export function parsePhaseLog(logContent: string): PhaseLogEntry[] {
   const entries: PhaseLogEntry[] = [];
-  const logSectionIdx = body.indexOf("## フェーズログ");
-  if (logSectionIdx === -1) return entries;
+  if (logContent === "") return entries;
 
-  const logSection = body.slice(logSectionIdx);
-  for (const line of logSection.split("\n")) {
+  for (const line of logContent.split("\n")) {
     const m = line.match(PHASE_LOG_HEADER_RE);
     if (m) {
       entries.push({
@@ -40,16 +38,3 @@ export function parsePhaseLog(body: string): PhaseLogEntry[] {
   return entries;
 }
 
-export function appendPhaseLog(body: string, entry: string): string {
-  if (body.includes("## フェーズログ")) {
-    return body + entry;
-  }
-
-  let result = body;
-  if (result.length > 0 && !result.endsWith("\n")) {
-    result += "\n";
-  }
-  result += "\n## フェーズログ\n";
-  result += entry;
-  return result;
-}

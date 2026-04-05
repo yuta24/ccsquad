@@ -1,11 +1,13 @@
 import { mkdirSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { JobStore } from "../infra/job-store.js";
+import { PhaseLogStore } from "../infra/phase-log-store.js";
 import { WorktreeManager } from "../infra/worktree-manager.js";
 import { ProcessRunner } from "../infra/process-runner.js";
 
 export interface ProjectContext {
   jobStore: JobStore;
+  phaseLogStore: PhaseLogStore;
   worktreeManager: WorktreeManager;
   processRunner: ProcessRunner;
   projectRoot: string;
@@ -27,6 +29,7 @@ export function createProjectContext(): ProjectContext {
 
   return {
     jobStore: new JobStore(jobsDir),
+    phaseLogStore: new PhaseLogStore(logsDir),
     worktreeManager: new WorktreeManager(projectRoot, worktreesDir),
     processRunner: new ProcessRunner(logsDir),
     projectRoot,

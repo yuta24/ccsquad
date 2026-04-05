@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JobStore } from "../src/infra/job-store.js";
 import type { Job, JobFrontmatter, WorkflowConfig } from "../src/domain/types.js";
-import { buildPhaseLogEntry, appendPhaseLog } from "../src/domain/phase-log.js";
+import { buildPhaseLogEntry } from "../src/domain/phase-log.js";
+import { PhaseLogStore } from "../src/infra/phase-log-store.js";
 
 const WORKFLOW: WorkflowConfig = {
   phases: [
@@ -99,30 +100,42 @@ describe("JobStore", () => {
   });
 });
 
-describe("appendPhaseLog", () => {
-  it("フェーズログセクション作成", () => {
-    const job = makeJob("J000001", "test");
+describe("PhaseLogStore", () => {
+  function makeTempLogStore(): PhaseLogStore {
+    const dir = mkdtempSync(join(tmpdir(), "ccsquad-phaselog-test-"));
+    return new PhaseLogStore(dir);
+  }
+
+  it("ログ追記と読み込み", () => {
+    const store = makeTempLogStore();
     const entry = buildPhaseLogEntry("plan", "completed", "code", "計画完了");
-    job.body = appendPhaseLog(job.body, entry);
-    expect(job.body).toContain("## フェーズログ");
-    expect(job.body).toContain("### plan (completed → code)");
-    expect(job.body).toContain("計画完了");
+    store.append("J000001", entry);
+    const content = store.read("J000001");
+    expect(content).toContain("### plan (completed → code)");
+    expect(content).toContain("計画完了");
   });
 
-  it("フェーズログ追記", () => {
-    const job = makeJob("J000001", "test");
+  it("複数エントリの追記", () => {
+    const store = makeTempLogStore();
     const entry1 = buildPhaseLogEntry("plan", "completed", "code", "計画完了");
-    job.body = appendPhaseLog(job.body, entry1);
     const entry2 = buildPhaseLogEntry("code", "completed", "review", "実装完了");
-    job.body = appendPhaseLog(job.body, entry2);
-    const logCount = (job.body.match(/###/g) ?? []).length;
+    store.append("J000001", entry1);
+    store.append("J000001", entry2);
+    const content = store.read("J000001");
+    const logCount = (content.match(/###/g) ?? []).length;
     expect(logCount).toBe(2);
   });
 
+  it("存在しないジョブのログは空文字列", () => {
+    const store = makeTempLogStore();
+    expect(store.read("J999999")).toBe("");
+  });
+
   it("空メッセージ", () => {
-    const job = makeJob("J000001", "test");
+    const store = makeTempLogStore();
     const entry = buildPhaseLogEntry("plan", "completed", "code", "");
-    job.body = appendPhaseLog(job.body, entry);
-    expect(job.body).toContain("### plan (completed → code)");
+    store.append("J000001", entry);
+    const content = store.read("J000001");
+    expect(content).toContain("### plan (completed → code)");
   });
 });

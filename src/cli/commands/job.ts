@@ -171,7 +171,8 @@ export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string }):
 
 export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"): void {
   const job = ctx.jobStore.load(id);
-  const metrics = computeMetrics(job);
+  const logContent = ctx.phaseLogStore.read(id);
+  const metrics = computeMetrics(job, logContent);
 
   if (format === "json") {
     const output: Record<string, unknown> = {
@@ -186,6 +187,7 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
       created_at: job.frontmatter.created_at,
       updated_at: job.frontmatter.updated_at,
       body: job.body,
+      phase_log: logContent,
     };
     if (job.frontmatter.current_phase !== undefined) {
       output.current_phase = job.frontmatter.current_phase;
@@ -243,6 +245,11 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
     if (job.body.length > 0) {
       console.log();
       process.stdout.write(job.body);
+    }
+    if (logContent.length > 0) {
+      console.log();
+      console.log("## フェーズログ");
+      process.stdout.write(logContent);
     }
   }
 }

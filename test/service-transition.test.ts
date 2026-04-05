@@ -128,15 +128,16 @@ describe("JobService.transition - max_iterations", () => {
   });
 
   it("test_max_iterations_appends_phase_log", () => {
-    const { store, jobService } = setup();
+    const { store, ctx, jobService } = setup();
     const job = store.load("J000001");
     job.frontmatter.iteration = 3;
     store.save(job);
 
     jobService.transition("J000001", "completed", "計画完了");
 
-    const updated = store.load("J000001");
-    expect(updated.body).toContain("フェーズログ");
+    const logContent = ctx.phaseLogStore.read("J000001");
+    expect(logContent).toContain("plan");
+    expect(logContent).toContain("計画完了");
   });
 });
 

@@ -20,9 +20,9 @@ export interface JobMetrics {
   phaseStats: PhaseStats[];
 }
 
-export function computeMetrics(job: Job): JobMetrics | null {
+export function computeMetrics(job: Job, logContent: string): JobMetrics | null {
   const fm = job.frontmatter;
-  const entries = parsePhaseLog(job.body);
+  const entries = parsePhaseLog(logContent);
 
   if (entries.length === 0) return null;
 

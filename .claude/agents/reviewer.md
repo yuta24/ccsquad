@@ -34,7 +34,7 @@ review/verify フェーズで Generator とは別コンテキストから評価�
 
 **成果物**: review 指摘事項の修正確認と最終承認/却下判断。
 
-1. ジョブ body の `## フェーズログ` から前回の review 指摘事項を把握する
+1. フェーズログ（`.ccsquad/logs/{jobId}.md`）から前回の review 指摘事項を把握する
 2. `git diff` で前回 review 以降の変更内容を確認する
 3. 前回の指摘事項が修正されているか検証する
 4. Acceptance Criteria の全項目を再確認する（回帰チェック）

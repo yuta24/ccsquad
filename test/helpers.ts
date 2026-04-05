@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JobStore } from "../src/infra/job-store.js";
+import { PhaseLogStore } from "../src/infra/phase-log-store.js";
 import { WorktreeManager } from "../src/infra/worktree-manager.js";
 import { ProcessRunner } from "../src/infra/process-runner.js";
 import type { ProjectContext } from "../src/app/project-context.js";
@@ -16,6 +17,7 @@ export function createTestContext(prefix = "ccsquad-test-"): ProjectContext {
 
   return {
     jobStore: store,
+    phaseLogStore: new PhaseLogStore(logsDir),
     worktreeManager: new WorktreeManager(dir, worktreesDir),
     processRunner: new ProcessRunner(logsDir),
     projectRoot: dir,

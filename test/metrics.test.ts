@@ -12,8 +12,7 @@ const WORKFLOW: WorkflowConfig = {
   ],
 };
 
-const PHASE_LOG = `## フェーズログ
-### research (completed → design) - 2026-03-24T09:30:00Z
+const PHASE_LOG = `### research (completed → design) - 2026-03-24T09:30:00Z
 調査完了。
 ### design (completed → code) - 2026-03-24T10:00:00Z
 設計完了。
@@ -31,22 +30,25 @@ const PHASE_LOG = `## フェーズログ
 LGTM。
 `;
 
-function makeJobWithLog(overrides?: Partial<{ status: string; body: string }>): Job {
+function makeJobWithLog(overrides?: Partial<{ status: string; logContent: string }>): { job: Job; logContent: string } {
   return {
-    frontmatter: {
-      id: "J000001",
-      title: "認証機能の実装",
-      status: (overrides?.status as any) ?? "completed",
-      iteration: 5,
-      max_iterations: 10,
-      priority: 0,
-      depends_on: [],
-      acceptance_criteria: [],
-      workflow: WORKFLOW,
-      created_at: "2026-03-24T09:00:00Z",
-      updated_at: "2026-03-24T13:10:00Z",
+    job: {
+      frontmatter: {
+        id: "J000001",
+        title: "認証機能の実装",
+        status: (overrides?.status as any) ?? "completed",
+        iteration: 5,
+        max_iterations: 10,
+        priority: 0,
+        depends_on: [],
+        acceptance_criteria: [],
+        workflow: WORKFLOW,
+        created_at: "2026-03-24T09:00:00Z",
+        updated_at: "2026-03-24T13:10:00Z",
+      },
+      body: "",
     },
-    body: overrides?.body ?? PHASE_LOG,
+    logContent: overrides?.logContent ?? PHASE_LOG,
   };
 }
 
@@ -94,14 +96,14 @@ describe("parsePhaseLog", () => {
 
 describe("computeMetrics", () => {
   it("returns null when no phase log entries", () => {
-    const job = makeJobWithLog({ body: "" });
-    const metrics = computeMetrics(job);
+    const { job } = makeJobWithLog({ logContent: "" });
+    const metrics = computeMetrics(job, "");
     expect(metrics).toBeNull();
   });
 
   it("computes basic job info", () => {
-    const job = makeJobWithLog();
-    const metrics = computeMetrics(job)!;
+    const { job, logContent } = makeJobWithLog();
+    const metrics = computeMetrics(job, logContent)!;
     expect(metrics.id).toBe("J000001");
     expect(metrics.title).toBe("認証機能の実装");
     expect(metrics.status).toBe("completed");
@@ -110,30 +112,30 @@ describe("computeMetrics", () => {
   });
 
   it("computes duration from created_at to updated_at", () => {
-    const job = makeJobWithLog();
-    const metrics = computeMetrics(job)!;
+    const { job, logContent } = makeJobWithLog();
+    const metrics = computeMetrics(job, logContent)!;
     // 09:00 to 13:10 = 4h 10m = 250 minutes
     expect(metrics.durationMs).toBe(250 * 60 * 1000);
   });
 
   it("computes reject rate", () => {
-    const job = makeJobWithLog();
-    const metrics = computeMetrics(job)!;
+    const { job, logContent } = makeJobWithLog();
+    const metrics = computeMetrics(job, logContent)!;
     // 1 rejected, 1 approved = 2 review transitions
     expect(metrics.rejectCount).toBe(1);
     expect(metrics.reviewTransitionCount).toBe(2);
   });
 
   it("computes phase stats with correct phases", () => {
-    const job = makeJobWithLog();
-    const metrics = computeMetrics(job)!;
+    const { job, logContent } = makeJobWithLog();
+    const metrics = computeMetrics(job, logContent)!;
     const phaseNames = metrics.phaseStats.map((ps) => ps.phase);
     expect(phaseNames).toEqual(["research", "design", "code", "review"]);
   });
 
   it("computes phase transition counts", () => {
-    const job = makeJobWithLog();
-    const metrics = computeMetrics(job)!;
+    const { job, logContent } = makeJobWithLog();
+    const metrics = computeMetrics(job, logContent)!;
 
     const research = metrics.phaseStats.find((p) => p.phase === "research")!;
     expect(research.transitions).toEqual({ completed: 1 });
@@ -149,8 +151,8 @@ describe("computeMetrics", () => {
   });
 
   it("computes phase durations", () => {
-    const job = makeJobWithLog();
-    const metrics = computeMetrics(job)!;
+    const { job, logContent } = makeJobWithLog();
+    const metrics = computeMetrics(job, logContent)!;
 
     // research: 09:00 -> 09:30 = 30m
     const research = metrics.phaseStats.find((p) => p.phase === "research")!;
@@ -198,8 +200,8 @@ describe("formatDuration", () => {
 
 describe("formatMetricsText", () => {
   it("contains all expected sections", () => {
-    const job = makeJobWithLog();
-    const metrics = computeMetrics(job)!;
+    const { job, logContent } = makeJobWithLog();
+    const metrics = computeMetrics(job, logContent)!;
     const text = formatMetricsText(metrics);
 
     expect(text).toContain("ジョブ: J000001 - 認証機能の実装");
@@ -219,8 +221,8 @@ describe("formatMetricsText", () => {
 
 describe("formatMetricsJson", () => {
   it("contains all expected fields", () => {
-    const job = makeJobWithLog();
-    const metrics = computeMetrics(job)!;
+    const { job, logContent } = makeJobWithLog();
+    const metrics = computeMetrics(job, logContent)!;
     const json = formatMetricsJson(metrics);
 
     expect(json.id).toBe("J000001");
