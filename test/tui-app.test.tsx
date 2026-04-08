@@ -79,6 +79,45 @@ describe("Sidebar", () => {
     const j2Line = lines.find((l: string) => l.includes("J000002"));
     expect(j2Line).toContain(">");
   });
+
+  test("shows [Enter] hint for selected pending job", async () => {
+    const { captureCharFrame, renderOnce } = await testRender(
+      () => (
+        <Sidebar jobs={sampleJobs} selectedIndex={2} focused={true} />
+      ),
+      { width: 50, height: 12 },
+    );
+    await renderOnce();
+    const frame = captureCharFrame();
+    const j3Line = frame.split("\n").find((l: string) => l.includes("J000003"));
+    expect(j3Line).toContain("[Enter]");
+  });
+
+  test("shows [...] for launching job", async () => {
+    const { captureCharFrame, renderOnce } = await testRender(
+      () => (
+        <Sidebar jobs={sampleJobs} selectedIndex={0} focused={true} launchingId="J000001" />
+      ),
+      { width: 50, height: 12 },
+    );
+    await renderOnce();
+    const frame = captureCharFrame();
+    const j1Line = frame.split("\n").find((l: string) => l.includes("J000001"));
+    expect(j1Line).toContain("[...]");
+  });
+
+  test("does not show [Enter] hint for completed job", async () => {
+    const { captureCharFrame, renderOnce } = await testRender(
+      () => (
+        <Sidebar jobs={sampleJobs} selectedIndex={1} focused={true} />
+      ),
+      { width: 50, height: 12 },
+    );
+    await renderOnce();
+    const frame = captureCharFrame();
+    const j2Line = frame.split("\n").find((l: string) => l.includes("J000002"));
+    expect(j2Line).not.toContain("[Enter]");
+  });
 });
 
 describe("JobDetail", () => {

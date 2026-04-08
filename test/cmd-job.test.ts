@@ -508,6 +508,54 @@ describe("cmdList", () => {
     const { ctx } = setup();
     expect(() => cmdList(ctx, { excludeStatus: "invalid" })).toThrow("不正なステータス: invalid");
   });
+
+  it("test_list_json_format_outputs_valid_json", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    ctx.jobStore.save(makeJob("J000002", "running"));
+    const lines = captureLog(() => cmdList(ctx, { format: "json" }));
+    const output = JSON.parse(lines.join("\n"));
+    expect(output).toHaveLength(2);
+    expect(output[0].id).toBe("J000001");
+    expect(output[0].status).toBe("pending");
+    expect(output[1].id).toBe("J000002");
+    expect(output[1].status).toBe("running");
+  });
+
+  it("test_list_json_format_empty_outputs_empty_array", () => {
+    const { ctx } = setup();
+    const lines = captureLog(() => cmdList(ctx, { format: "json" }));
+    const output = JSON.parse(lines.join("\n"));
+    expect(output).toEqual([]);
+  });
+
+  it("test_list_json_format_with_exclude_status", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    ctx.jobStore.save(makeJob("J000002", "completed"));
+    const lines = captureLog(() => cmdList(ctx, { format: "json", excludeStatus: "completed" }));
+    const output = JSON.parse(lines.join("\n"));
+    expect(output).toHaveLength(1);
+    expect(output[0].id).toBe("J000001");
+  });
+
+  it("test_list_json_format_includes_all_fields", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    const lines = captureLog(() => cmdList(ctx, { format: "json" }));
+    const output = JSON.parse(lines.join("\n"));
+    const job = output[0];
+    expect(job).toHaveProperty("id");
+    expect(job).toHaveProperty("title");
+    expect(job).toHaveProperty("status");
+    expect(job).toHaveProperty("current_phase");
+    expect(job).toHaveProperty("iteration");
+    expect(job).toHaveProperty("max_iterations");
+    expect(job).toHaveProperty("priority");
+    expect(job).toHaveProperty("depends_on");
+    expect(job).toHaveProperty("created_at");
+    expect(job).toHaveProperty("updated_at");
+  });
 });
 
 // ─── cmdShow ─────────────────────────────────────────────────────────────────

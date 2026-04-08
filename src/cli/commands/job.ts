@@ -136,7 +136,7 @@ function printTransitionResult(result: TransitionResult): void {
   }
 }
 
-export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string }): void {
+export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string; format?: "text" | "json" }): void {
   let excludeSet: Set<string> | undefined;
   if (opts?.excludeStatus) {
     const excluded = opts.excludeStatus.split(",").map((s) => s.trim()).filter(Boolean);
@@ -151,6 +151,23 @@ export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string }):
   let jobs = ctx.jobStore.listAll();
   if (excludeSet) {
     jobs = jobs.filter((j) => !excludeSet.has(j.frontmatter.status));
+  }
+
+  if (opts?.format === "json") {
+    const output = jobs.map((j) => ({
+      id: j.frontmatter.id,
+      title: j.frontmatter.title,
+      status: j.frontmatter.status,
+      current_phase: j.frontmatter.current_phase ?? null,
+      iteration: j.frontmatter.iteration,
+      max_iterations: j.frontmatter.max_iterations,
+      priority: j.frontmatter.priority,
+      depends_on: j.frontmatter.depends_on ?? [],
+      created_at: j.frontmatter.created_at,
+      updated_at: j.frontmatter.updated_at,
+    }));
+    console.log(JSON.stringify(output, null, 2));
+    return;
   }
 
   if (jobs.length === 0) {

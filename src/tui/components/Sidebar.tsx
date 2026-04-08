@@ -43,6 +43,7 @@ interface SidebarProps {
   jobs: DagStatusJob[];
   selectedIndex: number;
   focused: boolean;
+  launchingId: string | null;
 }
 
 export function Sidebar(props: SidebarProps) {
@@ -67,8 +68,15 @@ export function Sidebar(props: SidebarProps) {
               const color = () => statusColor(job.status);
               const phase = () => job.current_phase ?? "-";
               const prefix = () => (isSelected() ? "> " : "  ");
+              const suffix = () => {
+                if (props.launchingId === job.id) return " [...]";
+                if (isSelected() && (job.status === "pending" || job.status === "paused" || job.status === "running")) {
+                  return " [Enter]";
+                }
+                return "";
+              };
               const line = () =>
-                `${prefix()}${icon()} ${job.id} ${job.status.padEnd(9)} ${phase()}`;
+                `${prefix()}${icon()} ${job.id} ${job.status.padEnd(9)} ${phase()}${suffix()}`;
               return (
                 <>
                   <span
