@@ -1,5 +1,5 @@
-import { mkdirSync, existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdirSync, existsSync, readFileSync, statSync } from "node:fs";
+import { basename, join, resolve, dirname } from "node:path";
 import { JobStore } from "../infra/job-store.js";
 import { PhaseLogStore } from "../infra/phase-log-store.js";
 import { RetrospectiveStore } from "../infra/retrospective-store.js";
@@ -55,11 +55,45 @@ function findProjectRoot(): string {
   let dir = process.cwd();
   while (true) {
     if (existsSync(join(dir, ".ccsquad"))) return dir;
-    if (existsSync(join(dir, ".git"))) return dir;
+    const gitPath = join(dir, ".git");
+    if (existsSync(gitPath)) {
+      // If .git is a file, this is a worktree — resolve to the main repo root
+      const mainRoot = resolveMainRepoFromWorktree(gitPath);
+      if (mainRoot && existsSync(join(mainRoot, ".ccsquad"))) {
+        return mainRoot;
+      }
+      return dir;
+    }
     const parent = resolve(dir, "..");
     if (parent === dir) break;
     dir = parent;
   }
 
   return process.cwd();
+}
+
+/**
+ * If gitPath is a worktree's .git file (not a directory), parse it to find the main repo root.
+ * Worktree .git files contain: "gitdir: /path/to/main-repo/.git/worktrees/{name}"
+ */
+function resolveMainRepoFromWorktree(gitPath: string): string | null {
+  try {
+    if (!statSync(gitPath).isFile()) return null;
+    const content = readFileSync(gitPath, "utf-8").trim();
+    const match = content.match(/^gitdir:\s+(.+)$/);
+    if (!match) return null;
+    const gitdir = resolve(dirname(gitPath), match[1]);
+    // gitdir is typically /main-repo/.git/worktrees/{name}
+    // Walk up to find the .git directory, then its parent is the main repo root
+    let d = gitdir;
+    while (true) {
+      const base = basename(d);
+      const parent = dirname(d);
+      if (base === ".git") return parent;
+      if (parent === d) return null;
+      d = parent;
+    }
+  } catch {
+    return null;
+  }
 }
