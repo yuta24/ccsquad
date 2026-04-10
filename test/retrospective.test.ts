@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { analyzeJob, formatRetrospectiveText, formatRetrospectiveJson } from "../src/domain/retrospective.js";
+import { analyzeJob, applyActions, collectActions, formatRetrospectiveText, formatRetrospectiveJson } from "../src/domain/retrospective.js";
+import type { WorkflowAction } from "../src/domain/retrospective.js";
 import type { Job, WorkflowConfig } from "../src/domain/types.js";
 import type { JobMetrics } from "../src/domain/metrics.js";
 
@@ -40,6 +41,8 @@ function makeMetrics(overrides?: Partial<JobMetrics>): JobMetrics {
     durationMs: 240 * 60 * 1000, // 4h
     rejectCount: 1,
     reviewTransitionCount: 2,
+    acTotalCount: 0,
+    acFulfilledCount: 0,
     phaseStats: [
       { phase: "plan", durationMs: 30 * 60 * 1000, transitions: { completed: 1 } },
       { phase: "execute", durationMs: 180 * 60 * 1000, transitions: { completed: 2, failed: 1 } },
@@ -206,7 +209,7 @@ describe("formatRetrospectiveText", () => {
 // ─── formatRetrospectiveJson ─────────────────────────────────────────────────
 
 describe("formatRetrospectiveJson", () => {
-  it("contains all expected fields", () => {
+  it("contains all expected fields including actions", () => {
     const job = makeJob();
     const metrics = makeMetrics();
     const report = analyzeJob(job, metrics);
@@ -218,5 +221,223 @@ describe("formatRetrospectiveJson", () => {
     expect(json.summary).toBeDefined();
     expect(Array.isArray(json.findings)).toBe(true);
     expect(json.metrics).toBeDefined();
+    // findings に actions フィールドがある
+    for (const f of json.findings as any[]) {
+      expect(Array.isArray(f.actions)).toBe(true);
+    }
+  });
+});
+
+// ─── WorkflowAction 生成 ───────────────────────────────────────────────────
+
+describe("WorkflowAction 生成", () => {
+  it("iteration_overflow で increase_max_iterations アクションが生成される", () => {
+    const job = makeJob({ iteration: 10, maxIterations: 10 });
+    const metrics = makeMetrics({ iteration: 10, maxIterations: 10 });
+    const report = analyzeJob(job, metrics);
+
+    const finding = report.findings.find((f) => f.category === "iteration_overflow");
+    expect(finding).toBeDefined();
+    expect(finding!.actions).toHaveLength(1);
+    expect(finding!.actions[0].type).toBe("increase_max_iterations");
+    if (finding!.actions[0].type === "increase_max_iterations") {
+      expect(finding!.actions[0].recommended).toBe(15); // ceil(10 * 1.5)
+    }
+  });
+
+  it("fast_completion で template_candidate アクションが生成される", () => {
+    const job = makeJob({ iteration: 1 });
+    const metrics = makeMetrics({ iteration: 1, rejectCount: 0, reviewTransitionCount: 1 });
+    const report = analyzeJob(job, metrics);
+
+    const finding = report.findings.find((f) => f.category === "fast_completion");
+    expect(finding).toBeDefined();
+    expect(finding!.actions).toHaveLength(1);
+    expect(finding!.actions[0].type).toBe("template_candidate");
+  });
+
+  it("high_reject_rate (critical) で auto review の set_review_manual が生成される", () => {
+    const autoWorkflow: WorkflowConfig = {
+      phases: [
+        { name: "plan", type: "plan", agent: "developer", on: { completed: "code" } },
+        { name: "code", type: "execute", agent: "developer", on: { completed: "review" } },
+        { name: "review", type: "review", agent: "reviewer", auto: true, on: { approved: "COMPLETE", rejected: "code" } },
+      ],
+    };
+    const job: Job = {
+      frontmatter: {
+        ...makeJob().frontmatter,
+        workflow: autoWorkflow,
+      },
+      body: "",
+    };
+    const metrics = makeMetrics({ rejectCount: 4, reviewTransitionCount: 5 });
+    const report = analyzeJob(job, metrics);
+
+    const finding = report.findings.find((f) => f.category === "high_reject_rate");
+    expect(finding).toBeDefined();
+    expect(finding!.actions.some((a) => a.type === "set_review_manual")).toBe(true);
+  });
+
+  it("findings に actions が常に存在する", () => {
+    const job = makeJob();
+    const metrics = makeMetrics();
+    const report = analyzeJob(job, metrics);
+
+    for (const finding of report.findings) {
+      expect(Array.isArray(finding.actions)).toBe(true);
+    }
+  });
+});
+
+// ─── low_ac_fulfillment ─────────────────────────────────────────────────────
+
+describe("analyzeJob - low_ac_fulfillment", () => {
+  it("完了ジョブで AC 充足率が低い場合に検出する", () => {
+    const job = makeJob();
+    const metrics = makeMetrics({ acTotalCount: 5, acFulfilledCount: 3 });
+    const report = analyzeJob(job, metrics);
+
+    const finding = report.findings.find((f) => f.category === "low_ac_fulfillment");
+    expect(finding).toBeDefined();
+    expect(finding!.severity).toBe("warning");
+    expect(finding!.description).toContain("60%");
+  });
+
+  it("AC 充足率が 80% 以上なら検出しない", () => {
+    const job = makeJob();
+    const metrics = makeMetrics({ acTotalCount: 5, acFulfilledCount: 4 });
+    const report = analyzeJob(job, metrics);
+
+    const finding = report.findings.find((f) => f.category === "low_ac_fulfillment");
+    expect(finding).toBeUndefined();
+  });
+
+  it("AC がないジョブでは検出しない", () => {
+    const job = makeJob();
+    const metrics = makeMetrics({ acTotalCount: 0, acFulfilledCount: 0 });
+    const report = analyzeJob(job, metrics);
+
+    const finding = report.findings.find((f) => f.category === "low_ac_fulfillment");
+    expect(finding).toBeUndefined();
+  });
+
+  it("失敗ジョブで部分達成がある場合 info で検出する", () => {
+    const job = makeJob({ status: "failed" });
+    const metrics = makeMetrics({ status: "failed", acTotalCount: 3, acFulfilledCount: 1 });
+    const report = analyzeJob(job, metrics);
+
+    const finding = report.findings.find((f) => f.category === "low_ac_fulfillment");
+    expect(finding).toBeDefined();
+    expect(finding!.severity).toBe("info");
+  });
+});
+
+// ─── applyActions ───────────────────────────────────────────────────────────
+
+describe("applyActions", () => {
+  it("increase_max_iterations を適用する", () => {
+    const frontmatter = { workflow: { phases: [...WORKFLOW.phases] }, max_iterations: 10 };
+    const actions: WorkflowAction[] = [{ type: "increase_max_iterations", recommended: 15 }];
+
+    const result = applyActions(frontmatter, actions);
+
+    expect(frontmatter.max_iterations).toBe(15);
+    expect(result.applied).toHaveLength(1);
+    expect(result.skipped).toHaveLength(0);
+  });
+
+  it("max_iterations が既に推奨値以上ならスキップ", () => {
+    const frontmatter = { workflow: { phases: [...WORKFLOW.phases] }, max_iterations: 20 };
+    const actions: WorkflowAction[] = [{ type: "increase_max_iterations", recommended: 15 }];
+
+    const result = applyActions(frontmatter, actions);
+
+    expect(frontmatter.max_iterations).toBe(20);
+    expect(result.applied).toHaveLength(0);
+    expect(result.skipped).toHaveLength(1);
+  });
+
+  it("add_plan_phase でフェーズを挿入する", () => {
+    const phases = [
+      { name: "code", type: "execute" as const, agent: "developer", on: { completed: "review", failed: "ABORT" } },
+      { name: "review", type: "review" as const, agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
+    ];
+    const frontmatter = { workflow: { phases }, max_iterations: 10 };
+    const newPhase = { name: "research", type: "plan" as const, agent: "explorer", on: { completed: "code", failed: "ABORT" } };
+    const actions: WorkflowAction[] = [{ type: "add_plan_phase", before: "code", phase: newPhase }];
+
+    const result = applyActions(frontmatter, actions);
+
+    expect(frontmatter.workflow.phases).toHaveLength(3);
+    expect(frontmatter.workflow.phases[0].name).toBe("research");
+    expect(frontmatter.workflow.phases[1].name).toBe("code");
+    expect(result.applied).toHaveLength(1);
+  });
+
+  it("既存フェーズと同名ならスキップ", () => {
+    const frontmatter = { workflow: { phases: [...WORKFLOW.phases] }, max_iterations: 10 };
+    const newPhase = { name: "plan", type: "plan" as const, agent: "explorer", on: { completed: "execute" } };
+    const actions: WorkflowAction[] = [{ type: "add_plan_phase", before: "execute", phase: newPhase }];
+
+    const result = applyActions(frontmatter, actions);
+
+    expect(result.skipped).toHaveLength(1);
+  });
+
+  it("set_review_manual で auto を無効化する", () => {
+    const phases = [
+      { name: "code", type: "execute" as const, agent: "developer", on: { completed: "review" } },
+      { name: "review", type: "review" as const, agent: "reviewer", auto: true, on: { approved: "COMPLETE", rejected: "code" } },
+    ];
+    const frontmatter = { workflow: { phases }, max_iterations: 10 };
+    const actions: WorkflowAction[] = [{ type: "set_review_manual", phase: "review" }];
+
+    const result = applyActions(frontmatter, actions);
+
+    expect(phases[1].auto).toBe(false);
+    expect(result.applied).toHaveLength(1);
+  });
+
+  it("template_candidate はスキップされる", () => {
+    const frontmatter = { workflow: { phases: [...WORKFLOW.phases] }, max_iterations: 10 };
+    const actions: WorkflowAction[] = [{ type: "template_candidate", workflow: WORKFLOW, maxIterations: 10 }];
+
+    const result = applyActions(frontmatter, actions);
+
+    expect(result.skipped).toHaveLength(1);
+    expect(result.applied).toHaveLength(0);
+  });
+
+  it("複数アクションを一括適用できる", () => {
+    const phases = [
+      { name: "code", type: "execute" as const, agent: "developer", on: { completed: "review" } },
+      { name: "review", type: "review" as const, agent: "reviewer", auto: true, on: { approved: "COMPLETE", rejected: "code" } },
+    ];
+    const frontmatter = { workflow: { phases }, max_iterations: 5 };
+    const actions: WorkflowAction[] = [
+      { type: "increase_max_iterations", recommended: 15 },
+      { type: "set_review_manual", phase: "review" },
+    ];
+
+    const result = applyActions(frontmatter, actions);
+
+    expect(frontmatter.max_iterations).toBe(15);
+    expect(phases[1].auto).toBe(false);
+    expect(result.applied).toHaveLength(2);
+  });
+});
+
+// ─── collectActions ─────────────────────────────────────────────────────────
+
+describe("collectActions", () => {
+  it("全 findings のアクションを集約する", () => {
+    const job = makeJob({ iteration: 10, maxIterations: 10 });
+    const metrics = makeMetrics({ iteration: 10, maxIterations: 10 });
+    const report = analyzeJob(job, metrics);
+
+    const actions = collectActions(report);
+    expect(actions.length).toBeGreaterThan(0);
+    expect(actions.some((a) => a.type === "increase_max_iterations")).toBe(true);
   });
 });

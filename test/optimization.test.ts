@@ -12,6 +12,8 @@ function makeMetrics(id: string, overrides?: Partial<JobMetrics>): JobMetrics {
     durationMs: 240 * 60 * 1000,
     rejectCount: 1,
     reviewTransitionCount: 2,
+    acTotalCount: 0,
+    acFulfilledCount: 0,
     phaseStats: [
       { phase: "plan", durationMs: 30 * 60 * 1000, transitions: { completed: 1 } },
       { phase: "execute", durationMs: 180 * 60 * 1000, transitions: { completed: 2, failed: 1 } },

@@ -10,7 +10,7 @@ import {
   buildWorkflowConfig, parseWorkflowInput, parseAcInput,
 } from "./cli/commands/job.js";
 import { cmdDagRun, cmdDagResume, cmdDagStatus, cmdDagClean } from "./cli/commands/dag.js";
-import { cmdRetroRun, cmdRetroShow, cmdRetroList } from "./cli/commands/retro.js";
+import { cmdRetroRun, cmdRetroShow, cmdRetroList, cmdRetroApply } from "./cli/commands/retro.js";
 import { cmdOptimizeAnalyze, cmdOptimizeSuggest } from "./cli/commands/optimize.js";
 
 const program = new Command();
@@ -188,7 +188,13 @@ retroCmd.command("show <id>").description("保存済み振り返りを表示す�
     cmdRetroShow(createProjectContext(), id, opts.format === "json" ? "json" : "text");
   });
 
-retroCmd.command("list").description("振り返り一覧を表示する")
+retroCmd.command("apply <source-id> <target-id>").description("振り返りの知見を別のジョブに適用する")
+  .option("--format <format>", "出力形式 (text|json)", "text")
+  .action((sourceId: string, targetId: string, opts: { format: string }) => {
+    cmdRetroApply(createProjectContext(), sourceId, targetId, opts.format === "json" ? "json" : "text");
+  });
+
+retroCmd.command("list").description("振り返り一覧を表示す���")
   .option("--format <format>", "出力形式 (text|json)", "text")
   .action((opts: { format: string }) => {
     cmdRetroList(createProjectContext(), opts.format === "json" ? "json" : "text");
