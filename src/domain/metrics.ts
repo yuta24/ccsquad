@@ -17,6 +17,8 @@ export interface JobMetrics {
   durationMs: number | null;
   rejectCount: number;
   reviewTransitionCount: number;
+  acTotalCount: number;
+  acFulfilledCount: number;
   phaseStats: PhaseStats[];
 }
 
@@ -75,6 +77,9 @@ export function computeMetrics(job: Job, logContent: string): JobMetrics | null 
     stats.transitions[entry.result] = (stats.transitions[entry.result] ?? 0) + 1;
   }
 
+  const acTotalCount = fm.acceptance_criteria.length;
+  const acFulfilledCount = fm.acceptance_criteria.filter((ac) => ac.done).length;
+
   return {
     id: fm.id,
     title: fm.title,
@@ -84,6 +89,8 @@ export function computeMetrics(job: Job, logContent: string): JobMetrics | null 
     durationMs,
     rejectCount,
     reviewTransitionCount,
+    acTotalCount,
+    acFulfilledCount,
     phaseStats: phaseOrder.map((name) => phaseMap.get(name)!),
   };
 }
@@ -114,6 +121,10 @@ export function formatMetricsText(metrics: JobMetrics): string {
   } else {
     lines.push(`reject 率: 0/0 (0%)`);
   }
+  if (metrics.acTotalCount > 0) {
+    const pct = Math.round((metrics.acFulfilledCount / metrics.acTotalCount) * 100);
+    lines.push(`AC 充足率: ${metrics.acFulfilledCount}/${metrics.acTotalCount} (${pct}%)`);
+  }
 
   lines.push("");
   lines.push("フェーズ別:");
@@ -140,6 +151,11 @@ export function formatMetricsJson(metrics: JobMetrics): Record<string, unknown> 
     review_transition_count: metrics.reviewTransitionCount,
     reject_rate: metrics.reviewTransitionCount > 0
       ? metrics.rejectCount / metrics.reviewTransitionCount
+      : 0,
+    ac_total_count: metrics.acTotalCount,
+    ac_fulfilled_count: metrics.acFulfilledCount,
+    ac_fulfillment_rate: metrics.acTotalCount > 0
+      ? metrics.acFulfilledCount / metrics.acTotalCount
       : 0,
     phases: metrics.phaseStats.map((ps) => ({
       phase: ps.phase,

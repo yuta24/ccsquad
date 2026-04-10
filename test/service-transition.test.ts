@@ -265,6 +265,88 @@ describe("JobService.transition - reviewer フェーズ", () => {
   });
 });
 
+// ─── JobService.transition - AC 自動更新 ───────────────────────────────
+
+describe("JobService.transition - AC 自動更新", () => {
+  it("approved 時にチェック済み AC の done が true になる", () => {
+    const { store, jobService } = setup();
+    // AC を設定
+    const job = store.load("J000001");
+    job.frontmatter.acceptance_criteria = [
+      { description: "テスト基準", done: false },
+      { description: "セキュリティ", done: false },
+    ];
+    store.save(job);
+
+    jobService.transition("J000001", "completed", "");
+    jobService.transition("J000001", "completed", "");
+
+    const reviewMessage = `## 検証結果
+- [x] テスト基準: 確認済み
+- [ ] セキュリティ: 未確認`;
+    jobService.transition("J000001", "approved", reviewMessage);
+
+    const updated = store.load("J000001");
+    expect(updated.frontmatter.acceptance_criteria[0].done).toBe(true);
+    expect(updated.frontmatter.acceptance_criteria[1].done).toBe(false);
+  });
+
+  it("rejected 時もチェック済み AC は更新される", () => {
+    const { store, jobService } = setup();
+    const job = store.load("J000001");
+    job.frontmatter.acceptance_criteria = [
+      { description: "テスト基準", done: false },
+      { description: "セキュリティ", done: false },
+    ];
+    store.save(job);
+
+    jobService.transition("J000001", "completed", "");
+    jobService.transition("J000001", "completed", "");
+
+    const reviewMessage = `## 検証結果
+- [x] テスト基準: OK
+- [ ] セキュリティ: NG`;
+    jobService.transition("J000001", "rejected", reviewMessage);
+
+    const updated = store.load("J000001");
+    expect(updated.frontmatter.acceptance_criteria[0].done).toBe(true);
+    expect(updated.frontmatter.acceptance_criteria[1].done).toBe(false);
+  });
+
+  it("一度 done: true になった AC は false に戻らない", () => {
+    const { store, jobService } = setup();
+    const job = store.load("J000001");
+    job.frontmatter.acceptance_criteria = [
+      { description: "テスト基準", done: true },
+    ];
+    store.save(job);
+
+    jobService.transition("J000001", "completed", "");
+    jobService.transition("J000001", "completed", "");
+
+    const reviewMessage = "- [ ] テスト基準: 回帰テスト中";
+    jobService.transition("J000001", "rejected", reviewMessage);
+
+    const updated = store.load("J000001");
+    expect(updated.frontmatter.acceptance_criteria[0].done).toBe(true);
+  });
+
+  it("plan/execute フェーズでは AC は更新されない", () => {
+    const { store, jobService } = setup();
+    const job = store.load("J000001");
+    job.frontmatter.acceptance_criteria = [
+      { description: "テスト基準", done: false },
+    ];
+    store.save(job);
+
+    // plan → code 遷移（plan フェーズ）
+    jobService.transition("J000001", "completed", "- [x] テスト基準: OK");
+
+    const updated = store.load("J000001");
+    expect(updated.frontmatter.acceptance_criteria[0].done).toBe(false);
+  });
+});
+
 // ─── JobService.transition - バリデーション ─────────────────────────────
 
 describe("JobService.transition - バリデーション", () => {

@@ -126,6 +126,25 @@ describe("computeMetrics", () => {
     expect(metrics.reviewTransitionCount).toBe(2);
   });
 
+  it("computes AC fulfillment counts", () => {
+    const { job, logContent } = makeJobWithLog();
+    job.frontmatter.acceptance_criteria = [
+      { description: "基準1", done: true },
+      { description: "基準2", done: false },
+      { description: "基準3", done: true },
+    ];
+    const metrics = computeMetrics(job, logContent)!;
+    expect(metrics.acTotalCount).toBe(3);
+    expect(metrics.acFulfilledCount).toBe(2);
+  });
+
+  it("computes zero AC counts when no criteria", () => {
+    const { job, logContent } = makeJobWithLog();
+    const metrics = computeMetrics(job, logContent)!;
+    expect(metrics.acTotalCount).toBe(0);
+    expect(metrics.acFulfilledCount).toBe(0);
+  });
+
   it("computes phase stats with correct phases", () => {
     const { job, logContent } = makeJobWithLog();
     const metrics = computeMetrics(job, logContent)!;

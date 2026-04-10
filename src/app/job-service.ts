@@ -1,9 +1,10 @@
 import { CcsquadError } from "../error.js";
 import type { Job, TransitionCondition, PhaseConfig, WorkflowConfig, PauseReason, AcceptanceCriterion } from "../domain/types.js";
-import { initialPhase } from "../domain/workflow.js";
+import { getPhase, initialPhase } from "../domain/workflow.js";
 import { computeTransition } from "../domain/state-machine.js";
 import type { TransitionDecision } from "../domain/state-machine.js";
 import { buildPhaseLogEntry } from "../domain/phase-log.js";
+import { updateAcceptanceCriteria } from "../domain/acceptance-criteria.js";
 import type { ProjectContext } from "./project-context.js";
 
 export type TransitionResult =
@@ -179,6 +180,15 @@ export class JobService {
     decision: TransitionDecision,
   ): TransitionResult {
     const jobId = job.frontmatter.id;
+
+    // review フェーズからの遷移時、reviewer メッセージで AC の done 状態を更新
+    const currentPhaseConfig = getPhase(job.frontmatter.workflow, phaseName);
+    if (currentPhaseConfig?.type === "review" && job.frontmatter.acceptance_criteria.length > 0) {
+      job.frontmatter.acceptance_criteria = updateAcceptanceCriteria(
+        job.frontmatter.acceptance_criteria,
+        message,
+      );
+    }
 
     switch (decision.action) {
       case "complete":
