@@ -185,10 +185,24 @@ export function cmdDone(ctx: ProjectContext, id: string, result: string, message
 }
 
 // abort: ジョブを中断する
-export function cmdAbort(ctx: ProjectContext, id: string): void {
+export function cmdAbort(ctx: ProjectContext, id: string, message?: string): void {
+  const job = ctx.jobStore.load(id);
+  const phase = job.frontmatter.current_phase ?? "unknown";
+
   const jobService = new JobService(ctx);
   jobService.abort(id);
+
+  if (message) {
+    ctx.logStore.append(id, phase, message);
+  }
+
   process.stderr.write(`ジョブを中断しました: ${id}\n`);
+}
+
+// delete: ジョブを削除する
+export function cmdDelete(ctx: ProjectContext, id: string): void {
+  ctx.jobStore.delete(id);
+  process.stderr.write(`ジョブを削除しました: ${id}\n`);
 }
 
 // update: ジョブを更新する
@@ -203,7 +217,22 @@ export function cmdUpdate(
 }
 
 // list: ジョブ一覧を表示する
-export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string; format?: "text" | "json" }): void {
+export function cmdList(ctx: ProjectContext, opts?: { status?: string; excludeStatus?: string; format?: "text" | "json" }): void {
+  if (opts?.status && opts?.excludeStatus) {
+    throw new CcsquadError("config", "--status と --exclude-status は同時に指定できません");
+  }
+
+  let includeSet: Set<string> | undefined;
+  if (opts?.status) {
+    const included = opts.status.split(",").map((s) => s.trim()).filter(Boolean);
+    for (const s of included) {
+      if (!ALL_JOB_STATUSES.includes(s as JobStatus)) {
+        throw new CcsquadError("config", `不正なステータス: ${s} (${ALL_JOB_STATUSES.join(", ")} のいずれかを指定してください)`);
+      }
+    }
+    includeSet = new Set<string>(included);
+  }
+
   let excludeSet: Set<string> | undefined;
   if (opts?.excludeStatus) {
     const excluded = opts.excludeStatus.split(",").map((s) => s.trim()).filter(Boolean);
@@ -216,7 +245,9 @@ export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string; fo
   }
 
   let jobs = ctx.jobStore.listAll();
-  if (excludeSet) {
+  if (includeSet) {
+    jobs = jobs.filter((j) => includeSet!.has(j.frontmatter.status));
+  } else if (excludeSet) {
     jobs = jobs.filter((j) => !excludeSet!.has(j.frontmatter.status));
   }
 

@@ -6,7 +6,7 @@ import { CcsquadError } from "./error.js";
 import { readFileSync } from "node:fs";
 import {
   cmdList, cmdShow, cmdCreate, cmdRun, cmdPrompt, cmdDone,
-  cmdAbort, cmdUpdate,
+  cmdAbort, cmdUpdate, cmdDelete,
   parseWorkflowInput, parseAcInput,
 } from "./cli/commands/job.js";
 import { WORKFLOW_PRESETS } from "./domain/workflow.js";
@@ -45,10 +45,11 @@ exit コード (prompt コマンド):
   simple    execute → review(human) → COMPLETE`);
 
 program.command("list").description("ジョブ一覧を表示")
+  .option("--status <statuses>", "表示するステータス (カンマ区切り、例: running,paused)")
   .option("--exclude-status <statuses>", "除外するステータス (カンマ区切り、例: completed,failed)")
   .option("--format <format>", "出力形式 (text|json)", "text")
-  .action((opts: { excludeStatus?: string; format: string }) => {
-    cmdList(createProjectContext(), { excludeStatus: opts.excludeStatus, format: opts.format === "json" ? "json" : "text" });
+  .action((opts: { status?: string; excludeStatus?: string; format: string }) => {
+    cmdList(createProjectContext(), { status: opts.status, excludeStatus: opts.excludeStatus, format: opts.format === "json" ? "json" : "text" });
   });
 
 program.command("show <id>").description("ジョブ詳細を表示")
@@ -156,8 +157,21 @@ result の値:
   });
 
 program.command("abort <id>").description("ジョブを中断 (→ aborted)")
+  .option("--message <message>", "中断理由（フェーズログに記録）")
+  .addHelpText("after", `
+例:
+  ccsquad abort J000001
+  ccsquad abort J000001 --message "方針変更のため中断"`)
+  .action((id: string, opts: { message?: string }) => {
+    cmdAbort(createProjectContext(), id, opts.message);
+  });
+
+program.command("delete <id>").description("ジョブを削除する")
+  .addHelpText("after", `
+例:
+  ccsquad delete J000001`)
   .action((id: string) => {
-    cmdAbort(createProjectContext(), id);
+    cmdDelete(createProjectContext(), id);
   });
 
 program.command("update <id>").description("ジョブを更新")
