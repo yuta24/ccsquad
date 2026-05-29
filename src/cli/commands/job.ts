@@ -17,13 +17,10 @@ export function parseWorkflowInput(input: string): WorkflowConfig {
   if (input === "-") {
     raw = readFileSync(0, "utf-8");
   } else if (!input.trimStart().startsWith("{") && !input.trimStart().startsWith("---") && !input.includes(":") && existsSync(input)) {
-    // Looks like a file path (no JSON/YAML markers and file exists)
     raw = readFileSync(input, "utf-8");
   } else if (existsSync(input)) {
-    // Ambiguous but file exists — treat as file
     raw = readFileSync(input, "utf-8");
   } else {
-    // Treat as inline JSON/YAML string
     raw = input;
   }
 
@@ -115,7 +112,6 @@ export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string; fo
       current_phase: j.frontmatter.current_phase ?? null,
       iteration: j.frontmatter.iteration,
       max_iterations: j.frontmatter.max_iterations,
-      priority: j.frontmatter.priority,
       depends_on: j.frontmatter.depends_on ?? [],
       created_at: j.frontmatter.created_at,
       updated_at: j.frontmatter.updated_at,
@@ -129,13 +125,13 @@ export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string; fo
     return;
   }
   console.log(
-    `${padRight("ID", 10)} ${padRight("タイトル", 30)} ${padRight("ステータス", 12)} ${padRight("フェーズ", 12)} ${padRight("優先度", 4)}`,
+    `${padRight("ID", 10)} ${padRight("タイトル", 30)} ${padRight("ステータス", 12)} ${padRight("フェーズ", 12)}`,
   );
-  console.log("-".repeat(70));
+  console.log("-".repeat(66));
   for (const job of jobs) {
     const fm = job.frontmatter;
     console.log(
-      `${padRight(fm.id, 10)} ${padRight(truncate(fm.title, 28), 30)} ${padRight(fm.status, 12)} ${padRight(fm.current_phase ?? "-", 12)} ${padRight(String(fm.priority), 4)}`,
+      `${padRight(fm.id, 10)} ${padRight(truncate(fm.title, 28), 30)} ${padRight(fm.status, 12)} ${padRight(fm.current_phase ?? "-", 12)}`,
     );
   }
 }
@@ -156,7 +152,6 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
       status: job.frontmatter.status,
       iteration: job.frontmatter.iteration,
       max_iterations: job.frontmatter.max_iterations,
-      priority: job.frontmatter.priority,
       depends_on: job.frontmatter.depends_on,
       acceptance_criteria: job.frontmatter.acceptance_criteria,
       created_at: job.frontmatter.created_at,
@@ -195,7 +190,6 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
       }
     }
     console.log(`イテレーション: ${fm.iteration}/${fm.max_iterations}`);
-    console.log(`優先度: ${fm.priority}`);
     if (fm.depends_on && fm.depends_on.length > 0) {
       console.log(`依存: ${fm.depends_on.join(", ")}`);
     }
@@ -214,12 +208,12 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
   }
 }
 
-export function cmdAdd(
+// init: ジョブを作成する（旧 job add）
+export function cmdInit(
   ctx: ProjectContext,
   title: string,
   workflowConfig: WorkflowConfig,
   description?: string,
-  priority: number = 0,
   dependsOn: string[] = [],
   maxIterations: number = 10,
   acceptanceCriteria?: AcceptanceCriterion[],
@@ -233,10 +227,11 @@ export function cmdAdd(
   }
 
   const jobService = new JobService(ctx);
-  const job = jobService.create(title, workflowConfig, { description, priority, dependsOn, maxIterations, acceptanceCriteria });
+  const job = jobService.create(title, workflowConfig, { description, dependsOn, maxIterations, acceptanceCriteria });
   console.log(`ジョブを作成しました: ${job.frontmatter.id}`);
 }
 
+// run: ジョブを開始する (pending → running)
 export function cmdRun(ctx: ProjectContext, id: string): void {
   const jobService = new JobService(ctx);
   const job = jobService.start(id);
@@ -244,7 +239,20 @@ export function cmdRun(ctx: ProjectContext, id: string): void {
   console.log(`ジョブを開始しました: ${id} (フェーズ: ${phase})`);
 }
 
-export function cmdTransition(ctx: ProjectContext, id: string, result: string, message: string): void {
+// next: プロンプトを stdout に出力する（読み取り専用）
+export function cmdNext(ctx: ProjectContext, id: string): void {
+  const job = ctx.jobStore.load(id);
+
+  if (job.frontmatter.status !== "running" && job.frontmatter.status !== "paused") {
+    throw new CcsquadError("job", `ジョブ '${id}' は実行中ではありません (status: ${job.frontmatter.status})`);
+  }
+
+  const logContent = ctx.logStore.read(id);
+  process.stdout.write(buildJobPrompt(job, logContent));
+}
+
+// pass: フェーズを遷移する（旧 job transition）
+export function cmdPass(ctx: ProjectContext, id: string, result: string, message: string): void {
   const jobService = new JobService(ctx);
   const condition = parseTransitionCondition(result);
   const txResult = jobService.transition(id, condition, message);
@@ -260,7 +268,7 @@ export function cmdAbort(ctx: ProjectContext, id: string): void {
 export function cmdUpdate(
   ctx: ProjectContext,
   id: string,
-  opts: { title?: string; priority?: number; description?: string; workflowConfig?: WorkflowConfig; acceptanceCriteria?: AcceptanceCriterion[] },
+  opts: { title?: string; description?: string; workflowConfig?: WorkflowConfig; acceptanceCriteria?: AcceptanceCriterion[] },
 ): void {
   const jobService = new JobService(ctx);
   const job = jobService.update(id, opts);
@@ -282,42 +290,41 @@ function buildSuggestedCommands(
   if (status === "paused" && pauseReason === "human_review") {
     return [
       `# レビュー待ち — 人間が以下を実行する`,
-      `ccsquad job transition ${id} approved  --message "承認理由"`,
-      `ccsquad job transition ${id} rejected  --message "却下理由（未達 AC と改善指示を明記）"`,
+      `ccsquad pass ${id} approved  --message "承認理由"`,
+      `ccsquad pass ${id} rejected  --message "却下理由（未達 AC と改善指示を明記）"`,
     ];
   }
 
   if (status === "paused" && pauseReason === "max_iterations") {
     return [
       `# 最大イテレーション到達 — 人間が判断する`,
-      `ccsquad job transition ${id} completed --message "完了と判断した理由"`,
-      `ccsquad job transition ${id} failed    --message "失敗と判断した理由"`,
-      `ccsquad job abort ${id}`,
+      `ccsquad pass ${id} completed --message "完了と判断した理由"`,
+      `ccsquad pass ${id} failed    --message "失敗と判断した理由"`,
+      `ccsquad abort ${id}`,
     ];
   }
 
   if (phaseType === "plan") {
     return [
-      `ccsquad job update ${id} --ac '[{"description":"基準1"},{"description":"基準2"}]'`,
-      `ccsquad job log ${id} "調査・設計の内容"`,
-      `ccsquad job transition ${id} completed --message "計画内容の要約"`,
-      `ccsquad job transition ${id} failed    --message "失敗理由"`,
+      `ccsquad update ${id} --ac '[{"description":"基準1"},{"description":"基準2"}]'`,
+      `ccsquad log ${id} "調査・設計の内容"`,
+      `ccsquad pass ${id} completed --message "計画内容の要約"`,
+      `ccsquad pass ${id} failed    --message "失敗理由"`,
     ];
   }
 
   if (phaseType === "execute") {
     return [
-      `ccsquad job log ${id} "実装内容のサマリー"`,
-      `ccsquad job transition ${id} completed --message "実装内容の要約"`,
-      `ccsquad job transition ${id} failed    --message "失敗理由"`,
+      `ccsquad log ${id} "実装内容のサマリー"`,
+      `ccsquad pass ${id} completed --message "実装内容の要約"`,
+      `ccsquad pass ${id} failed    --message "失敗理由"`,
     ];
   }
 
   // review (auto)
   return [
-    `ccsquad job log ${id} "レビュー結果のサマリー"`,
-    `ccsquad job transition ${id} approved  --message "承認理由"`,
-    `ccsquad job transition ${id} rejected  --message "却下理由（未達 AC と改善指示を明記）"`,
+    `ccsquad log ${id} "レビュー結果のサマリー"`,
+    `ccsquad pass ${id} approved  --message "承認理由"`,
+    `ccsquad pass ${id} rejected  --message "却下理由（未達 AC と改善指示を明記）"`,
   ];
 }
-

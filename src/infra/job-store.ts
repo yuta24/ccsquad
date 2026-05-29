@@ -21,7 +21,6 @@ function serializeFrontmatter(fm: JobFrontmatter): string {
   }
   obj.iteration = fm.iteration;
   obj.max_iterations = fm.max_iterations;
-  obj.priority = fm.priority;
   if ((fm.depends_on ?? []).length > 0) {
     obj.depends_on = fm.depends_on;
   }
@@ -136,9 +135,6 @@ export class JobStore {
     if (typeof raw["max_iterations"] !== "number" || !Number.isInteger(raw["max_iterations"]) || raw["max_iterations"] < 1) {
       throw new CcsquadError("serialization", `frontmatter が不正です: max_iterations は 1 以上の整数でなければなりません (値: ${raw["max_iterations"]})`);
     }
-    if (raw["priority"] !== undefined && typeof raw["priority"] !== "number") {
-      throw new CcsquadError("serialization", `frontmatter が不正です: priority は数値でなければなりません (値: ${raw["priority"]})`);
-    }
     if (raw["depends_on"] !== undefined && !Array.isArray(raw["depends_on"])) {
       throw new CcsquadError("serialization", "frontmatter が不正です: depends_on は配列でなければなりません");
     }
@@ -192,7 +188,6 @@ export class JobStore {
       pause_reason: pauseReason,
       iteration: raw["iteration"] as number,
       max_iterations: raw["max_iterations"] as number,
-      priority: (raw["priority"] as number) ?? 0,
       depends_on: (raw["depends_on"] as string[]) ?? [],
       acceptance_criteria: acceptanceCriteria,
       workflow,

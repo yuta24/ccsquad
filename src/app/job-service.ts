@@ -23,7 +23,7 @@ export class JobService {
   create(
     title: string,
     workflowConfig: WorkflowConfig,
-    opts?: { description?: string; priority?: number; dependsOn?: string[]; maxIterations?: number; acceptanceCriteria?: AcceptanceCriterion[] },
+    opts?: { description?: string; dependsOn?: string[]; maxIterations?: number; acceptanceCriteria?: AcceptanceCriterion[] },
   ): Job {
     const id = this.ctx.jobStore.nextId();
     const now = new Date().toISOString();
@@ -37,7 +37,6 @@ export class JobService {
         status: "pending",
         iteration: 0,
         max_iterations: opts?.maxIterations ?? 10,
-        priority: opts?.priority ?? 0,
         depends_on: opts?.dependsOn ?? [],
         acceptance_criteria: opts?.acceptanceCriteria ?? [],
         workflow: workflowConfig,
@@ -111,7 +110,7 @@ export class JobService {
 
   update(
     jobId: string,
-    opts: { title?: string; priority?: number; description?: string; workflowConfig?: WorkflowConfig; acceptanceCriteria?: AcceptanceCriterion[] },
+    opts: { title?: string; description?: string; workflowConfig?: WorkflowConfig; acceptanceCriteria?: AcceptanceCriterion[] },
   ): Job {
     const job = this.loadJob(jobId);
 
@@ -127,9 +126,6 @@ export class JobService {
 
     if (opts.title !== undefined) {
       job.frontmatter.title = opts.title;
-    }
-    if (opts.priority !== undefined) {
-      job.frontmatter.priority = opts.priority;
     }
     if (opts.description !== undefined) {
       job.body = replaceDescriptionSection(job.body, opts.description);

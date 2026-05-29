@@ -5,7 +5,7 @@ import { createProjectContext } from "./app/project-context.js";
 import { CcsquadError } from "./error.js";
 import { readFileSync } from "node:fs";
 import {
-  cmdList, cmdShow, cmdAdd, cmdRun, cmdTransition,
+  cmdList, cmdShow, cmdInit, cmdRun, cmdNext, cmdPass,
   cmdAbort, cmdUpdate, cmdLog,
   parseWorkflowInput, parseAcInput,
 } from "./cli/commands/job.js";
@@ -18,18 +18,19 @@ program
   .addHelpText("after", `
 基本ワークフロー:
   1. ジョブを作成する
-       ccsquad job add "タスク名" --workflow workflow.yaml
+       ccsquad init "タスク名" --workflow workflow.yaml
   2. ジョブを開始する
-       ccsquad job run <id>
-  3. 現在のフェーズと次のコマンドを確認する
-       ccsquad job show <id> --format json   # suggested_commands を確認
-  4. 作業を実施し、記録を残す
-       ccsquad job log <id> "作業内容のサマリー"
+       ccsquad run <id>
+  3. プロンプトを取得してエージェントに渡す
+       ccsquad next <id>
+       claude -p "$(ccsquad next <id>)"
+  4. 作業内容を記録する
+       ccsquad log <id> "作業内容のサマリー"
   5. フェーズを遷移する
-       ccsquad job transition <id> completed --message "要約"
+       ccsquad pass <id> completed --message "要約"
   6. レビューフェーズでは承認/却下を実行する
-       ccsquad job transition <id> approved --message "理由"
-       ccsquad job transition <id> rejected --message "理由"
+       ccsquad pass <id> approved --message "理由"
+       ccsquad pass <id> rejected --message "理由"
 
 フェーズタイプ:
   plan     調査・設計フェーズ。Acceptance Criteria を定義する
@@ -40,17 +41,14 @@ program
   completed / failed   plan・execute フェーズから遷移する
   approved / rejected  review フェーズから遷移する`);
 
-// ===== job commands =====
-const jobCmd = program.command("job").description("ジョブ管理");
-
-jobCmd.command("list").description("ジョブ一覧を表示")
+program.command("list").description("ジョブ一覧を表示")
   .option("--exclude-status <statuses>", "除外するステータス (カンマ区切り、例: completed,failed)")
   .option("--format <format>", "出力形式 (text|json)", "text")
   .action((opts: { excludeStatus?: string; format: string }) => {
     cmdList(createProjectContext(), { excludeStatus: opts.excludeStatus, format: opts.format === "json" ? "json" : "text" });
   });
 
-jobCmd.command("show <id>").description("ジョブ詳細を表示")
+program.command("show <id>").description("ジョブ詳細を表示")
   .option("--format <format>", "出力形式 (text|json|prompt)", "text")
   .addHelpText("after", `
 JSON 出力には以下のフィールドが含まれます:
@@ -61,19 +59,17 @@ prompt 出力: エージェントに渡すプロンプトを stdout に出力し
   phase-log の内容を自動的に含めます。
 
 例:
-  ccsquad job show J000001
-  ccsquad job show J000001 --format json
-  ccsquad job show J000001 --format prompt
-  claude -p "$(ccsquad job show J000001 --format prompt)"`)
+  ccsquad show J000001
+  ccsquad show J000001 --format json
+  ccsquad show J000001 --format prompt`)
   .action((id: string, opts: { format: string }) => {
     const format = opts.format === "json" ? "json" : opts.format === "prompt" ? "prompt" : "text";
     cmdShow(createProjectContext(), id, format);
   });
 
-jobCmd.command("add <title>").description("ジョブを追加")
+program.command("init <title>").description("ジョブを作成する")
   .option("--workflow <workflow>", "ワークフロー定義 (JSON/YAML 文字列、ファイルパス、または - で stdin)")
   .option("--description <description>", "説明")
-  .option("--priority <priority>", "優先度 (数値、大きいほど高優先)", "0")
   .option("--depends-on <ids>", "依存ジョブ ID (カンマ区切り、例: J000001,J000002)")
   .option("--max-iterations <n>", "最大イテレーション数 (デフォルト: 10)", "10")
   .option("--ac <ac>", "Acceptance Criteria (JSON/YAML 文字列、ファイルパス、または - で stdin)")
@@ -107,8 +103,8 @@ Acceptance Criteria の形式:
   '[{"description": "基準1"}, {"description": "基準2"}]'
 
 例:
-  ccsquad job add "機能実装" --workflow workflow.yaml --ac '["テストが通ること", "型エラーがないこと"]'`)
-  .action((title: string, opts: { workflow: string; description?: string; priority: string; dependsOn?: string; maxIterations: string; ac?: string }) => {
+  ccsquad init "機能実装" --workflow workflow.yaml --ac '["テストが通ること", "型エラーがないこと"]'`)
+  .action((title: string, opts: { workflow: string; description?: string; dependsOn?: string; maxIterations: string; ac?: string }) => {
     const ctx = createProjectContext();
 
     if (!opts.workflow) {
@@ -119,18 +115,31 @@ Acceptance Criteria の形式:
     const workflowConfig = parseWorkflowInput(opts.workflow);
     const dependsOn = opts.dependsOn ? opts.dependsOn.split(",").map((s) => s.trim()).filter(Boolean) : [];
     const ac = opts.ac ? parseAcInput(opts.ac) : undefined;
-    cmdAdd(ctx, title, workflowConfig, opts.description, parseInt(opts.priority, 10) || 0, dependsOn, parseInt(opts.maxIterations, 10) || 10, ac);
+    cmdInit(ctx, title, workflowConfig, opts.description, dependsOn, parseInt(opts.maxIterations, 10) || 10, ac);
   });
 
-jobCmd.command("run <id>").description("ジョブを開始 (pending → running)")
+program.command("run <id>").description("ジョブを開始する (pending → running)")
   .addHelpText("after", `
 例:
-  ccsquad job run J000001`)
+  ccsquad run J000001`)
   .action((id: string) => {
     cmdRun(createProjectContext(), id);
   });
 
-jobCmd.command("transition <id> <result>").description("フェーズを遷移する")
+program.command("next <id>").description("プロンプトを stdout に出力する (running / paused のみ)")
+  .addHelpText("after", `
+running / paused 状態のジョブのプロンプトを出力します。
+phase-log の内容を自動的に含めます。
+事前に ccsquad run <id> でジョブを開始してください。
+
+例:
+  ccsquad next J000001
+  claude -p "$(ccsquad next J000001)"`)
+  .action((id: string) => {
+    cmdNext(createProjectContext(), id);
+  });
+
+program.command("pass <id> <result>").description("フェーズを遷移する")
   .option("--message <message>", "遷移メッセージ (次フェーズへの引き継ぎ情報)", "")
   .addHelpText("after", `
 result の値:
@@ -145,29 +154,28 @@ result の値:
   done        ジョブ終了 (status: completed または failed)
 
 例:
-  ccsquad job transition J000001 completed --message "テスト全件パス"
-  ccsquad job transition J000001 approved  --message "LGTM"
-  ccsquad job transition J000001 rejected  --message "テストカバレッジが不足"`)
+  ccsquad pass J000001 completed --message "テスト全件パス"
+  ccsquad pass J000001 approved  --message "LGTM"
+  ccsquad pass J000001 rejected  --message "テストカバレッジが不足"`)
   .action((id: string, result: string, opts: { message: string }) => {
-    cmdTransition(createProjectContext(), id, result, opts.message);
+    cmdPass(createProjectContext(), id, result, opts.message);
   });
 
-jobCmd.command("abort <id>").description("ジョブを中断 (→ aborted)")
+program.command("abort <id>").description("ジョブを中断 (→ aborted)")
   .action((id: string) => {
     cmdAbort(createProjectContext(), id);
   });
 
-jobCmd.command("update <id>").description("ジョブを更新")
+program.command("update <id>").description("ジョブを更新")
   .option("--title <title>", "タイトル")
-  .option("--priority <priority>", "優先度")
   .option("--description <description>", "説明 (- で stdin から読み込み)")
   .option("--workflow <workflow>", "ワークフロー定義 (pending 状態のみ変更可)")
   .option("--ac <ac>", "Acceptance Criteria (JSON/YAML 文字列、ファイルパス、または - で stdin)")
   .addHelpText("after", `
 例:
-  ccsquad job update J000001 --ac '["テストが通ること", "型エラーがないこと"]'
-  ccsquad job update J000001 --description - < description.md`)
-  .action((id: string, opts: { title?: string; priority?: string; description?: string; workflow?: string; ac?: string }) => {
+  ccsquad update J000001 --ac '["テストが通ること", "型エラーがないこと"]'
+  ccsquad update J000001 --description - < description.md`)
+  .action((id: string, opts: { title?: string; description?: string; workflow?: string; ac?: string }) => {
     const ctx = createProjectContext();
 
     let description: string | undefined;
@@ -177,27 +185,26 @@ jobCmd.command("update <id>").description("ジョブを更新")
       description = opts.description;
     }
 
-    const priority = opts.priority !== undefined ? (parseInt(opts.priority, 10) || 0) : undefined;
     const workflowConfig = opts.workflow ? parseWorkflowInput(opts.workflow) : undefined;
     const acceptanceCriteria = opts.ac ? parseAcInput(opts.ac) : undefined;
 
-    if (opts.title === undefined && priority === undefined && description === undefined && workflowConfig === undefined && acceptanceCriteria === undefined) {
-      console.error("エラー: --title, --priority, --description, --workflow, --ac のいずれかを指定してください");
+    if (opts.title === undefined && description === undefined && workflowConfig === undefined && acceptanceCriteria === undefined) {
+      console.error("エラー: --title, --description, --workflow, --ac のいずれかを指定してください");
       process.exit(1);
     }
 
-    cmdUpdate(ctx, id, { title: opts.title, priority, description, workflowConfig, acceptanceCriteria });
+    cmdUpdate(ctx, id, { title: opts.title, description, workflowConfig, acceptanceCriteria });
   });
 
-jobCmd.command("log <id> <message>").description("フェーズログを記録する")
+program.command("log <id> <message>").description("フェーズログを記録する")
   .addHelpText("after", `
 フェーズログは .ccsquad/logs/<id>.md に追記されます。
 次フェーズのエージェントが前回の作業内容を把握するために使用します。
 フェーズ遷移前に作業内容・判断・成果物のサマリーを記録してください。
 
 例:
-  ccsquad job log J000001 "認証モジュールを実装。JWT 方式を採用。テスト 12 件全件パス"
-  ccsquad job log J000001 "設計完了。AC を 3 項目に絞った。既存コードとの互換性を確認済み"`)
+  ccsquad log J000001 "認証モジュールを実装。JWT 方式を採用。テスト 12 件全件パス"
+  ccsquad log J000001 "設計完了。AC を 3 項目に絞った。既存コードとの互換性を確認済み"`)
   .action((id: string, message: string) => {
     cmdLog(createProjectContext(), id, message);
   });

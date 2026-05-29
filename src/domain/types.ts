@@ -55,7 +55,6 @@ export interface JobFrontmatter {
   pause_reason?: PauseReason;
   iteration: number;
   max_iterations: number;
-  priority: number;
   depends_on: string[];
   acceptance_criteria: AcceptanceCriterion[];
   workflow: WorkflowConfig;

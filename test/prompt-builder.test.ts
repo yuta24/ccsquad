@@ -11,7 +11,7 @@ function makeJob(id: string, overrides: Partial<Job["frontmatter"]> = {}): Job {
       current_phase: "execute",
       iteration: 0,
       max_iterations: 10,
-      priority: 0,
+
       depends_on: [],
       acceptance_criteria: [],
       workflow: {

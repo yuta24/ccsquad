@@ -29,7 +29,6 @@ function makeJob(id: string, status: JobStatus): Job {
       status,
       iteration: 0,
       max_iterations: 10,
-      priority: 0,
       depends_on: [],
       acceptance_criteria: DEV_AC,
       workflow: DEV_WORKFLOW,
