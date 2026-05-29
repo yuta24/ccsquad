@@ -171,6 +171,13 @@ export class JobStore {
       throw new CcsquadError("serialization", `frontmatter が不正です: 不正な pause_reason '${pauseReason}'`);
     }
 
+    if (typeof raw["created_at"] !== "string") {
+      throw new CcsquadError("serialization", "frontmatter が不正です: created_at が文字列ではありません");
+    }
+    if (typeof raw["updated_at"] !== "string") {
+      throw new CcsquadError("serialization", "frontmatter が不正です: updated_at が文字列ではありません");
+    }
+
     // Parse workflow
     if (raw["workflow"] === undefined || raw["workflow"] === null) {
       throw new CcsquadError("serialization", "frontmatter が不正です: workflow が定義されていません");

@@ -23,7 +23,7 @@ export function buildJobPrompt(job: Job): string {
     job.body.trim() || "（内容なし）",
     ``,
     `## 手順`,
-    `1. cat .ccsquad/logs/${id}.log でフェーズログを確認（前回の記録がある場合）`,
+    `1. cat .ccsquad/logs/${id}.md でフェーズログを確認（前回の記録がある場合）`,
     `2. ccsquad job show ${id} --format json でジョブの最新状態を確認`,
     `3. phase_config.type を確認。review の場合は停止して報告`,
     `4. phase_config.agent に対応するエージェント (.claude/agents/{agent}.md) として作業を実行`,

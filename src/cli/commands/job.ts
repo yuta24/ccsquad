@@ -254,3 +254,9 @@ export function cmdUpdate(
   console.log(`ジョブを更新しました: ${job.frontmatter.id}`);
 }
 
+export function cmdLog(ctx: ProjectContext, id: string, message: string): void {
+  const job = ctx.jobStore.load(id);
+  const phase = job.frontmatter.current_phase ?? "unknown";
+  ctx.logStore.append(id, phase, message);
+}
+

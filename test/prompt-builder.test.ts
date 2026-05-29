@@ -43,7 +43,7 @@ describe("buildJobPrompt", () => {
 
   test("includes phase log reference", () => {
     const prompt = buildJobPrompt(makeJob("J000001"));
-    expect(prompt).toContain(".ccsquad/logs/J000001.log");
+    expect(prompt).toContain(".ccsquad/logs/J000001.md");
   });
 
   test("includes acceptance criteria", () => {

@@ -36,7 +36,7 @@ LLM エージェントの長時間タスクには2つの構造的な障害があ
 - フェーズ遷移のたびにコンテキストがリセットされる前提で設計する
 - ハンドオフ情報はジョブファイルに永続化:
   - `acceptance_criteria` (frontmatter) — 何を達成すべきか
-  - `.ccsquad/logs/{jobId}.md` — 何が起きたか（フェーズログ）
+  - `.ccsquad/logs/{jobId}.md` — 何が起きたか（`ccsquad job log` で書き込むフェーズログ）
 - 次フェーズのエージェントは frontmatter・body・フェーズログを読むだけで作業を継続できる状態にする
 
 ### 3. スプリント契約

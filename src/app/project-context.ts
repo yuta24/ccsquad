@@ -3,11 +3,13 @@ import { basename, join, resolve, dirname } from "node:path";
 import { JobStore } from "../infra/job-store.js";
 import { WorktreeManager } from "../infra/worktree-manager.js";
 import { ProcessRunner } from "../infra/process-runner.js";
+import { LogStore } from "../infra/log-store.js";
 
 export interface ProjectContext {
   jobStore: JobStore;
   worktreeManager: WorktreeManager;
   processRunner: ProcessRunner;
+  logStore: LogStore;
   projectRoot: string;
   squadDir: string;
   jobsDir: string;
@@ -29,6 +31,7 @@ export function createProjectContext(): ProjectContext {
     jobStore: new JobStore(jobsDir),
     worktreeManager: new WorktreeManager(projectRoot, worktreesDir),
     processRunner: new ProcessRunner(logsDir),
+    logStore: new LogStore(logsDir),
     projectRoot,
     squadDir,
     jobsDir,

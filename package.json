@@ -1,21 +1,16 @@
 {
   "name": "ccsquad",
   "version": "0.2.0",
-  "private": true,
+  "description": "ステートマシン型ワークフローエンジン CLI — Claude Code の計画→実装→評価ループを強制するハーネス",
   "type": "module",
   "bin": {
-    "ccsquad": "./src/index.ts"
+    "ccsquad": "./dist/ccsquad"
   },
   "scripts": {
     "test": "bun test",
-    "dev": "CCSQUAD_DEBUG=1 bun --preload @opentui/solid/preload run src/index.ts",
     "build": "bun build --compile src/index.ts --outfile dist/ccsquad"
   },
   "dependencies": {
-    "@opentui/solid": "^0.1.92",
-    "bun-pty": "^0.4.8",
-    "ghostty-opentui": "^1.4.10",
-    "solid-js": "^1.9.0",
     "yaml": "^2.7.0",
     "commander": "^13.0.0"
   },

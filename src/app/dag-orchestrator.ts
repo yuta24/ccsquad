@@ -151,10 +151,10 @@ export class DagOrchestrator {
   }
 
   private async startJob(jobId: string): Promise<{ handle: ProcessHandle; worktree: WorktreeInfo }> {
-    // Start the job (pending → running)
-    const job = this.ctx.jobStore.load(jobId);
+    // Start the job (pending → running), capturing the updated job returned by start()
+    let job = this.ctx.jobStore.load(jobId);
     if (job.frontmatter.status === "pending") {
-      this.jobService.start(jobId);
+      job = this.jobService.start(jobId);
     }
 
     // Create worktree — if this fails, abort the job to avoid leaving it in running state
@@ -166,7 +166,7 @@ export class DagOrchestrator {
       throw e;
     }
 
-    // Build prompt for claude
+    // Build prompt for claude using the post-start job state (current_phase is now set)
     const prompt = this.buildPrompt(job);
 
     // Spawn claude process — if this fails, clean up worktree and abort job

@@ -6,13 +6,13 @@ import { CcsquadError } from "./error.js";
 import { readFileSync } from "node:fs";
 import {
   cmdList, cmdShow, cmdAdd, cmdRun, cmdTransition,
-  cmdAbort, cmdUpdate,
+  cmdAbort, cmdUpdate, cmdLog,
   parseWorkflowInput, parseAcInput,
 } from "./cli/commands/job.js";
 import { cmdDagRun, cmdDagClean } from "./cli/commands/dag.js";
 
 const program = new Command();
-program.name("ccsquad").description("ステートマシン型ワークフローエンジン CLI");
+program.name("ccsquad").description("ステートマシン型ワークフローエンジン CLI").version("0.2.0");
 
 // ===== job commands =====
 const jobCmd = program.command("job").description("ジョブ管理");
@@ -93,6 +93,11 @@ jobCmd.command("update <id>").description("ジョブを更新")
     cmdUpdate(ctx, id, { title: opts.title, priority, description, workflowConfig, acceptanceCriteria });
   });
 
+jobCmd.command("log <id> <message>").description("フェーズログを記録")
+  .action((id: string, message: string) => {
+    cmdLog(createProjectContext(), id, message);
+  });
+
 // ===== dag commands =====
 const dagCmd = program.command("dag").description("DAG マルチジョブ並列実行");
 
@@ -119,7 +124,10 @@ try {
 } catch (e) {
   if (e instanceof CcsquadError) {
     console.error(`エラー: ${e.message}`);
-    process.exit(1);
+  } else if (e instanceof Error) {
+    console.error(`予期しないエラーが発生しました: ${e.message}`);
+  } else {
+    console.error(`予期しないエラーが発生しました: ${String(e)}`);
   }
-  throw e;
+  process.exit(1);
 }
