@@ -140,27 +140,8 @@ export class JobService {
     return job;
   }
 
-  findDependents(jobId: string): string[] {
-    const allJobs = this.ctx.jobStore.listAll();
-    return allJobs
-      .filter((j) => (j.frontmatter.depends_on ?? []).includes(jobId))
-      .map((j) => j.frontmatter.id);
-  }
-
-  list(): Job[] {
-    return this.ctx.jobStore.listAll();
-  }
-
   get(jobId: string): Job {
     return this.loadJob(jobId);
-  }
-
-  getStatus(jobId: string): { status: string; currentPhase?: string } {
-    const job = this.loadJob(jobId);
-    return {
-      status: job.frontmatter.status,
-      currentPhase: job.frontmatter.current_phase,
-    };
   }
 
   private applyDecision(

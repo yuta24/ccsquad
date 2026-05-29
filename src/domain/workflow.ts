@@ -70,17 +70,6 @@ review:
 `.trim(),
 };
 
-export function parseWorkflowPreset(name: string): WorkflowConfig {
-  const yaml = WORKFLOW_PRESETS[name];
-  if (!yaml) {
-    throw new CcsquadError(
-      "config",
-      `不明なプリセットです: ${name} (${Object.keys(WORKFLOW_PRESETS).join(", ")} のいずれかを指定してください)`,
-    );
-  }
-  return parseWorkflowObject(YAML.parse(yaml));
-}
-
 // ── Query functions ──
 
 export function initialPhase(wf: WorkflowConfig): PhaseConfig {

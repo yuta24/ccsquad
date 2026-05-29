@@ -280,36 +280,6 @@ describe("JobService (replaces WorkflowEngine)", () => {
 
 });
 
-describe("JobService.getStatus", () => {
-  it("pending ジョブのステータスを返す", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "pending"));
-
-    const result = jobService.getStatus("J000001");
-    expect(result.status).toBe("pending");
-    expect(result.currentPhase).toBeUndefined();
-  });
-
-  it("running ジョブのステータスとフェーズを返す", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "pending"));
-    jobService.start("J000001");
-
-    const result = jobService.getStatus("J000001");
-    expect(result.status).toBe("running");
-    expect(result.currentPhase).toBe("plan");
-  });
-
-  it("completed ジョブのステータスを返す", () => {
-    const { ctx, jobService } = setup();
-    ctx.jobStore.save(makeJob("J000001", "completed"));
-
-    const result = jobService.getStatus("J000001");
-    expect(result.status).toBe("completed");
-    expect(result.currentPhase).toBeUndefined();
-  });
-});
-
 describe("checkCircularDependency", () => {
   it("test_circular_dependency_detection", () => {
     const dir = mkdtempSync(join(tmpdir(), "ccsquad-circ-test-"));
