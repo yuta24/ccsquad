@@ -13,7 +13,10 @@ export interface ProcessHandle {
 export class ProcessRunner {
   private handles = new Map<string, ProcessHandle>();
 
-  constructor(private logsDir: string) {
+  constructor(
+    private logsDir: string,
+    private projectRoot: string,
+  ) {
     mkdirSync(logsDir, { recursive: true });
   }
 
@@ -30,7 +33,7 @@ export class ProcessRunner {
       stderr: Bun.file(logFile),
       env: {
         ...process.env,
-        CCSQUAD_ROOT: worktreePath,
+        CCSQUAD_ROOT: this.projectRoot,
       },
     });
 

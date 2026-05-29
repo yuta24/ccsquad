@@ -30,7 +30,7 @@ export function createProjectContext(): ProjectContext {
   return {
     jobStore: new JobStore(jobsDir),
     worktreeManager: new WorktreeManager(projectRoot, worktreesDir),
-    processRunner: new ProcessRunner(logsDir),
+    processRunner: new ProcessRunner(logsDir, projectRoot),
     logStore: new LogStore(logsDir),
     projectRoot,
     squadDir,

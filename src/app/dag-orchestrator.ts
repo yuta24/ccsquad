@@ -147,6 +147,13 @@ export class DagOrchestrator {
       }
     }
 
+    // Mark jobs that never ran (blocked by paused dependencies) as skipped
+    for (const node of nodes) {
+      if (!results.has(node.id) && !skipped.has(node.id)) {
+        results.set(node.id, { status: "skipped" });
+      }
+    }
+
     return { jobs: results, resolution, targetJobs };
   }
 
