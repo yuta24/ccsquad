@@ -10,7 +10,6 @@ import {
   cmdTransition,
   cmdAbort,
   cmdUpdate,
-  buildWorkflowConfig,
   parseWorkflowInput,
   parseAcInput,
 } from "../src/cli/commands/job.js";
@@ -133,34 +132,6 @@ describe("cmdAdd", () => {
     expect(job2.frontmatter.id).toBe("J000002");
   });
 
-  it("test_add_with_agent_creates_workflow_with_agent", () => {
-    const { ctx } = setup();
-    const wf = buildWorkflowConfig("plan:plan:planner,code:execute:coder,review:review:reviewer",
-      "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code");
-    cmdAdd(ctx, "タスク", wf);
-    const job = ctx.jobStore.load("J000001");
-    expect(job.frontmatter.workflow.phases[0].agent).toBe("planner");
-    expect(job.frontmatter.workflow.phases[1].agent).toBe("coder");
-    expect(job.frontmatter.workflow.phases[2].agent).toBe("reviewer");
-  });
-
-});
-
-// ─── buildWorkflowConfig ────────────────────────────────────────────────────
-
-describe("buildWorkflowConfig", () => {
-  it("test_rejects_invalid_phase_type", () => {
-    expect(() => buildWorkflowConfig("plan:invalid:dev", "plan:completed>COMPLETE")).toThrow();
-  });
-
-  it("test_rejects_phase_without_agent", () => {
-    expect(() => buildWorkflowConfig("plan:plan,code:execute:coder,review:review",
-      "plan:completed>code,plan:failed>ABORT,code:completed>review,code:failed>plan,review:approved>COMPLETE,review:rejected>code")).toThrow("フェーズ定義の形式が不正です");
-  });
-
-  it("test_rejects_invalid_phase_format_too_many_colons", () => {
-    expect(() => buildWorkflowConfig("plan:plan:agent:auto:extra", "plan:completed>COMPLETE")).toThrow("フェーズ定義の形式が不正です");
-  });
 });
 
 // ─── parseWorkflowInput ─────────────────────────────────────────────────────
@@ -581,14 +552,38 @@ describe("cmdShow", () => {
 
 // ─── cmdUpdate (workflow) ───────────────────────────────────────────────────
 
-const NEW_PHASES = "plan:plan:planner,code:execute:coder,test:execute:tester,review:review:reviewer";
-const NEW_TRANSITIONS = "plan:completed>code,plan:failed>ABORT,code:completed>test,code:failed>plan,test:completed>review,test:failed>code,review:approved>COMPLETE,review:rejected>code";
+const NEW_WORKFLOW_YAML = `
+plan:
+  type: plan
+  agent: planner
+  on:
+    completed: code
+    failed: ABORT
+code:
+  type: execute
+  agent: coder
+  on:
+    completed: test
+    failed: plan
+test:
+  type: execute
+  agent: tester
+  on:
+    completed: review
+    failed: code
+review:
+  type: review
+  agent: reviewer
+  on:
+    approved: COMPLETE
+    rejected: code
+`;
 
 describe("cmdUpdate workflow", () => {
   it("test_update_workflow_on_pending_job", () => {
     const { ctx } = setup();
     cmdAdd(ctx, "タスク", WORKFLOW);
-    const workflowConfig = buildWorkflowConfig(NEW_PHASES, NEW_TRANSITIONS);
+    const workflowConfig = parseWorkflowInput(NEW_WORKFLOW_YAML);
     cmdUpdate(ctx, "J000001", { workflowConfig });
     const job = ctx.jobStore.load("J000001");
     const wf = job.frontmatter.workflow;
@@ -596,7 +591,6 @@ describe("cmdUpdate workflow", () => {
     expect(wf.phases.find(p => p.agent === "coder")).toBeDefined();
     expect(wf.phases.find(p => p.agent === "tester")).toBeDefined();
     expect(wf.phases.find(p => p.agent === "reviewer")).toBeDefined();
-    // 古い定義が残っていない
     expect(wf.phases.find(p => p.agent === "developer")).toBeUndefined();
   });
 
@@ -604,14 +598,14 @@ describe("cmdUpdate workflow", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
     cmdRun(ctx, "J000001");
-    const workflowConfig = buildWorkflowConfig(NEW_PHASES, NEW_TRANSITIONS);
+    const workflowConfig = parseWorkflowInput(NEW_WORKFLOW_YAML);
     expect(() => cmdUpdate(ctx, "J000001", { workflowConfig })).toThrow("pending 状態でない");
   });
 
   it("test_update_workflow_with_title_updates_both", () => {
     const { ctx } = setup();
     cmdAdd(ctx, "旧タイトル", WORKFLOW);
-    const workflowConfig = buildWorkflowConfig(NEW_PHASES, NEW_TRANSITIONS);
+    const workflowConfig = parseWorkflowInput(NEW_WORKFLOW_YAML);
     cmdUpdate(ctx, "J000001", { title: "新タイトル", workflowConfig });
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.title).toBe("新タイトル");
@@ -621,12 +615,11 @@ describe("cmdUpdate workflow", () => {
   it("test_update_workflow_preserves_description_section", () => {
     const { ctx } = setup();
     cmdAdd(ctx, "タスク", WORKFLOW, "重要な説明文");
-    const workflowConfig = buildWorkflowConfig(NEW_PHASES, NEW_TRANSITIONS);
+    const workflowConfig = parseWorkflowInput(NEW_WORKFLOW_YAML);
     cmdUpdate(ctx, "J000001", { workflowConfig });
     const job = ctx.jobStore.load("J000001");
     expect(job.body).toContain("重要な説明文");
     expect(job.frontmatter.workflow.phases.find(p => p.agent === "tester")).toBeDefined();
-    // 古い agent 定義が残っていないこと
     expect(job.frontmatter.workflow.phases.find(p => p.agent === "developer")).toBeUndefined();
   });
 });

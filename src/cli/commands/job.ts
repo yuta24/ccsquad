@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import YAML from "yaml";
-import type { Job, JobStatus, PhaseType, TransitionCondition, WorkflowConfig, AcceptanceCriterion } from "../../domain/types.js";
-import { ALL_PHASE_TYPES, ALL_CONDITIONS, ALL_JOB_STATUSES } from "../../domain/types.js";
+import type { Job, JobStatus, WorkflowConfig, AcceptanceCriterion } from "../../domain/types.js";
+import { ALL_JOB_STATUSES } from "../../domain/types.js";
 import { getPhase, parseTransitionCondition, parseWorkflowObject } from "../../domain/workflow.js";
 import { CcsquadError } from "../../error.js";
 import type { ProjectContext } from "../../app/project-context.js";
@@ -222,63 +222,6 @@ export function cmdAdd(
   const jobService = new JobService(ctx);
   const job = jobService.create(title, workflowConfig, { description, priority, dependsOn, maxIterations, acceptanceCriteria });
   console.log(`ジョブを作成しました: ${job.frontmatter.id}`);
-}
-
-export function buildWorkflowConfig(phasesStr: string, transitionsStr: string): WorkflowConfig {
-  // Parse phases: "plan:plan:planner,code:execute:developer,review:review:reviewer"
-  // or with auto: "plan:plan:planner,code:execute:developer,review:review:reviewer:auto"
-  const phaseDefs = phasesStr.split(",").map((pair) => {
-    const trimmed = pair.trim();
-    const parts = trimmed.split(":");
-    if (parts.length < 3 || parts.length > 4) {
-      throw new CcsquadError("config", `フェーズ定義の形式が不正です: ${trimmed} (name:type:agent または name:type:agent:auto の形式で指定してください)`);
-    }
-    const name = parts[0].trim();
-    const type = parts[1].trim();
-    const agent = parts[2].trim();
-    const auto = parts.length === 4 && parts[3].trim() === "auto";
-
-    if (parts.length === 4 && parts[3].trim() !== "auto") {
-      throw new CcsquadError("config", `4 番目の部分は "auto" のみ有効です: ${parts[3].trim()}`);
-    }
-    if (!ALL_PHASE_TYPES.includes(type as PhaseType)) {
-      throw new CcsquadError("config", `不正なフェーズタイプ: ${type} (${ALL_PHASE_TYPES.join(", ")} を指定してください)`);
-    }
-    return { name, type: type as PhaseType, agent, auto };
-  });
-
-  // Parse transitions: "plan:completed>code,plan:failed>ABORT,..."
-  const transitionDefs = transitionsStr.split(",").map((item) => {
-    const trimmed = item.trim();
-    const gtIdx = trimmed.indexOf(">");
-    if (gtIdx === -1) {
-      throw new CcsquadError("config", `遷移ルールの形式が不正です: ${trimmed} (phase:condition>target の形式で指定してください)`);
-    }
-    const phaseCondition = trimmed.slice(0, gtIdx);
-    const target = trimmed.slice(gtIdx + 1).trim();
-    const colonIdx = phaseCondition.indexOf(":");
-    if (colonIdx === -1) {
-      throw new CcsquadError("config", `遷移ルールの形式が不正です: ${trimmed}`);
-    }
-    const phase = phaseCondition.slice(0, colonIdx).trim();
-    const condition = phaseCondition.slice(colonIdx + 1).trim();
-    if (!ALL_CONDITIONS.includes(condition as TransitionCondition)) {
-      throw new CcsquadError("config", `不明な遷移条件です: ${condition}`);
-    }
-    return { phase, condition: condition as TransitionCondition, target };
-  });
-
-  const phases = phaseDefs.map(({ name, type, agent, auto }) => {
-    const on: Partial<Record<TransitionCondition, string>> = {};
-    for (const t of transitionDefs) {
-      if (t.phase === name) {
-        on[t.condition] = t.target;
-      }
-    }
-    return { name, type, agent, ...(auto ? { auto } : {}), on };
-  });
-
-  return { phases };
 }
 
 export function cmdRun(ctx: ProjectContext, id: string): void {
