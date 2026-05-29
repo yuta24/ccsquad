@@ -224,8 +224,6 @@ describe("JobService (replaces WorkflowEngine)", () => {
     const job = jobService.abort("J000001");
     expect(job.frontmatter.status).toBe("aborted");
     expect(job.frontmatter.current_phase).toBeUndefined();
-    const logContent = ctx.phaseLogStore.read("J000001");
-    expect(logContent).toContain("手動中断");
   });
 
   it("test_abort_pending_job", () => {

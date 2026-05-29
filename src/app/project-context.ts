@@ -1,15 +1,11 @@
 import { mkdirSync, existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join, resolve, dirname } from "node:path";
 import { JobStore } from "../infra/job-store.js";
-import { PhaseLogStore } from "../infra/phase-log-store.js";
-import { RetrospectiveStore } from "../infra/retrospective-store.js";
 import { WorktreeManager } from "../infra/worktree-manager.js";
 import { ProcessRunner } from "../infra/process-runner.js";
 
 export interface ProjectContext {
   jobStore: JobStore;
-  phaseLogStore: PhaseLogStore;
-  retrospectiveStore: RetrospectiveStore;
   worktreeManager: WorktreeManager;
   processRunner: ProcessRunner;
   projectRoot: string;
@@ -17,7 +13,6 @@ export interface ProjectContext {
   jobsDir: string;
   worktreesDir: string;
   logsDir: string;
-  retrospectivesDir: string;
 }
 
 export function createProjectContext(): ProjectContext {
@@ -26,16 +21,12 @@ export function createProjectContext(): ProjectContext {
   const jobsDir = join(squadDir, "jobs");
   const worktreesDir = join(squadDir, "worktrees");
   const logsDir = join(squadDir, "logs");
-  const retrospectivesDir = join(squadDir, "retrospectives");
   mkdirSync(jobsDir, { recursive: true });
   mkdirSync(worktreesDir, { recursive: true });
   mkdirSync(logsDir, { recursive: true });
-  mkdirSync(retrospectivesDir, { recursive: true });
 
   return {
     jobStore: new JobStore(jobsDir),
-    phaseLogStore: new PhaseLogStore(logsDir),
-    retrospectiveStore: new RetrospectiveStore(retrospectivesDir),
     worktreeManager: new WorktreeManager(projectRoot, worktreesDir),
     processRunner: new ProcessRunner(logsDir),
     projectRoot,
@@ -43,7 +34,6 @@ export function createProjectContext(): ProjectContext {
     jobsDir,
     worktreesDir,
     logsDir,
-    retrospectivesDir,
   };
 }
 
@@ -83,8 +73,6 @@ function resolveMainRepoFromWorktree(gitPath: string): string | null {
     const match = content.match(/^gitdir:\s+(.+)$/);
     if (!match) return null;
     const gitdir = resolve(dirname(gitPath), match[1]);
-    // gitdir is typically /main-repo/.git/worktrees/{name}
-    // Walk up to find the .git directory, then its parent is the main repo root
     let d = gitdir;
     while (true) {
       const base = basename(d);

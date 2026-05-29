@@ -8,7 +8,6 @@ import type { ProjectContext } from "../../app/project-context.js";
 import { JobService, checkCircularDependency } from "../../app/job-service.js";
 import type { TransitionResult } from "../../app/job-service.js";
 import { truncate, padRight } from "../../util.js";
-import { computeMetrics, formatMetricsText, formatMetricsJson } from "../../domain/metrics.js";
 
 // Parse --workflow input: JSON/YAML string, file path, or "-" (stdin)
 export function parseWorkflowInput(input: string): WorkflowConfig {
@@ -188,8 +187,6 @@ export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string; fo
 
 export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"): void {
   const job = ctx.jobStore.load(id);
-  const logContent = ctx.phaseLogStore.read(id);
-  const metrics = computeMetrics(job, logContent);
 
   if (format === "json") {
     const output: Record<string, unknown> = {
@@ -204,7 +201,6 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
       created_at: job.frontmatter.created_at,
       updated_at: job.frontmatter.updated_at,
       body: job.body,
-      phase_log: logContent,
     };
     if (job.frontmatter.current_phase !== undefined) {
       output.current_phase = job.frontmatter.current_phase;
@@ -220,9 +216,6 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
     }
     if (job.frontmatter.pause_reason !== undefined) {
       output.pause_reason = job.frontmatter.pause_reason;
-    }
-    if (metrics) {
-      output.metrics = formatMetricsJson(metrics);
     }
     console.log(JSON.stringify(output, null, 2));
   } else {
@@ -255,18 +248,9 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
     }
     console.log(`作成日時: ${fm.created_at}`);
     console.log(`更新日時: ${fm.updated_at}`);
-    if (metrics) {
-      console.log();
-      console.log(formatMetricsText(metrics));
-    }
     if (job.body.length > 0) {
       console.log();
       process.stdout.write(job.body);
-    }
-    if (logContent.length > 0) {
-      console.log();
-      console.log("## フェーズログ");
-      process.stdout.write(logContent);
     }
   }
 }

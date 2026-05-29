@@ -3,7 +3,6 @@ import type { Job, TransitionCondition, PhaseConfig, WorkflowConfig, PauseReason
 import { getPhase, initialPhase } from "../domain/workflow.js";
 import { computeTransition } from "../domain/state-machine.js";
 import type { TransitionDecision } from "../domain/state-machine.js";
-import { buildPhaseLogEntry } from "../domain/phase-log.js";
 import { updateAcceptanceCriteria } from "../domain/acceptance-criteria.js";
 import type { ProjectContext } from "./project-context.js";
 
@@ -101,11 +100,6 @@ export class JobService {
       );
     }
 
-    if ((job.frontmatter.status === "running" || job.frontmatter.status === "paused") && job.frontmatter.current_phase !== undefined) {
-      const entry = buildPhaseLogEntry(job.frontmatter.current_phase, "aborted", "ABORT", "手動中断");
-      this.ctx.phaseLogStore.append(jobId, entry);
-    }
-
     job.frontmatter.status = "aborted";
     job.frontmatter.current_phase = undefined;
     job.frontmatter.pause_reason = undefined;
@@ -194,9 +188,6 @@ export class JobService {
       case "complete":
       case "abort": {
         const targetStatus = decision.action === "complete" ? "completed" : "failed";
-        const target = decision.action === "complete" ? "COMPLETE" : "ABORT";
-        const entry = buildPhaseLogEntry(phaseName, condition, target, message);
-        this.ctx.phaseLogStore.append(jobId, entry);
         job.frontmatter.status = targetStatus;
         job.frontmatter.current_phase = undefined;
         job.frontmatter.pause_reason = undefined;
@@ -207,8 +198,6 @@ export class JobService {
       }
 
       case "pause": {
-        const entry = buildPhaseLogEntry(phaseName, condition, decision.nextPhase, message);
-        this.ctx.phaseLogStore.append(jobId, entry);
         job.frontmatter.status = "paused";
         job.frontmatter.pause_reason = decision.reason;
         if (decision.reason === "human_review") {
@@ -226,8 +215,6 @@ export class JobService {
       }
 
       case "continue": {
-        const entry = buildPhaseLogEntry(phaseName, condition, decision.nextPhase, message);
-        this.ctx.phaseLogStore.append(jobId, entry);
         job.frontmatter.status = "running";
         job.frontmatter.current_phase = decision.nextPhase;
         job.frontmatter.pause_reason = undefined;
