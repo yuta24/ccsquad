@@ -65,15 +65,19 @@ description: |
 - イテレーション: {iteration}/{max_iterations}
 
 ## Acceptance Criteria
-{acceptance_criteria を箇条書き}
+{acceptance_criteria を箇条書き（done 状態も含む）}
 
 ## ジョブ body
 {body 全文}
 
-## 指示
+## 手順
+1. cat .ccsquad/logs/{id}.log でフェーズログを確認（前回イテレーションの記録があれば必ず読む）
+2. 上記の情報とフェーズログを踏まえて作業を実行する
+3. 結果を { result: "completed"|"failed", message: "要約" } で返す
+
+## フェーズ別指示
 - plan フェーズ: 調査・設計を行い、ccsquad job update {id} --ac '...' で Acceptance Criteria を具体化する
 - execute フェーズ: Acceptance Criteria に基づいて実装・テストを行う
-- 結果を { result: "completed"|"failed", message: "要約" } で返す
 ```
 
 ### 並列マルチエージェント（phase_config.agents）
@@ -89,7 +93,7 @@ description: |
 - イテレーション: {iteration}/{max_iterations}
 
 ## Acceptance Criteria
-{acceptance_criteria を箇条書き}
+{acceptance_criteria を箇条書き（done 状態も含む）}
 
 ## ジョブ body
 {body 全文}
@@ -98,13 +102,49 @@ description: |
 ## 追加制約
 {constraint}
 
-## 指示
+## 手順
+1. cat .ccsquad/logs/{id}.log でフェーズログを確認（前回イテレーションの記録があれば必ず読む）
+2. 上記の情報とフェーズログを踏まえて作業を実行する
+3. 結果を { result: "completed"|"failed", message: "要約" } で返す
+
+## フェーズ別指示
 - plan フェーズ: 調査・設計を行い、ccsquad job update {id} --ac '...' で Acceptance Criteria を具体化する
 - execute フェーズ: Acceptance Criteria に基づいて実装・テストを行う
-- 結果を { result: "completed"|"failed", message: "要約" } で返す
 ```
 
 **集約ルール**: 全エージェントが completed → completed、いずれかが failed → failed
+
+### auto review フェーズ（phase_config.auto = true）
+
+reviewer エージェントへのプロンプトには、以下のフォーマットで AC を評価するよう明示する。
+
+```
+以下のジョブの「{current_phase}」フェーズ（タイプ: review）をレビューしてください。
+
+## ジョブ情報
+- ID: {id}
+- タイトル: {title}
+
+## Acceptance Criteria
+{acceptance_criteria を箇条書き}
+
+## ジョブ body
+{body 全文}
+
+## 手順
+1. cat .ccsquad/logs/{id}.log でフェーズログを確認（実装内容・テスト結果の記録を読む）
+2. 各 Acceptance Criteria を検証し、以下のフォーマットで評価結果を出力する（**必須**）
+
+## 評価結果フォーマット（必ず守ること）
+各 Acceptance Criteria について、必ず以下の形式で1行ずつ出力してください:
+- [x] 基準の説明: 達成していると判断した理由
+- [ ] 基準の説明: 未達の具体的な理由（何が足りないか）
+
+3. 全体判定を approved/rejected で返す
+   - 全 AC が達成 → approved
+   - 1つでも未達 → rejected（未達の AC と改善指示を明記する）
+4. 結果を { result: "approved"|"rejected", message: "判定理由" } で返す
+```
 
 ## review 到達時の報告
 

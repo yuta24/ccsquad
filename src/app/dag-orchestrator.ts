@@ -128,7 +128,7 @@ export class DagOrchestrator {
         if (cancelled) break;
 
         // Determine result from job file status
-        const jobResult = await this.finalizeJob(completed.jobId, entry.worktree);
+        const jobResult = await this.finalizeJob(completed.jobId, entry.worktree, completed.exitCode);
 
         results.set(completed.jobId, jobResult);
         console.log(`完了: ${completed.jobId} (${jobResult.status})`);
@@ -167,7 +167,7 @@ export class DagOrchestrator {
     }
 
     // Build prompt for claude
-    const prompt = this.buildPrompt(jobId);
+    const prompt = this.buildPrompt(job);
 
     // Spawn claude process — if this fails, clean up worktree and abort job
     try {
@@ -183,6 +183,7 @@ export class DagOrchestrator {
   private async finalizeJob(
     jobId: string,
     worktree: WorktreeInfo,
+    exitCode: number,
   ): Promise<DagJobResult> {
     // Read the final job status
     const job = this.ctx.jobStore.load(jobId);
@@ -205,7 +206,8 @@ export class DagOrchestrator {
       case "paused":
         return { status: "paused", reason: job.frontmatter.pause_reason ?? "human_review" };
       case "running":
-        // Still running means process exited without completing
+        // Still running means process exited without completing the workflow
+        if (exitCode !== 0) return { status: "failed" };
         if (job.frontmatter.current_phase) {
           return { status: "paused", reason: "human_review" };
         }
@@ -215,8 +217,8 @@ export class DagOrchestrator {
     }
   }
 
-  private buildPrompt(jobId: string): string {
-    return buildJobPrompt(jobId);
+  private buildPrompt(job: Job): string {
+    return buildJobPrompt(job);
   }
 
   private buildStatusMap(

@@ -1,6 +1,6 @@
 import type { ProjectContext } from "../../app/project-context.js";
 import { DagOrchestrator } from "../../app/dag-orchestrator.js";
-import type { DagJobResult } from "../../app/dag-orchestrator.js";
+import type { DagJobResult, DagRunOptions } from "../../app/dag-orchestrator.js";
 
 export async function cmdDagRun(
   ctx: ProjectContext,
