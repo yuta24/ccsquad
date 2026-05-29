@@ -14,7 +14,11 @@ function makeJob(id: string, overrides: Partial<Job["frontmatter"]> = {}): Job {
       priority: 0,
       depends_on: [],
       acceptance_criteria: [],
-      workflow: { phases: [] },
+      workflow: {
+        phases: [
+          { name: "execute", type: "execute", agent: "developer", on: { completed: "COMPLETE", failed: "ABORT" } },
+        ],
+      },
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       ...overrides,

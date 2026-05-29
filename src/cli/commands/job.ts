@@ -162,6 +162,7 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
       const phase = getPhase(wf, job.frontmatter.current_phase);
       if (phase) {
         output.phase_config = { type: phase.type, agent: phase.agent, auto: phase.auto ?? false };
+        output.suggested_commands = buildSuggestedCommands(id, phase.type, phase.auto ?? false);
       }
     }
     if (job.frontmatter.pause_reason !== undefined) {
@@ -258,5 +259,20 @@ export function cmdLog(ctx: ProjectContext, id: string, message: string): void {
   const job = ctx.jobStore.load(id);
   const phase = job.frontmatter.current_phase ?? "unknown";
   ctx.logStore.append(id, phase, message);
+}
+
+function buildSuggestedCommands(id: string, phaseType: string, auto: boolean): string[] {
+  if (phaseType === "review") {
+    return [
+      `ccsquad job log ${id} "レビュー結果のサマリー"`,
+      `ccsquad job transition ${id} approved --message "承認理由"`,
+      `ccsquad job transition ${id} rejected --message "却下理由（未達 AC と改善指示を明記）"`,
+    ];
+  }
+  return [
+    `ccsquad job log ${id} "作業内容のサマリー"`,
+    `ccsquad job transition ${id} completed --message "完了理由"`,
+    `ccsquad job transition ${id} failed --message "失敗理由"`,
+  ];
 }
 
