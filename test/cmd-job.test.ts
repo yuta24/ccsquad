@@ -330,7 +330,7 @@ describe("cmdPrompt", () => {
   it("test_prompt_rejects_pending_job", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
-    expect(() => cmdPrompt(ctx, "J000001")).toThrow("実行中ではありません");
+    expect(() => cmdPrompt(ctx, "J000001")).toThrow("まだ開始されていません");
   });
 });
 

@@ -118,7 +118,8 @@ export class JobService {
       if (job.frontmatter.status !== "pending") {
         throw new CcsquadError(
           "job",
-          `ジョブ '${jobId}' は pending 状態でないためワークフローを変更できません (status: ${job.frontmatter.status})`,
+          `ジョブ '${jobId}' は pending 状態でないためワークフローを変更できません (status: ${job.frontmatter.status})。` +
+          `ジョブを中断して新しいジョブを作成してください: ccsquad abort ${jobId} && ccsquad create "タイトル" --workflow <新しいワークフロー>`,
         );
       }
       job.frontmatter.workflow = opts.workflowConfig;

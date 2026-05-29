@@ -89,12 +89,18 @@ function printTransitionResult(result: TransitionResult): void {
           : `ジョブが失敗しました: ${result.jobId}\n`,
       );
       break;
-    case "continue":
+    case "continue": {
       process.stderr.write(`フェーズを遷移しました: ${result.jobId} → ${result.nextPhase}\n`);
+      const cmds = buildSuggestedCommands(result.jobId, result.phaseConfig.type, "running");
+      process.stderr.write(`次のアクション:\n${cmds.map((c) => `  ${c}`).join("\n")}\n`);
       break;
-    case "pause":
+    }
+    case "pause": {
       process.stderr.write(`一時停止: ${result.jobId} → ${result.nextPhase} (${result.reason})\n`);
+      const cmds = buildSuggestedCommands(result.jobId, result.phaseConfig.type, "paused", result.reason);
+      process.stderr.write(`次のアクション:\n${cmds.map((c) => `  ${c}`).join("\n")}\n`);
       break;
+    }
   }
 }
 
@@ -154,6 +160,10 @@ export function cmdPrompt(ctx: ProjectContext, id: string): number {
       process.stderr.write(`最大イテレーション到達: 人間の判断が必要です (${id})\n`);
     }
     return 2;
+  }
+
+  if (job.frontmatter.status === "pending") {
+    throw new CcsquadError("job", `ジョブ '${id}' はまだ開始されていません。先に実行してください: ccsquad run ${id}`);
   }
 
   if (job.frontmatter.status !== "running") {
