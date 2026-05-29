@@ -1,3 +1,4 @@
+import YAML from "yaml";
 import { CcsquadError } from "../error.js";
 import type {
   WorkflowConfig,
@@ -6,6 +7,79 @@ import type {
   TransitionCondition,
 } from "./types.js";
 import { ALL_CONDITIONS, ALL_PHASE_TYPES } from "./types.js";
+
+// ── Workflow presets ──
+
+export const WORKFLOW_PRESETS: Record<string, string> = {
+  basic: `
+plan:
+  type: plan
+  agent: developer
+  on:
+    completed: execute
+    failed: ABORT
+execute:
+  type: execute
+  agent: developer
+  on:
+    completed: review
+    failed: plan
+review:
+  type: review
+  agent: reviewer
+  on:
+    approved: COMPLETE
+    rejected: execute
+`.trim(),
+
+  develop: `
+plan:
+  type: plan
+  agent: developer
+  on:
+    completed: execute
+    failed: ABORT
+execute:
+  type: execute
+  agent: developer
+  on:
+    completed: review
+    failed: plan
+review:
+  type: review
+  auto: true
+  agent: reviewer
+  on:
+    approved: COMPLETE
+    rejected: execute
+`.trim(),
+
+  simple: `
+execute:
+  type: execute
+  agent: developer
+  on:
+    completed: review
+    failed: ABORT
+review:
+  type: review
+  agent: reviewer
+  on:
+    approved: COMPLETE
+    rejected: execute
+`.trim(),
+};
+
+export function parseWorkflowPreset(name: string): WorkflowConfig {
+  const yaml = WORKFLOW_PRESETS[name];
+  if (!yaml) {
+    throw new CcsquadError(
+      "config",
+      `不明なプリセットです: ${name} (${Object.keys(WORKFLOW_PRESETS).join(", ")} のいずれかを指定してください)`,
+    );
+  }
+  return parseWorkflowObject(YAML.parse(yaml));
+}
 
 // ── Query functions ──
 

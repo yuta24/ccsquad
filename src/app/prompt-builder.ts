@@ -66,12 +66,11 @@ function buildPhaseInstructions(jobId: string, phaseConfig: PhaseConfig | undefi
       lines.push(
         `要件・技術的課題を調査・分析し、実装計画を立てます。`,
         `1. 調査・分析を行い、実装方針を決定する`,
-        `2. ccsquad job update ${jobId} --ac '[{"description":"基準1"},{"description":"基準2"}]' で Acceptance Criteria を定義する`,
-        `3. ccsquad job log ${jobId} "調査・設計の内容" で記録を残す`,
+        `2. ccsquad update ${jobId} --ac '[{"description":"基準1"},{"description":"基準2"}]' で Acceptance Criteria を定義する`,
         ``,
         `遷移:`,
-        `  ccsquad job transition ${jobId} completed --message "計画内容の要約"`,
-        `  ccsquad job transition ${jobId} failed    --message "失敗理由"`,
+        `  ccsquad done ${jobId} completed --message "計画内容の要約"`,
+        `  ccsquad done ${jobId} failed    --message "失敗理由"`,
       );
       break;
 
@@ -80,11 +79,10 @@ function buildPhaseInstructions(jobId: string, phaseConfig: PhaseConfig | undefi
         `Acceptance Criteria を全て満たすよう実装・テストを行います。`,
         `1. 各 Acceptance Criteria を確認しながら実装する`,
         `2. テストを実行して動作を確認する`,
-        `3. ccsquad job log ${jobId} "実装内容のサマリー" で記録を残す`,
         ``,
         `遷移:`,
-        `  ccsquad job transition ${jobId} completed --message "実装内容の要約"`,
-        `  ccsquad job transition ${jobId} failed    --message "失敗理由"`,
+        `  ccsquad done ${jobId} completed --message "実装内容の要約"`,
+        `  ccsquad done ${jobId} failed    --message "失敗理由"`,
       );
       break;
 
@@ -97,16 +95,16 @@ function buildPhaseInstructions(jobId: string, phaseConfig: PhaseConfig | undefi
           `  - [ ] 基準の説明: 未達の具体的な理由（何が足りないか）`,
           ``,
           `遷移:`,
-          `  ccsquad job transition ${jobId} approved  --message "承認理由"`,
-          `  ccsquad job transition ${jobId} rejected  --message "却下理由（未達 AC と改善指示を明記）"`,
+          `  ccsquad done ${jobId} approved  --message "承認理由"`,
+          `  ccsquad done ${jobId} rejected  --message "却下理由（未達 AC と改善指示を明記）"`,
         );
       } else {
         lines.push(
           `このフェーズは人間のレビューが必要です。作業を停止してユーザーに報告してください。`,
           ``,
           `ユーザーが確認後に以下を実行します:`,
-          `  ccsquad job transition ${jobId} approved  --message "承認理由"`,
-          `  ccsquad job transition ${jobId} rejected  --message "却下理由（未達 AC と改善指示を明記）"`,
+          `  ccsquad done ${jobId} approved  --message "承認理由"`,
+          `  ccsquad done ${jobId} rejected  --message "却下理由（未達 AC と改善指示を明記）"`,
         );
       }
       break;

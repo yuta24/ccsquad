@@ -3,12 +3,12 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  cmdInit,
+  cmdCreate,
   cmdList,
   cmdShow,
   cmdRun,
-  cmdNext,
-  cmdPass,
+  cmdPrompt,
+  cmdDone,
   cmdAbort,
   cmdUpdate,
   parseWorkflowInput,
@@ -57,12 +57,12 @@ function silenceStdout(): ReturnType<typeof spyOn> {
   return spyOn(process.stdout, "write").mockImplementation(() => true);
 }
 
-// ─── cmdInit ─────────────────────────────────────────────────────────────────
+// ─── cmdCreate ───────────────────────────────────────────────────────────────
 
-describe("cmdInit", () => {
-  it("test_init_creates_job_with_correct_frontmatter", () => {
+describe("cmdCreate", () => {
+  it("test_create_creates_job_with_correct_frontmatter", () => {
     const { ctx } = setup();
-    cmdInit(ctx, "新機能の実装", WORKFLOW);
+    cmdCreate(ctx, "新機能の実装", WORKFLOW);
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.id).toBe("J000001");
     expect(job.frontmatter.title).toBe("新機能の実装");
@@ -70,9 +70,9 @@ describe("cmdInit", () => {
     expect(job.frontmatter.depends_on ?? []).toEqual([]);
   });
 
-  it("test_init_creates_workflow_in_frontmatter", () => {
+  it("test_create_creates_workflow_in_frontmatter", () => {
     const { ctx } = setup();
-    cmdInit(ctx, "タスク", WORKFLOW);
+    cmdCreate(ctx, "タスク", WORKFLOW);
     const job = ctx.jobStore.load("J000001");
     const wf = job.frontmatter.workflow;
     expect(wf.phases).toHaveLength(3);
@@ -81,44 +81,59 @@ describe("cmdInit", () => {
     expect(wf.phases[2].type).toBe("review");
   });
 
-  it("test_init_with_description_sets_body", () => {
+  it("test_create_with_description_sets_body", () => {
     const { ctx } = setup();
-    cmdInit(ctx, "タスク", WORKFLOW, "詳細な説明文");
+    cmdCreate(ctx, "タスク", WORKFLOW, "詳細な説明文");
     const job = ctx.jobStore.load("J000001");
     expect(job.body).toContain("## 説明");
     expect(job.body).toContain("詳細な説明文");
   });
 
-  it("test_init_without_description_has_empty_body", () => {
+  it("test_create_without_description_has_empty_body", () => {
     const { ctx } = setup();
-    cmdInit(ctx, "タスク", WORKFLOW);
+    cmdCreate(ctx, "タスク", WORKFLOW);
     const job = ctx.jobStore.load("J000001");
     expect(job.body).not.toContain("## 説明");
   });
 
-  it("test_init_with_depends_on", () => {
+  it("test_create_with_depends_on", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "completed"));
-    cmdInit(ctx, "後続タスク", WORKFLOW, undefined, ["J000001"]);
+    cmdCreate(ctx, "後続タスク", WORKFLOW, undefined, ["J000001"]);
     const job = ctx.jobStore.load("J000002");
     expect(job.frontmatter.depends_on).toEqual(["J000001"]);
   });
 
-  it("test_init_with_max_iterations", () => {
+  it("test_create_with_max_iterations", () => {
     const { ctx } = setup();
-    cmdInit(ctx, "タスク", WORKFLOW, undefined, [], 5);
+    cmdCreate(ctx, "タスク", WORKFLOW, undefined, [], 5);
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.max_iterations).toBe(5);
   });
 
-  it("test_init_increments_id_sequentially", () => {
+  it("test_create_increments_id_sequentially", () => {
     const { ctx } = setup();
-    cmdInit(ctx, "タスク1", WORKFLOW);
-    cmdInit(ctx, "タスク2", WORKFLOW);
+    cmdCreate(ctx, "タスク1", WORKFLOW);
+    cmdCreate(ctx, "タスク2", WORKFLOW);
     const job1 = ctx.jobStore.load("J000001");
     const job2 = ctx.jobStore.load("J000002");
     expect(job1.frontmatter.id).toBe("J000001");
     expect(job2.frontmatter.id).toBe("J000002");
+  });
+
+  it("test_create_outputs_only_id_to_stdout", () => {
+    const { ctx } = setup();
+    const written: string[] = [];
+    const spy = spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+      written.push(String(chunk));
+      return true;
+    });
+    try {
+      cmdCreate(ctx, "タスク", WORKFLOW);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(written.join("").trim()).toBe("J000001");
   });
 });
 
@@ -268,10 +283,10 @@ describe("cmdRun", () => {
   });
 });
 
-// ─── cmdNext ─────────────────────────────────────────────────────────────────
+// ─── cmdPrompt ───────────────────────────────────────────────────────────────
 
-describe("cmdNext", () => {
-  it("test_next_outputs_prompt_for_running_job", () => {
+describe("cmdPrompt", () => {
+  it("test_prompt_outputs_prompt_for_running_job", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "running"));
     const written: string[] = [];
@@ -279,105 +294,118 @@ describe("cmdNext", () => {
       written.push(String(chunk));
       return true;
     });
+    let code: number;
     try {
-      cmdNext(ctx, "J000001");
+      code = cmdPrompt(ctx, "J000001");
     } finally {
       spy.mockRestore();
     }
+    expect(code!).toBe(0);
     expect(written.join("")).toContain("テスト");
   });
 
-  it("test_next_outputs_prompt_for_paused_job", () => {
+  it("test_prompt_returns_exit2_for_human_review", () => {
     const { ctx } = setup();
-    ctx.jobStore.save(makeJob("J000001", "paused"));
-    const written: string[] = [];
-    const spy = spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
-      written.push(String(chunk));
-      return true;
-    });
-    try {
-      cmdNext(ctx, "J000001");
-    } finally {
-      spy.mockRestore();
-    }
-    expect(written.join("")).toContain("テスト");
+    const job = makeJob("J000001", "paused");
+    job.frontmatter.pause_reason = "human_review";
+    ctx.jobStore.save(job);
+    const code = cmdPrompt(ctx, "J000001");
+    expect(code).toBe(2);
   });
 
-  it("test_next_rejects_pending_job", () => {
-    const { ctx } = setup();
-    ctx.jobStore.save(makeJob("J000001", "pending"));
-    expect(() => cmdNext(ctx, "J000001")).toThrow("実行中ではありません");
-  });
-
-  it("test_next_rejects_completed_job", () => {
+  it("test_prompt_returns_exit3_for_completed_job", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "completed"));
-    expect(() => cmdNext(ctx, "J000001")).toThrow("実行中ではありません");
+    const code = cmdPrompt(ctx, "J000001");
+    expect(code).toBe(3);
+  });
+
+  it("test_prompt_returns_exit3_for_failed_job", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "failed"));
+    const code = cmdPrompt(ctx, "J000001");
+    expect(code).toBe(3);
+  });
+
+  it("test_prompt_rejects_pending_job", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    expect(() => cmdPrompt(ctx, "J000001")).toThrow("実行中ではありません");
   });
 });
 
-// ─── cmdPass ─────────────────────────────────────────────────────────────────
+// ─── cmdDone ─────────────────────────────────────────────────────────────────
 
-describe("cmdPass", () => {
-  it("test_pass_completed_moves_to_next_phase", () => {
+describe("cmdDone", () => {
+  it("test_done_completed_moves_to_next_phase", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
     cmdRun(ctx, "J000001");
-    cmdPass(ctx, "J000001", "completed", "計画完了");
+    cmdDone(ctx, "J000001", "completed", "計画完了");
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.current_phase).toBe("code");
     expect(job.frontmatter.status).toBe("running");
   });
 
-  it("test_pass_to_terminal_complete", () => {
+  it("test_done_to_terminal_complete", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
     cmdRun(ctx, "J000001");
-    cmdPass(ctx, "J000001", "completed", "");
-    cmdPass(ctx, "J000001", "completed", "");
-    cmdPass(ctx, "J000001", "approved", "LGTM");
+    cmdDone(ctx, "J000001", "completed", "");
+    cmdDone(ctx, "J000001", "completed", "");
+    cmdDone(ctx, "J000001", "approved", "LGTM");
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.status).toBe("completed");
   });
 
-  it("test_pass_to_terminal_abort", () => {
+  it("test_done_to_terminal_abort", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
     cmdRun(ctx, "J000001");
-    cmdPass(ctx, "J000001", "failed", "致命的エラー");
+    cmdDone(ctx, "J000001", "failed", "致命的エラー");
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.status).toBe("failed");
     expect(job.frontmatter.current_phase).toBeUndefined();
   });
 
-  it("test_pass_approve_reviewer_phase_completes_job", () => {
+  it("test_done_approve_reviewer_phase_completes_job", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
     cmdRun(ctx, "J000001");
-    cmdPass(ctx, "J000001", "completed", "");
-    cmdPass(ctx, "J000001", "completed", "");
-    cmdPass(ctx, "J000001", "approved", "LGTM");
+    cmdDone(ctx, "J000001", "completed", "");
+    cmdDone(ctx, "J000001", "completed", "");
+    cmdDone(ctx, "J000001", "approved", "LGTM");
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.status).toBe("completed");
   });
 
-  it("test_pass_approve_rejects_non_reviewer_phase", () => {
+  it("test_done_approve_rejects_non_reviewer_phase", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
     cmdRun(ctx, "J000001");
-    expect(() => cmdPass(ctx, "J000001", "approved", "")).toThrow("通常フェーズ");
+    expect(() => cmdDone(ctx, "J000001", "approved", "")).toThrow("通常フェーズ");
   });
 
-  it("test_pass_reject_goes_back_to_code", () => {
+  it("test_done_reject_goes_back_to_code", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
     cmdRun(ctx, "J000001");
-    cmdPass(ctx, "J000001", "completed", "");
-    cmdPass(ctx, "J000001", "completed", "");
-    cmdPass(ctx, "J000001", "rejected", "テスト不足");
+    cmdDone(ctx, "J000001", "completed", "");
+    cmdDone(ctx, "J000001", "completed", "");
+    cmdDone(ctx, "J000001", "rejected", "テスト不足");
     const job = ctx.jobStore.load("J000001");
     expect(job.frontmatter.current_phase).toBe("code");
     expect(job.frontmatter.status).toBe("running");
+  });
+
+  it("test_done_with_message_records_to_log", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    cmdRun(ctx, "J000001");
+    cmdDone(ctx, "J000001", "completed", "実装完了メモ");
+    const log = ctx.logStore.read("J000001");
+    expect(log).not.toBeNull();
+    expect(log).toContain("実装完了メモ");
   });
 });
 
@@ -419,7 +447,7 @@ function captureLog(fn: () => void): string[] {
 describe("cmdList", () => {
   it("test_list_shows_correct_columns", () => {
     const { ctx } = setup();
-    cmdInit(ctx, "テストタスク", WORKFLOW);
+    cmdCreate(ctx, "テストタスク", WORKFLOW);
     const lines = captureLog(() => cmdList(ctx));
     const header = lines[0];
     expect(header).toContain("ID");
@@ -529,7 +557,7 @@ describe("cmdList", () => {
 describe("cmdShow", () => {
   it("test_show_text_format_displays_job_details", () => {
     const { ctx } = setup();
-    cmdInit(ctx, "表示テスト", WORKFLOW);
+    cmdCreate(ctx, "表示テスト", WORKFLOW);
     const lines = captureLog(() => cmdShow(ctx, "J000001", "text"));
     expect(lines.some((l) => l.includes("J000001"))).toBe(true);
     expect(lines.some((l) => l.includes("表示テスト"))).toBe(true);
@@ -612,7 +640,7 @@ review:
 describe("cmdUpdate workflow", () => {
   it("test_update_workflow_on_pending_job", () => {
     const { ctx } = setup();
-    cmdInit(ctx, "タスク", WORKFLOW);
+    cmdCreate(ctx, "タスク", WORKFLOW);
     const workflowConfig = parseWorkflowInput(NEW_WORKFLOW_YAML);
     cmdUpdate(ctx, "J000001", { workflowConfig });
     const job = ctx.jobStore.load("J000001");
@@ -634,7 +662,7 @@ describe("cmdUpdate workflow", () => {
 
   it("test_update_workflow_with_title_updates_both", () => {
     const { ctx } = setup();
-    cmdInit(ctx, "旧タイトル", WORKFLOW);
+    cmdCreate(ctx, "旧タイトル", WORKFLOW);
     const workflowConfig = parseWorkflowInput(NEW_WORKFLOW_YAML);
     cmdUpdate(ctx, "J000001", { title: "新タイトル", workflowConfig });
     const job = ctx.jobStore.load("J000001");
@@ -644,7 +672,7 @@ describe("cmdUpdate workflow", () => {
 
   it("test_update_workflow_preserves_description_section", () => {
     const { ctx } = setup();
-    cmdInit(ctx, "タスク", WORKFLOW, "重要な説明文");
+    cmdCreate(ctx, "タスク", WORKFLOW, "重要な説明文");
     const workflowConfig = parseWorkflowInput(NEW_WORKFLOW_YAML);
     cmdUpdate(ctx, "J000001", { workflowConfig });
     const job = ctx.jobStore.load("J000001");

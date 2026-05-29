@@ -5,41 +5,44 @@ import { createProjectContext } from "./app/project-context.js";
 import { CcsquadError } from "./error.js";
 import { readFileSync } from "node:fs";
 import {
-  cmdList, cmdShow, cmdInit, cmdRun, cmdNext, cmdPass,
-  cmdAbort, cmdUpdate, cmdLog,
+  cmdList, cmdShow, cmdCreate, cmdRun, cmdPrompt, cmdDone,
+  cmdAbort, cmdUpdate,
   parseWorkflowInput, parseAcInput,
 } from "./cli/commands/job.js";
+import { WORKFLOW_PRESETS } from "./domain/workflow.js";
+
+const PRESET_NAMES = Object.keys(WORKFLOW_PRESETS).join(", ");
 
 const program = new Command();
 program
   .name("ccsquad")
   .description("ステートマシン型ワークフローエンジン CLI")
-  .version("0.2.0")
+  .version("0.3.0")
   .addHelpText("after", `
 基本ワークフロー:
   1. ジョブを作成する
-       ccsquad init "タスク名" --workflow workflow.yaml
+       ID=$(ccsquad create "タスク名")
+       ccsquad create "タスク名" --workflow basic
   2. ジョブを開始する
        ccsquad run <id>
   3. プロンプトを取得してエージェントに渡す
-       ccsquad next <id>
-       claude -p "$(ccsquad next <id>)"
-  4. 作業内容を記録する
-       ccsquad log <id> "作業内容のサマリー"
-  5. フェーズを遷移する
-       ccsquad pass <id> completed --message "要約"
-  6. レビューフェーズでは承認/却下を実行する
-       ccsquad pass <id> approved --message "理由"
-       ccsquad pass <id> rejected --message "理由"
+       ccsquad prompt <id>
+       claude -p "$(ccsquad prompt <id>)"
+  4. フェーズを遷移する（ログも自動記録）
+       ccsquad done <id> completed --message "作業内容の要約"
+  5. レビューフェーズでは承認/却下を実行する
+       ccsquad done <id> approved --message "理由"
+       ccsquad done <id> rejected --message "理由"
 
-フェーズタイプ:
-  plan     調査・設計フェーズ。Acceptance Criteria を定義する
-  execute  実装・テストフェーズ。Acceptance Criteria を満たすよう実装する
-  review   レビューフェーズ。人間または自動で承認/却下を判定する
+exit コード (prompt コマンド):
+  0   プロンプト出力（実行継続）
+  2   人間レビュー待ち
+  3   ジョブ終了（completed / failed / aborted）
 
-遷移条件:
-  completed / failed   plan・execute フェーズから遷移する
-  approved / rejected  review フェーズから遷移する`);
+ワークフロープリセット:
+  basic     plan → execute → review(human) → COMPLETE
+  develop   plan → execute → review(auto)  → COMPLETE
+  simple    execute → review(human) → COMPLETE`);
 
 program.command("list").description("ジョブ一覧を表示")
   .option("--exclude-status <statuses>", "除外するステータス (カンマ区切り、例: completed,failed)")
@@ -51,12 +54,7 @@ program.command("list").description("ジョブ一覧を表示")
 program.command("show <id>").description("ジョブ詳細を表示")
   .option("--format <format>", "出力形式 (text|json|prompt)", "text")
   .addHelpText("after", `
-JSON 出力には以下のフィールドが含まれます:
-  phase_config      現在のフェーズの設定 (type, agent, auto)
-  suggested_commands  次に実行すべきコマンドの候補
-
 prompt 出力: エージェントに渡すプロンプトを stdout に出力します。
-  phase-log の内容を自動的に含めます。
 
 例:
   ccsquad show J000001
@@ -67,14 +65,23 @@ prompt 出力: エージェントに渡すプロンプトを stdout に出力し
     cmdShow(createProjectContext(), id, format);
   });
 
-program.command("init <title>").description("ジョブを作成する")
-  .option("--workflow <workflow>", "ワークフロー定義 (JSON/YAML 文字列、ファイルパス、または - で stdin)")
+program.command("create <title>").description("ジョブを作成する")
+  .option("--workflow <workflow>", `ワークフロー定義 (プリセット: ${PRESET_NAMES}、ファイルパス、または - で stdin)`, "basic")
   .option("--description <description>", "説明")
   .option("--depends-on <ids>", "依存ジョブ ID (カンマ区切り、例: J000001,J000002)")
   .option("--max-iterations <n>", "最大イテレーション数 (デフォルト: 10)", "10")
   .option("--ac <ac>", "Acceptance Criteria (JSON/YAML 文字列、ファイルパス、または - で stdin)")
   .addHelpText("after", `
-ワークフロー定義の形式 (YAML):
+stdout: ジョブ ID のみ出力 (パイプ対応)
+  ID=$(ccsquad create "タスク名")
+  ccsquad run $ID
+
+ワークフロープリセット:
+  basic     plan → execute → review(human) → COMPLETE  (デフォルト)
+  develop   plan → execute → review(auto)  → COMPLETE
+  simple    execute → review(human) → COMPLETE
+
+カスタムワークフロー (YAML):
   plan:
     type: plan
     agent: developer
@@ -85,37 +92,19 @@ program.command("init <title>").description("ジョブを作成する")
     type: execute
     agent: developer
     on:
-      completed: review
+      completed: COMPLETE
       failed: plan
-  review:
-    type: review
-    agent: reviewer
-    on:
-      approved: COMPLETE
-      rejected: code
-
-フェーズタイプ: plan / execute / review
-遷移先の特殊値: COMPLETE (ジョブ完了) / ABORT (ジョブ失敗)
-review フェーズに auto: true を設定するとエージェントが自動レビューを実行します。
-
-Acceptance Criteria の形式:
-  '["基準1", "基準2"]'
-  '[{"description": "基準1"}, {"description": "基準2"}]'
 
 例:
-  ccsquad init "機能実装" --workflow workflow.yaml --ac '["テストが通ること", "型エラーがないこと"]'`)
+  ccsquad create "機能実装"
+  ccsquad create "機能実装" --workflow develop
+  ccsquad create "機能実装" --workflow workflow.yaml --ac '["テストが通ること"]'`)
   .action((title: string, opts: { workflow: string; description?: string; dependsOn?: string; maxIterations: string; ac?: string }) => {
     const ctx = createProjectContext();
-
-    if (!opts.workflow) {
-      console.error("エラー: --workflow を指定してください");
-      process.exit(1);
-    }
-
     const workflowConfig = parseWorkflowInput(opts.workflow);
     const dependsOn = opts.dependsOn ? opts.dependsOn.split(",").map((s) => s.trim()).filter(Boolean) : [];
     const ac = opts.ac ? parseAcInput(opts.ac) : undefined;
-    cmdInit(ctx, title, workflowConfig, opts.description, dependsOn, parseInt(opts.maxIterations, 10) || 10, ac);
+    cmdCreate(ctx, title, workflowConfig, opts.description, dependsOn, parseInt(opts.maxIterations, 10) || 10, ac);
   });
 
 program.command("run <id>").description("ジョブを開始する (pending → running)")
@@ -126,21 +115,28 @@ program.command("run <id>").description("ジョブを開始する (pending → r
     cmdRun(createProjectContext(), id);
   });
 
-program.command("next <id>").description("プロンプトを stdout に出力する (running / paused のみ)")
+program.command("prompt <id>").description("現在のフェーズのプロンプトを stdout に出力する")
   .addHelpText("after", `
-running / paused 状態のジョブのプロンプトを出力します。
-phase-log の内容を自動的に含めます。
-事前に ccsquad run <id> でジョブを開始してください。
+exit コード:
+  0   プロンプト出力（実行継続）
+  2   人間レビュー待ち（review フェーズ、auto:false）
+  3   ジョブ終了（completed / failed / aborted）
 
 例:
-  ccsquad next J000001
-  claude -p "$(ccsquad next J000001)"`)
+  ccsquad prompt J000001
+  claude -p "$(ccsquad prompt J000001)"
+
+  # ループ実行
+  while ccsquad prompt $ID | claude --print -; do
+    ccsquad done $ID completed --message "完了"
+  done`)
   .action((id: string) => {
-    cmdNext(createProjectContext(), id);
+    const code = cmdPrompt(createProjectContext(), id);
+    if (code !== 0) process.exit(code);
   });
 
-program.command("pass <id> <result>").description("フェーズを遷移する")
-  .option("--message <message>", "遷移メッセージ (次フェーズへの引き継ぎ情報)", "")
+program.command("done <id> <result>").description("フェーズを遷移する（--message はフェーズログに自動記録）")
+  .option("--message <message>", "遷移メッセージ（次フェーズへの引き継ぎ情報・ログ）", "")
   .addHelpText("after", `
 result の値:
   completed   plan / execute フェーズが成功した場合
@@ -148,17 +144,15 @@ result の値:
   approved    review フェーズで承認する場合
   rejected    review フェーズで却下する場合
 
-遷移結果の type:
-  continue    次のフェーズへ自動遷移 (nextPhase に遷移先フェーズ名)
-  pause       一時停止 (reason: human_review または max_iterations)
-  done        ジョブ終了 (status: completed または failed)
+--message の内容はフェーズログに自動記録されます。
+別途 log コマンドを実行する必要はありません。
 
 例:
-  ccsquad pass J000001 completed --message "テスト全件パス"
-  ccsquad pass J000001 approved  --message "LGTM"
-  ccsquad pass J000001 rejected  --message "テストカバレッジが不足"`)
+  ccsquad done J000001 completed --message "テスト全件パス"
+  ccsquad done J000001 approved  --message "LGTM"
+  ccsquad done J000001 rejected  --message "テストカバレッジが不足"`)
   .action((id: string, result: string, opts: { message: string }) => {
-    cmdPass(createProjectContext(), id, result, opts.message);
+    cmdDone(createProjectContext(), id, result, opts.message);
   });
 
 program.command("abort <id>").description("ジョブを中断 (→ aborted)")
@@ -194,19 +188,6 @@ program.command("update <id>").description("ジョブを更新")
     }
 
     cmdUpdate(ctx, id, { title: opts.title, description, workflowConfig, acceptanceCriteria });
-  });
-
-program.command("log <id> <message>").description("フェーズログを記録する")
-  .addHelpText("after", `
-フェーズログは .ccsquad/logs/<id>.md に追記されます。
-次フェーズのエージェントが前回の作業内容を把握するために使用します。
-フェーズ遷移前に作業内容・判断・成果物のサマリーを記録してください。
-
-例:
-  ccsquad log J000001 "認証モジュールを実装。JWT 方式を採用。テスト 12 件全件パス"
-  ccsquad log J000001 "設計完了。AC を 3 項目に絞った。既存コードとの互換性を確認済み"`)
-  .action((id: string, message: string) => {
-    cmdLog(createProjectContext(), id, message);
   });
 
 // ===== entry point =====

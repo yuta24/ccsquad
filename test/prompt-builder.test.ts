@@ -33,10 +33,10 @@ describe("buildJobPrompt", () => {
     expect(prompt).toContain("J000042");
   });
 
-  test("includes ccsquad transition commands with job ID", () => {
+  test("includes ccsquad done commands with job ID", () => {
     const prompt = buildJobPrompt(makeJob("J000001"), null);
-    expect(prompt).toContain("ccsquad job transition J000001 completed");
-    expect(prompt).toContain("ccsquad job transition J000001 failed");
+    expect(prompt).toContain("ccsquad done J000001 completed");
+    expect(prompt).toContain("ccsquad done J000001 failed");
   });
 
   test("static block contains title and body", () => {
@@ -91,8 +91,8 @@ describe("buildJobPrompt", () => {
       },
     });
     const prompt = buildJobPrompt(job, null);
-    expect(prompt).toContain("ccsquad job transition J000001 approved");
-    expect(prompt).toContain("ccsquad job transition J000001 rejected");
+    expect(prompt).toContain("ccsquad done J000001 approved");
+    expect(prompt).toContain("ccsquad done J000001 rejected");
   });
 
   test("review phase (manual) instructs to stop and report", () => {

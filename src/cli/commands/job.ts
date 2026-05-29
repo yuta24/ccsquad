@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from "node:fs";
 import YAML from "yaml";
 import type { Job, JobStatus, WorkflowConfig, AcceptanceCriterion, PauseReason } from "../../domain/types.js";
 import { ALL_JOB_STATUSES } from "../../domain/types.js";
-import { getPhase, parseTransitionCondition, parseWorkflowObject } from "../../domain/workflow.js";
+import { getPhase, parseTransitionCondition, parseWorkflowObject, WORKFLOW_PRESETS } from "../../domain/workflow.js";
 import { CcsquadError } from "../../error.js";
 import type { ProjectContext } from "../../app/project-context.js";
 import { JobService, checkCircularDependency } from "../../app/job-service.js";
@@ -10,8 +10,15 @@ import type { TransitionResult } from "../../app/job-service.js";
 import { truncate, padRight } from "../../util.js";
 import { buildJobPrompt } from "../../app/prompt-builder.js";
 
-// Parse --workflow input: JSON/YAML string, file path, or "-" (stdin)
+// ── Input parsers ──
+
+// Parse --workflow input: preset name, JSON/YAML string, file path, or "-" (stdin)
 export function parseWorkflowInput(input: string): WorkflowConfig {
+  // Check preset names first
+  if (WORKFLOW_PRESETS[input]) {
+    return parseWorkflowObject(YAML.parse(WORKFLOW_PRESETS[input]));
+  }
+
   let raw: string;
 
   if (input === "-") {
@@ -71,22 +78,127 @@ export function parseAcInput(input: string): AcceptanceCriterion[] {
   });
 }
 
+// ── Output helpers ──
+
 function printTransitionResult(result: TransitionResult): void {
   switch (result.type) {
     case "done":
-      console.log(result.status === "completed"
-        ? `ジョブが完了しました: ${result.jobId}`
-        : `ジョブが失敗しました: ${result.jobId}`);
+      process.stderr.write(
+        result.status === "completed"
+          ? `ジョブが完了しました: ${result.jobId}\n`
+          : `ジョブが失敗しました: ${result.jobId}\n`,
+      );
       break;
     case "continue":
-      console.log(`フェーズを遷移しました: ${result.jobId} → ${result.nextPhase}`);
+      process.stderr.write(`フェーズを遷移しました: ${result.jobId} → ${result.nextPhase}\n`);
       break;
     case "pause":
-      console.log(`一時停止: ${result.jobId} → ${result.nextPhase} (${result.reason})`);
+      process.stderr.write(`一時停止: ${result.jobId} → ${result.nextPhase} (${result.reason})\n`);
       break;
   }
 }
 
+// ── Commands ──
+
+// create: ジョブを作成する（旧 init）
+// stdout: job ID のみ（パイプ対応）
+// stderr: 人間向けメッセージ
+export function cmdCreate(
+  ctx: ProjectContext,
+  title: string,
+  workflowConfig: WorkflowConfig,
+  description?: string,
+  dependsOn: string[] = [],
+  maxIterations: number = 10,
+  acceptanceCriteria?: AcceptanceCriterion[],
+): void {
+  if (dependsOn.length > 0) {
+    for (const depId of dependsOn) {
+      ctx.jobStore.load(depId);
+    }
+    const nextId = ctx.jobStore.nextId();
+    checkCircularDependency(ctx, nextId, dependsOn);
+  }
+
+  const jobService = new JobService(ctx);
+  const job = jobService.create(title, workflowConfig, { description, dependsOn, maxIterations, acceptanceCriteria });
+  process.stdout.write(job.frontmatter.id + "\n");
+  process.stderr.write(`作成: ${job.frontmatter.id}\n`);
+}
+
+// run: ジョブを開始する (pending → running)
+export function cmdRun(ctx: ProjectContext, id: string): void {
+  const jobService = new JobService(ctx);
+  const job = jobService.start(id);
+  const phase = job.frontmatter.current_phase ?? "?";
+  process.stderr.write(`ジョブを開始しました: ${id} (フェーズ: ${phase})\n`);
+}
+
+// prompt: 現在のフェーズのプロンプトを stdout に出力する（旧 next）
+// 戻り値: exit code
+//   0 = プロンプト出力（実行継続）
+//   2 = 人間レビュー待ち
+//   3 = ジョブ終了
+export function cmdPrompt(ctx: ProjectContext, id: string): number {
+  const job = ctx.jobStore.load(id);
+
+  if (job.frontmatter.status === "completed" || job.frontmatter.status === "failed" || job.frontmatter.status === "aborted") {
+    process.stderr.write(`ジョブ '${id}' は終了しています (status: ${job.frontmatter.status})\n`);
+    return 3;
+  }
+
+  if (job.frontmatter.status === "paused" && job.frontmatter.pause_reason === "human_review") {
+    process.stderr.write(`レビュー待ち: 人間のレビューが必要です (${id})\n`);
+    return 2;
+  }
+
+  if (job.frontmatter.status !== "running" && job.frontmatter.status !== "paused") {
+    throw new CcsquadError("job", `ジョブ '${id}' は実行中ではありません (status: ${job.frontmatter.status})`);
+  }
+
+  const logContent = ctx.logStore.read(id);
+  process.stdout.write(buildJobPrompt(job, logContent));
+  return 0;
+}
+
+// done: フェーズを遷移する（旧 pass）
+// --message はフェーズログに自動記録される（遷移成功後）
+export function cmdDone(ctx: ProjectContext, id: string, result: string, message: string): void {
+  const condition = parseTransitionCondition(result);
+
+  const job = ctx.jobStore.load(id);
+  const phase = job.frontmatter.current_phase ?? "unknown";
+
+  const jobService = new JobService(ctx);
+  const txResult = jobService.transition(id, condition, message);
+
+  // 遷移成功後にログ記録（遷移失敗時は記録しない）
+  if (message) {
+    ctx.logStore.append(id, phase, message);
+  }
+
+  printTransitionResult(txResult);
+}
+
+// abort: ジョブを中断する
+export function cmdAbort(ctx: ProjectContext, id: string): void {
+  const jobService = new JobService(ctx);
+  jobService.abort(id);
+  process.stderr.write(`ジョブを中断しました: ${id}\n`);
+}
+
+// update: ジョブを更新する
+export function cmdUpdate(
+  ctx: ProjectContext,
+  id: string,
+  opts: { title?: string; description?: string; workflowConfig?: WorkflowConfig; acceptanceCriteria?: AcceptanceCriterion[] },
+): void {
+  const jobService = new JobService(ctx);
+  const job = jobService.update(id, opts);
+  process.stderr.write(`ジョブを更新しました: ${job.frontmatter.id}\n`);
+}
+
+// list: ジョブ一覧を表示する
 export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string; format?: "text" | "json" }): void {
   let excludeSet: Set<string> | undefined;
   if (opts?.excludeStatus) {
@@ -101,7 +213,7 @@ export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string; fo
 
   let jobs = ctx.jobStore.listAll();
   if (excludeSet) {
-    jobs = jobs.filter((j) => !excludeSet.has(j.frontmatter.status));
+    jobs = jobs.filter((j) => !excludeSet!.has(j.frontmatter.status));
   }
 
   if (opts?.format === "json") {
@@ -136,6 +248,7 @@ export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string; fo
   }
 }
 
+// show: ジョブ詳細を表示する
 export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json" | "prompt"): void {
   const job = ctx.jobStore.load(id);
 
@@ -208,78 +321,20 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
   }
 }
 
-// init: ジョブを作成する（旧 job add）
-export function cmdInit(
-  ctx: ProjectContext,
-  title: string,
-  workflowConfig: WorkflowConfig,
-  description?: string,
-  dependsOn: string[] = [],
-  maxIterations: number = 10,
-  acceptanceCriteria?: AcceptanceCriterion[],
-): void {
-  if (dependsOn.length > 0) {
-    for (const depId of dependsOn) {
-      ctx.jobStore.load(depId);
-    }
-    const nextId = ctx.jobStore.nextId();
-    checkCircularDependency(ctx, nextId, dependsOn);
-  }
+// ── backward-compat aliases (deprecated) ──
 
-  const jobService = new JobService(ctx);
-  const job = jobService.create(title, workflowConfig, { description, dependsOn, maxIterations, acceptanceCriteria });
-  console.log(`ジョブを作成しました: ${job.frontmatter.id}`);
-}
-
-// run: ジョブを開始する (pending → running)
-export function cmdRun(ctx: ProjectContext, id: string): void {
-  const jobService = new JobService(ctx);
-  const job = jobService.start(id);
-  const phase = job.frontmatter.current_phase ?? "?";
-  console.log(`ジョブを開始しました: ${id} (フェーズ: ${phase})`);
-}
-
-// next: プロンプトを stdout に出力する（読み取り専用）
-export function cmdNext(ctx: ProjectContext, id: string): void {
-  const job = ctx.jobStore.load(id);
-
-  if (job.frontmatter.status !== "running" && job.frontmatter.status !== "paused") {
-    throw new CcsquadError("job", `ジョブ '${id}' は実行中ではありません (status: ${job.frontmatter.status})`);
-  }
-
-  const logContent = ctx.logStore.read(id);
-  process.stdout.write(buildJobPrompt(job, logContent));
-}
-
-// pass: フェーズを遷移する（旧 job transition）
-export function cmdPass(ctx: ProjectContext, id: string, result: string, message: string): void {
-  const jobService = new JobService(ctx);
-  const condition = parseTransitionCondition(result);
-  const txResult = jobService.transition(id, condition, message);
-  printTransitionResult(txResult);
-}
-
-export function cmdAbort(ctx: ProjectContext, id: string): void {
-  const jobService = new JobService(ctx);
-  jobService.abort(id);
-  console.log(`ジョブを中断しました: ${id}`);
-}
-
-export function cmdUpdate(
-  ctx: ProjectContext,
-  id: string,
-  opts: { title?: string; description?: string; workflowConfig?: WorkflowConfig; acceptanceCriteria?: AcceptanceCriterion[] },
-): void {
-  const jobService = new JobService(ctx);
-  const job = jobService.update(id, opts);
-  console.log(`ジョブを更新しました: ${job.frontmatter.id}`);
-}
-
-export function cmdLog(ctx: ProjectContext, id: string, message: string): void {
+/** @deprecated cmdCreate を使用してください */
+export const cmdInit = cmdCreate;
+/** @deprecated cmdDone を使用してください */
+export const cmdPass = cmdDone;
+/** @deprecated フェーズログは cmdDone --message に統合されました */
+export const cmdLog = (ctx: ProjectContext, id: string, message: string): void => {
   const job = ctx.jobStore.load(id);
   const phase = job.frontmatter.current_phase ?? "unknown";
   ctx.logStore.append(id, phase, message);
-}
+};
+
+// ── suggested commands helper ──
 
 function buildSuggestedCommands(
   id: string,
@@ -290,16 +345,16 @@ function buildSuggestedCommands(
   if (status === "paused" && pauseReason === "human_review") {
     return [
       `# レビュー待ち — 人間が以下を実行する`,
-      `ccsquad pass ${id} approved  --message "承認理由"`,
-      `ccsquad pass ${id} rejected  --message "却下理由（未達 AC と改善指示を明記）"`,
+      `ccsquad done ${id} approved  --message "承認理由"`,
+      `ccsquad done ${id} rejected  --message "却下理由（未達 AC と改善指示を明記）"`,
     ];
   }
 
   if (status === "paused" && pauseReason === "max_iterations") {
     return [
       `# 最大イテレーション到達 — 人間が判断する`,
-      `ccsquad pass ${id} completed --message "完了と判断した理由"`,
-      `ccsquad pass ${id} failed    --message "失敗と判断した理由"`,
+      `ccsquad done ${id} completed --message "完了と判断した理由"`,
+      `ccsquad done ${id} failed    --message "失敗と判断した理由"`,
       `ccsquad abort ${id}`,
     ];
   }
@@ -307,24 +362,24 @@ function buildSuggestedCommands(
   if (phaseType === "plan") {
     return [
       `ccsquad update ${id} --ac '[{"description":"基準1"},{"description":"基準2"}]'`,
-      `ccsquad log ${id} "調査・設計の内容"`,
-      `ccsquad pass ${id} completed --message "計画内容の要約"`,
-      `ccsquad pass ${id} failed    --message "失敗理由"`,
+      `ccsquad done ${id} completed --message "計画内容の要約"`,
+      `ccsquad done ${id} failed    --message "失敗理由"`,
     ];
   }
 
   if (phaseType === "execute") {
     return [
-      `ccsquad log ${id} "実装内容のサマリー"`,
-      `ccsquad pass ${id} completed --message "実装内容の要約"`,
-      `ccsquad pass ${id} failed    --message "失敗理由"`,
+      `ccsquad done ${id} completed --message "実装内容の要約"`,
+      `ccsquad done ${id} failed    --message "失敗理由"`,
     ];
   }
 
   // review (auto)
   return [
-    `ccsquad log ${id} "レビュー結果のサマリー"`,
-    `ccsquad pass ${id} approved  --message "承認理由"`,
-    `ccsquad pass ${id} rejected  --message "却下理由（未達 AC と改善指示を明記）"`,
+    `ccsquad done ${id} approved  --message "承認理由"`,
+    `ccsquad done ${id} rejected  --message "却下理由（未達 AC と改善指示を明記）"`,
   ];
 }
+
+// ── Type exports (for tests) ──
+export type { Job, JobStatus };
