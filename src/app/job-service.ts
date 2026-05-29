@@ -230,9 +230,9 @@ export class JobService {
 
 function replaceDescriptionSection(body: string, description: string): string {
   const newSection = `## 説明\n${description}\n`;
-  // Match "## 説明" at line start, then everything until the next "## " heading or end of string.
-  // Do NOT use the m flag — $ must match end of string, not end of line.
-  const existing = /^## 説明\n[\s\S]*?(?=\n## )|^## 説明\n[\s\S]*$/;
+  // Match "## 説明" at line start (m flag), then everything until the next "## " heading or end of string.
+  // Omit $ in the fallback branch — [\s\S]* is already greedy to end of string.
+  const existing = /^## 説明\n[\s\S]*?(?=\n## )|^## 説明\n[\s\S]*/m;
   if (existing.test(body)) {
     return body.replace(existing, newSection.trimEnd());
   }

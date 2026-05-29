@@ -147,12 +147,16 @@ export function cmdPrompt(ctx: ProjectContext, id: string): number {
     return 3;
   }
 
-  if (job.frontmatter.status === "paused" && job.frontmatter.pause_reason === "human_review") {
-    process.stderr.write(`レビュー待ち: 人間のレビューが必要です (${id})\n`);
+  if (job.frontmatter.status === "paused") {
+    if (job.frontmatter.pause_reason === "human_review") {
+      process.stderr.write(`レビュー待ち: 人間のレビューが必要です (${id})\n`);
+    } else {
+      process.stderr.write(`最大イテレーション到達: 人間の判断が必要です (${id})\n`);
+    }
     return 2;
   }
 
-  if (job.frontmatter.status !== "running" && job.frontmatter.status !== "paused") {
+  if (job.frontmatter.status !== "running") {
     throw new CcsquadError("job", `ジョブ '${id}' は実行中ではありません (status: ${job.frontmatter.status})`);
   }
 

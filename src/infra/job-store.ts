@@ -176,7 +176,10 @@ export class JobStore {
 
     // Parse workflow
     if (raw["workflow"] === undefined || raw["workflow"] === null) {
-      throw new CcsquadError("serialization", "frontmatter が不正です: workflow が定義されていません");
+      throw new CcsquadError(
+        "serialization",
+        `frontmatter が不正です: workflow が定義されていません。このファイルは旧フォーマット (v0.2.0 以前) の可能性があります。新しいジョブを作成してください`,
+      );
     }
     const workflow = parseWorkflowObject(raw["workflow"]);
 
