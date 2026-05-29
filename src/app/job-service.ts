@@ -228,13 +228,13 @@ export class JobService {
   }
 }
 
-function replaceDescriptionSection(body: string, description: string): string {
+export function replaceDescriptionSection(body: string, description: string): string {
   const newSection = `## 説明\n${description}\n`;
-  // Match "## 説明" at line start (m flag), then everything until the next "## " heading or end of string.
-  // Omit $ in the fallback branch — [\s\S]* is already greedy to end of string.
-  const existing = /^## 説明\n[\s\S]*?(?=\n## )|^## 説明\n[\s\S]*/m;
+  // ^## with m flag matches line start; (?=^## ) lookahead stops at the next heading's line start,
+  // so the match always includes its trailing \n. Fallback branch greedily matches to end of string.
+  const existing = /^## 説明\n[\s\S]*?(?=^## )|^## 説明\n[\s\S]*/m;
   if (existing.test(body)) {
-    return body.replace(existing, newSection.trimEnd());
+    return body.replace(existing, newSection);
   }
   return newSection + body;
 }
