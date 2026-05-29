@@ -4,7 +4,6 @@ import type {
   PhaseConfig,
   PhaseType,
   TransitionCondition,
-  AgentSpec,
 } from "./types.js";
 import { ALL_CONDITIONS, ALL_PHASE_TYPES } from "./types.js";
 
@@ -81,35 +80,10 @@ export function parseWorkflowObject(parsed: unknown): WorkflowConfig {
       throw new CcsquadError("workflow", `不正なフェーズタイプ: ${type} (${ALL_PHASE_TYPES.join(", ")} を指定してください)`);
     }
 
-    const agent = entry.agent != null ? String(entry.agent) : undefined;
-
-    let agents: AgentSpec[] | undefined;
-    const agentsRaw = entry.agents;
-    if (agent == null && agentsRaw == null) {
-      throw new CcsquadError("workflow", `フェーズ '${name}': agent または agents を指定してください`);
+    if (entry.agent == null) {
+      throw new CcsquadError("workflow", `フェーズ '${name}': agent を指定してください`);
     }
-    if (agentsRaw != null) {
-      if (agent != null) {
-        throw new CcsquadError("workflow", `フェーズ '${name}': agent と agents は同時に指定できません`);
-      }
-      if (!Array.isArray(agentsRaw)) {
-        throw new CcsquadError("workflow", `フェーズ '${name}': agents は配列で指定してください`);
-      }
-      if (agentsRaw.length < 2) {
-        throw new CcsquadError("workflow", `フェーズ '${name}': agents は 2 件以上指定してください（1 件の場合は agent を使用してください）`);
-      }
-      agents = agentsRaw.map((item: unknown, i: number) => {
-        if (typeof item === "string") return { agent: item };
-        if (typeof item !== "object" || item === null || typeof (item as Record<string, unknown>).agent !== "string") {
-          throw new CcsquadError("workflow", `フェーズ '${name}': agents[${i}] は { agent: string, constraint?: string } で指定してください`);
-        }
-        const spec = item as Record<string, unknown>;
-        return {
-          agent: String(spec.agent),
-          ...(spec.constraint != null ? { constraint: String(spec.constraint) } : {}),
-        };
-      });
-    }
+    const agent = String(entry.agent);
 
     const auto = entry.auto === true ? true : undefined;
 
@@ -126,7 +100,7 @@ export function parseWorkflowObject(parsed: unknown): WorkflowConfig {
       on[cond as TransitionCondition] = String(target);
     }
 
-    phases.push({ name, type: type as PhaseType, ...(agent ? { agent } : {}), ...(agents ? { agents } : {}), ...(auto ? { auto } : {}), on });
+    phases.push({ name, type: type as PhaseType, agent, ...(auto ? { auto } : {}), on });
   }
 
   if (phases.length === 0) {

@@ -6,10 +6,10 @@ import { CcsquadError } from "./error.js";
 import { readFileSync } from "node:fs";
 import {
   cmdList, cmdShow, cmdAdd, cmdRun, cmdTransition,
-  cmdAbort, cmdTree, cmdUpdate,
+  cmdAbort, cmdUpdate,
   buildWorkflowConfig, parseWorkflowInput, parseAcInput,
 } from "./cli/commands/job.js";
-import { cmdDagRun, cmdDagResume, cmdDagStatus, cmdDagClean } from "./cli/commands/dag.js";
+import { cmdDagRun, cmdDagClean } from "./cli/commands/dag.js";
 
 const program = new Command();
 program.name("ccsquad").description("ステートマシン型ワークフローエンジン CLI");
@@ -81,12 +81,6 @@ jobCmd.command("abort <id>").description("ジョブを中断").action((id: strin
   cmdAbort(createProjectContext(), id);
 });
 
-jobCmd.command("tree").description("ジョブ依存関係をツリー表示")
-  .option("--format <format>", "出力形式 (text|json)", "text")
-  .action((opts: { format: string }) => {
-    cmdTree(createProjectContext(), opts.format === "json" ? "json" : "text");
-  });
-
 jobCmd.command("update <id>").description("ジョブを更新")
   .option("--title <title>", "タイトル")
   .option("--priority <priority>", "優先度")
@@ -148,22 +142,6 @@ dagCmd.command("run [ids...]").description("DAG 並列実行")
       noCascade: !opts.cascade,
       dryRun: opts.dryRun ?? false,
     });
-  });
-
-dagCmd.command("resume [ids...]").description("一時停止中のジョブを再開")
-  .option("--max-concurrency <n>", "最大同時実行数", "4")
-  .option("--no-cascade", "上流失敗時に依存ジョブを自動スキップしない")
-  .action(async (ids: string[], opts: { maxConcurrency: string; cascade: boolean }) => {
-    await cmdDagResume(createProjectContext(), ids, {
-      maxConcurrency: parseInt(opts.maxConcurrency, 10) || 4,
-      noCascade: !opts.cascade,
-    });
-  });
-
-dagCmd.command("status").description("DAG 実行状態を表示")
-  .option("--format <format>", "出力形式 (text|json)", "text")
-  .action(async (opts: { format: string }) => {
-    await cmdDagStatus(createProjectContext(), opts.format === "json" ? "json" : "text");
   });
 
 dagCmd.command("clean").description("孤立 worktree のクリーンアップ")

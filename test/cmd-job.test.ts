@@ -144,36 +144,6 @@ describe("cmdAdd", () => {
     expect(job.frontmatter.workflow.phases[2].agent).toBe("reviewer");
   });
 
-  it("test_add_with_multi_agent_creates_agents_in_workflow", () => {
-    const { ctx } = setup();
-    const wf = buildWorkflowConfig("explore:plan:dev1+dev2,review:review:reviewer",
-      "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
-    cmdAdd(ctx, "タスク", wf);
-    const job = ctx.jobStore.load("J000001");
-    expect(job.frontmatter.workflow.phases[0].agents).toHaveLength(2);
-    expect(job.frontmatter.workflow.phases[0].agents![0].agent).toBe("dev1");
-    expect(job.frontmatter.workflow.phases[0].agents![1].agent).toBe("dev2");
-  });
-
-  it("test_add_with_multi_agent_and_constraint", () => {
-    const { ctx } = setup();
-    const wf = buildWorkflowConfig("explore:plan:dev[類似機能の調査]+dev[アーキテクチャの調査],review:review:reviewer",
-      "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
-    cmdAdd(ctx, "タスク", wf);
-    const job = ctx.jobStore.load("J000001");
-    expect(job.frontmatter.workflow.phases[0].agents![0].constraint).toBe("類似機能の調査");
-    expect(job.frontmatter.workflow.phases[0].agents![1].constraint).toBe("アーキテクチャの調査");
-  });
-
-  it("test_add_with_multi_agent_mixed_constraint", () => {
-    const { ctx } = setup();
-    const wf = buildWorkflowConfig("explore:plan:dev[調査]+dev,review:review:reviewer",
-      "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore");
-    cmdAdd(ctx, "タスク", wf);
-    const job = ctx.jobStore.load("J000001");
-    expect(job.frontmatter.workflow.phases[0].agents![0].constraint).toBe("調査");
-    expect(job.frontmatter.workflow.phases[0].agents![1].constraint).toBeUndefined();
-  });
 });
 
 // ─── buildWorkflowConfig ────────────────────────────────────────────────────
@@ -190,11 +160,6 @@ describe("buildWorkflowConfig", () => {
 
   it("test_rejects_invalid_phase_format_too_many_colons", () => {
     expect(() => buildWorkflowConfig("plan:plan:agent:auto:extra", "plan:completed>COMPLETE")).toThrow("フェーズ定義の形式が不正です");
-  });
-
-  it("test_rejects_unclosed_bracket_in_constraint", () => {
-    expect(() => buildWorkflowConfig("explore:plan:dev[unclosed+dev,review:review:reviewer",
-      "explore:completed>review,explore:failed>ABORT,review:approved>COMPLETE,review:rejected>explore")).toThrow("閉じ括弧");
   });
 });
 

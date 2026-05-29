@@ -62,7 +62,7 @@ describe("parseWorkflowObject", () => {
 
   it("agent 省略時はエラーをスローする", () => {
     const obj = { plan: { type: "plan", on: { completed: "COMPLETE" } } };
-    expect(() => parseWorkflowObject(obj)).toThrow("agent または agents を指定してください");
+    expect(() => parseWorkflowObject(obj)).toThrow("agent を指定してください");
   });
 
   it("auto キーワードをパースする", () => {
@@ -83,46 +83,6 @@ describe("parseWorkflowObject", () => {
     const wf = parseWorkflowObject(obj);
     expect(wf.phases[0].agent).toBe("my-reviewer");
     expect(wf.phases[0].auto).toBe(true);
-  });
-
-  it("agents (マルチエージェント) をパースする", () => {
-    const obj = {
-      explore: {
-        type: "plan",
-        agents: [
-          { agent: "explorer", constraint: "類似機能の調査" },
-          { agent: "explorer", constraint: "アーキテクチャの調査" },
-        ],
-        on: { completed: "COMPLETE", failed: "ABORT" },
-      },
-    };
-    const wf = parseWorkflowObject(obj);
-    expect(wf.phases[0].agents).toHaveLength(2);
-    expect(wf.phases[0].agents![0].agent).toBe("explorer");
-    expect(wf.phases[0].agents![0].constraint).toBe("類似機能の調査");
-  });
-
-  it("agents が 1 件の場合エラーをスローする", () => {
-    const obj = {
-      explore: {
-        type: "plan",
-        agents: [{ agent: "explorer" }],
-        on: { completed: "COMPLETE" },
-      },
-    };
-    expect(() => parseWorkflowObject(obj)).toThrow("2 件以上");
-  });
-
-  it("agent と agents を同時に指定するとエラーをスローする", () => {
-    const obj = {
-      explore: {
-        type: "plan",
-        agent: "dev",
-        agents: [{ agent: "explorer" }, { agent: "explorer" }],
-        on: { completed: "COMPLETE" },
-      },
-    };
-    expect(() => parseWorkflowObject(obj)).toThrow("同時に指定できません");
   });
 });
 
