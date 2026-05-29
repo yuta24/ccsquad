@@ -170,5 +170,17 @@ export function parseWorkflowObject(parsed: unknown): WorkflowConfig {
     throw new CcsquadError("workflow", "workflow にフェーズが定義されていません");
   }
 
+  const phaseNames = new Set(phases.map((p) => p.name));
+  for (const phase of phases) {
+    for (const target of Object.values(phase.on)) {
+      if (target !== "COMPLETE" && target !== "ABORT" && !phaseNames.has(target)) {
+        throw new CcsquadError(
+          "workflow",
+          `フェーズ '${phase.name}' の遷移先 '${target}' は存在しないフェーズです`,
+        );
+      }
+    }
+  }
+
   return { phases };
 }

@@ -1,5 +1,68 @@
-import { describe, it, expect } from "bun:test";
-import { replaceDescriptionSection } from "../../src/app/job-service.js";
+import { describe, it, expect, afterEach } from "bun:test";
+import { rmSync } from "node:fs";
+import { replaceDescriptionSection, JobService } from "../../src/app/job-service.js";
+import { CcsquadError } from "../../src/error.js";
+import { createTestContext } from "../helpers.js";
+import { parseWorkflowObject } from "../../src/domain/workflow.js";
+import type { ProjectContext } from "../../src/app/project-context.js";
+
+const BASIC_WF = parseWorkflowObject({
+  plan: { type: "plan", agent: "developer", on: { completed: "execute", failed: "ABORT" } },
+  execute: { type: "execute", agent: "developer", on: { completed: "review", failed: "plan" } },
+  review: { type: "review", agent: "reviewer", on: { approved: "COMPLETE", rejected: "execute" } },
+});
+
+describe("JobService.start — 依存関係チェック", () => {
+  let ctx: ProjectContext;
+
+  afterEach(() => {
+    rmSync(ctx.projectRoot, { recursive: true, force: true });
+  });
+
+  it("依存先が aborted のとき start でエラーになる", () => {
+    ctx = createTestContext();
+    const svc = new JobService(ctx);
+    const dep = svc.create("依存先", BASIC_WF);
+    dep.frontmatter.status = "aborted";
+    ctx.jobStore.save(dep);
+
+    const child = svc.create("子ジョブ", BASIC_WF, { dependsOn: [dep.frontmatter.id] });
+    expect(() => svc.start(child.frontmatter.id)).toThrow(CcsquadError);
+  });
+
+  it("依存先が failed のとき start でエラーになる", () => {
+    ctx = createTestContext();
+    const svc = new JobService(ctx);
+    const dep = svc.create("依存先", BASIC_WF);
+    dep.frontmatter.status = "failed";
+    ctx.jobStore.save(dep);
+
+    const child = svc.create("子ジョブ", BASIC_WF, { dependsOn: [dep.frontmatter.id] });
+    expect(() => svc.start(child.frontmatter.id)).toThrow(CcsquadError);
+  });
+
+  it("依存先が aborted のとき、エラーメッセージに delete コマンドが含まれる", () => {
+    ctx = createTestContext();
+    const svc = new JobService(ctx);
+    const dep = svc.create("依存先", BASIC_WF);
+    dep.frontmatter.status = "aborted";
+    ctx.jobStore.save(dep);
+
+    const child = svc.create("子ジョブ", BASIC_WF, { dependsOn: [dep.frontmatter.id] });
+    expect(() => svc.start(child.frontmatter.id)).toThrow(/ccsquad delete/);
+  });
+
+  it("依存先が completed なら start できる", () => {
+    ctx = createTestContext();
+    const svc = new JobService(ctx);
+    const dep = svc.create("依存先", BASIC_WF);
+    dep.frontmatter.status = "completed";
+    ctx.jobStore.save(dep);
+
+    const child = svc.create("子ジョブ", BASIC_WF, { dependsOn: [dep.frontmatter.id] });
+    expect(() => svc.start(child.frontmatter.id)).not.toThrow();
+  });
+});
 
 describe("replaceDescriptionSection", () => {
   it("既存の ## 説明 セクションを置換する", () => {

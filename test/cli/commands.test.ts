@@ -138,6 +138,25 @@ describe("cmdDelete", () => {
     cmdRun(ctx, id);
     expect(() => cmdDelete(ctx, id)).not.toThrow();
   });
+
+  it("削除時にログファイルも一緒に削除される", () => {
+    cmdCreate(ctx, "テスト", BASIC_WF);
+    const id = ctx.jobStore.listAll()[0].frontmatter.id;
+    cmdRun(ctx, id);
+    // ログを書き込んでから削除
+    ctx.logStore.append(id, "plan", "テストログ");
+    const logPath = ctx.logStore.logPath(id);
+    expect(existsSync(logPath)).toBe(true);
+
+    cmdDelete(ctx, id);
+    expect(existsSync(logPath)).toBe(false);
+  });
+
+  it("ログなしのジョブを削除してもエラーにならない", () => {
+    cmdCreate(ctx, "テスト", BASIC_WF);
+    const id = ctx.jobStore.listAll()[0].frontmatter.id;
+    expect(() => cmdDelete(ctx, id)).not.toThrow();
+  });
 });
 
 // ── list --status ──

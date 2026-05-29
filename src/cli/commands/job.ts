@@ -212,6 +212,7 @@ export function cmdAbort(ctx: ProjectContext, id: string, message?: string): voi
 // delete: ジョブを削除する
 export function cmdDelete(ctx: ProjectContext, id: string): void {
   ctx.jobStore.delete(id);
+  ctx.logStore.delete(id);
   process.stderr.write(`ジョブを削除しました: ${id}\n`);
 }
 

@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { CcsquadError } from "../error.js";
 
@@ -30,6 +30,16 @@ export class LogStore {
       return readFileSync(path, "utf-8");
     } catch (e) {
       throw new CcsquadError("io", `ログ読み込みエラー: ${e}`);
+    }
+  }
+
+  delete(jobId: string): void {
+    const path = join(this.logsDir, `${jobId}.md`);
+    if (!existsSync(path)) return;
+    try {
+      unlinkSync(path);
+    } catch (e) {
+      throw new CcsquadError("io", `ログ削除エラー: ${e}`);
     }
   }
 

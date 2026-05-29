@@ -78,7 +78,7 @@ describe("parseWorkflowObject", () => {
 
   it("agent と auto の両方を指定できる", () => {
     const obj = {
-      review: { type: "review", agent: "my-reviewer", auto: true, on: { approved: "COMPLETE", rejected: "code" } },
+      review: { type: "review", agent: "my-reviewer", auto: true, on: { approved: "COMPLETE", rejected: "ABORT" } },
     };
     const wf = parseWorkflowObject(obj);
     expect(wf.phases[0].agent).toBe("my-reviewer");

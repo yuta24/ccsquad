@@ -35,7 +35,7 @@ describe("parseWorkflowObject", () => {
 
   it("auto フィールドをパースする", () => {
     const obj = {
-      review: { type: "review", agent: "reviewer", auto: true, on: { approved: "COMPLETE", rejected: "execute" } },
+      review: { type: "review", agent: "reviewer", auto: true, on: { approved: "COMPLETE", rejected: "ABORT" } },
     };
     const wf = parseWorkflowObject(obj);
     expect(wf.phases[0].auto).toBe(true);
@@ -71,6 +71,28 @@ describe("parseWorkflowObject", () => {
 
   it("null を渡した場合はエラー", () => {
     expect(() => parseWorkflowObject(null)).toThrow("workflow はオブジェクトで指定してください");
+  });
+
+  it("遷移先に存在しないフェーズ名を指定するとエラー", () => {
+    const obj = {
+      plan: { type: "plan", agent: "developer", on: { completed: "typo-phase", failed: "ABORT" } },
+    };
+    expect(() => parseWorkflowObject(obj)).toThrow("存在しないフェーズです");
+  });
+
+  it("遷移先が COMPLETE/ABORT の場合はフェーズチェックをしない", () => {
+    const obj = {
+      plan: { type: "plan", agent: "developer", on: { completed: "COMPLETE", failed: "ABORT" } },
+    };
+    expect(() => parseWorkflowObject(obj)).not.toThrow();
+  });
+
+  it("複数フェーズで遷移先が存在しないフェーズを参照するとエラー", () => {
+    const obj = {
+      plan: { type: "plan", agent: "developer", on: { completed: "execute", failed: "ABORT" } },
+      execute: { type: "execute", agent: "developer", on: { completed: "nonexistent", failed: "plan" } },
+    };
+    expect(() => parseWorkflowObject(obj)).toThrow("'nonexistent' は存在しないフェーズです");
   });
 });
 

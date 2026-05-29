@@ -61,6 +61,13 @@ export class JobService {
 
     for (const depId of job.frontmatter.depends_on) {
       const dep = this.loadJob(depId);
+      if (dep.frontmatter.status === "aborted" || dep.frontmatter.status === "failed") {
+        throw new CcsquadError(
+          "job",
+          `依存ジョブ '${depId}' が ${dep.frontmatter.status} 状態のため実行できません。` +
+          `このジョブを削除して依存関係を修正してください: ccsquad delete ${jobId}`,
+        );
+      }
       if (dep.frontmatter.status !== "completed") {
         throw new CcsquadError(
           "job",
