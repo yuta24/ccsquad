@@ -10,8 +10,7 @@ import {
   buildWorkflowConfig, parseWorkflowInput, parseAcInput,
 } from "./cli/commands/job.js";
 import { cmdDagRun, cmdDagResume, cmdDagStatus, cmdDagClean } from "./cli/commands/dag.js";
-import { cmdRetroRun, cmdRetroShow, cmdRetroList, cmdRetroApply } from "./cli/commands/retro.js";
-import { cmdOptimizeAnalyze, cmdOptimizeSuggest } from "./cli/commands/optimize.js";
+import { cmdRetroRun, cmdRetroShow, cmdRetroList } from "./cli/commands/retro.js";
 
 const program = new Command();
 program.name("ccsquad").description("ステートマシン型ワークフローエンジン CLI");
@@ -188,40 +187,10 @@ retroCmd.command("show <id>").description("保存済み振り返りを表示す�
     cmdRetroShow(createProjectContext(), id, opts.format === "json" ? "json" : "text");
   });
 
-retroCmd.command("apply <source-id> <target-id>").description("振り返りの知見を別のジョブに適用する")
-  .option("--format <format>", "出力形式 (text|json)", "text")
-  .action((sourceId: string, targetId: string, opts: { format: string }) => {
-    cmdRetroApply(createProjectContext(), sourceId, targetId, opts.format === "json" ? "json" : "text");
-  });
-
-retroCmd.command("list").description("振り返り一覧を表示す���")
+retroCmd.command("list").description("振り返り一覧を表示する")
   .option("--format <format>", "出力形式 (text|json)", "text")
   .action((opts: { format: string }) => {
     cmdRetroList(createProjectContext(), opts.format === "json" ? "json" : "text");
-  });
-
-// ===== optimize commands =====
-const optimizeCmd = program.command("optimize").description("ワークフロー最適化");
-
-optimizeCmd.command("analyze").description("全ジョブのメトリクスを横断分析する")
-  .option("--status <statuses>", "分析対象のステータス (カンマ区切り)")
-  .option("--format <format>", "出力形式 (text|json)", "text")
-  .action((opts: { status?: string; format: string }) => {
-    cmdOptimizeAnalyze(createProjectContext(), opts.status, opts.format === "json" ? "json" : "text");
-  });
-
-optimizeCmd.command("suggest").description("改善提案を出力する")
-  .option("--status <statuses>", "分析対象のステータス (カンマ区切り)")
-  .option("--format <format>", "出力形式 (text|json)", "text")
-  .action((opts: { status?: string; format: string }) => {
-    cmdOptimizeSuggest(createProjectContext(), opts.status, opts.format === "json" ? "json" : "text");
-  });
-
-// ===== tui command =====
-program.command("tui").description("DAG ジョブ監視 TUI を起動")
-  .action(async () => {
-    const { cmdTui } = await import("./cli/commands/tui.js");
-    await cmdTui();
   });
 
 // ===== entry point =====

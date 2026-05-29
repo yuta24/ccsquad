@@ -1,7 +1,7 @@
 import type { ProjectContext } from "../../app/project-context.js";
 import { CcsquadError } from "../../error.js";
 import { computeMetrics } from "../../domain/metrics.js";
-import { analyzeJob, collectActions, applyActions, formatRetrospectiveText, formatRetrospectiveJson } from "../../domain/retrospective.js";
+import { analyzeJob, formatRetrospectiveText, formatRetrospectiveJson } from "../../domain/retrospective.js";
 import { padRight, truncate } from "../../util.js";
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "aborted"]);
@@ -37,56 +37,6 @@ export function cmdRetroShow(ctx: ProjectContext, id: string, format: "text" | "
     console.log(JSON.stringify(formatRetrospectiveJson(report), null, 2));
   } else {
     console.log(formatRetrospectiveText(report));
-  }
-}
-
-export function cmdRetroApply(ctx: ProjectContext, sourceId: string, targetId: string, format: "text" | "json"): void {
-  const report = ctx.retrospectiveStore.load(sourceId);
-  const actions = collectActions(report);
-
-  if (actions.length === 0) {
-    if (format === "json") {
-      console.log(JSON.stringify({ applied: [], skipped: [], message: "適用可能なアクションがありません" }, null, 2));
-    } else {
-      console.log("適用可能なアクションがありません。");
-    }
-    return;
-  }
-
-  const targetJob = ctx.jobStore.load(targetId);
-
-  if (targetJob.frontmatter.status !== "pending") {
-    throw new CcsquadError(
-      "job",
-      `ジョブ '${targetId}' は pending 状態でないためワークフローを変更できません (status: ${targetJob.frontmatter.status})`,
-    );
-  }
-
-  const result = applyActions(targetJob.frontmatter, actions);
-
-  if (result.applied.length > 0) {
-    targetJob.frontmatter.updated_at = new Date().toISOString();
-    ctx.jobStore.save(targetJob);
-  }
-
-  if (format === "json") {
-    console.log(JSON.stringify(result, null, 2));
-  } else {
-    if (result.applied.length > 0) {
-      console.log(`適用完了 (${result.applied.length} 件):`);
-      for (const msg of result.applied) {
-        console.log(`  ✓ ${msg}`);
-      }
-    }
-    if (result.skipped.length > 0) {
-      console.log(`スキップ (${result.skipped.length} 件):`);
-      for (const msg of result.skipped) {
-        console.log(`  - ${msg}`);
-      }
-    }
-    if (result.applied.length > 0) {
-      console.log(`\nジョブ ${targetId} のワークフローを更新しました。`);
-    }
   }
 }
 
