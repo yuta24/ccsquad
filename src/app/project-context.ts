@@ -1,19 +1,14 @@
 import { mkdirSync, existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join, resolve, dirname } from "node:path";
 import { JobStore } from "../infra/job-store.js";
-import { WorktreeManager } from "../infra/worktree-manager.js";
-import { ProcessRunner } from "../infra/process-runner.js";
 import { LogStore } from "../infra/log-store.js";
 
 export interface ProjectContext {
   jobStore: JobStore;
-  worktreeManager: WorktreeManager;
-  processRunner: ProcessRunner;
   logStore: LogStore;
   projectRoot: string;
   squadDir: string;
   jobsDir: string;
-  worktreesDir: string;
   logsDir: string;
 }
 
@@ -21,21 +16,16 @@ export function createProjectContext(): ProjectContext {
   const projectRoot = findProjectRoot();
   const squadDir = join(projectRoot, ".ccsquad");
   const jobsDir = join(squadDir, "jobs");
-  const worktreesDir = join(squadDir, "worktrees");
   const logsDir = join(squadDir, "logs");
   mkdirSync(jobsDir, { recursive: true });
-  mkdirSync(worktreesDir, { recursive: true });
   mkdirSync(logsDir, { recursive: true });
 
   return {
     jobStore: new JobStore(jobsDir),
-    worktreeManager: new WorktreeManager(projectRoot, worktreesDir),
-    processRunner: new ProcessRunner(logsDir, projectRoot),
     logStore: new LogStore(logsDir),
     projectRoot,
     squadDir,
     jobsDir,
-    worktreesDir,
     logsDir,
   };
 }

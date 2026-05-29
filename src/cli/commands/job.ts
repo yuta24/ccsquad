@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import YAML from "yaml";
-import type { Job, JobStatus, WorkflowConfig, AcceptanceCriterion } from "../../domain/types.js";
+import type { Job, JobStatus, WorkflowConfig, AcceptanceCriterion, PauseReason } from "../../domain/types.js";
 import { ALL_JOB_STATUSES } from "../../domain/types.js";
 import { getPhase, parseTransitionCondition, parseWorkflowObject } from "../../domain/workflow.js";
 import { CcsquadError } from "../../error.js";
@@ -8,6 +8,7 @@ import type { ProjectContext } from "../../app/project-context.js";
 import { JobService, checkCircularDependency } from "../../app/job-service.js";
 import type { TransitionResult } from "../../app/job-service.js";
 import { truncate, padRight } from "../../util.js";
+import { buildJobPrompt } from "../../app/prompt-builder.js";
 
 // Parse --workflow input: JSON/YAML string, file path, or "-" (stdin)
 export function parseWorkflowInput(input: string): WorkflowConfig {
@@ -139,8 +140,14 @@ export function cmdList(ctx: ProjectContext, opts?: { excludeStatus?: string; fo
   }
 }
 
-export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"): void {
+export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json" | "prompt"): void {
   const job = ctx.jobStore.load(id);
+
+  if (format === "prompt") {
+    const logContent = ctx.logStore.read(id);
+    process.stdout.write(buildJobPrompt(job, logContent));
+    return;
+  }
 
   if (format === "json") {
     const output: Record<string, unknown> = {
@@ -162,7 +169,12 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
       const phase = getPhase(wf, job.frontmatter.current_phase);
       if (phase) {
         output.phase_config = { type: phase.type, agent: phase.agent, auto: phase.auto ?? false };
-        output.suggested_commands = buildSuggestedCommands(id, phase.type, phase.auto ?? false);
+        output.suggested_commands = buildSuggestedCommands(
+          id,
+          phase.type,
+          job.frontmatter.status,
+          job.frontmatter.pause_reason,
+        );
       }
     }
     if (job.frontmatter.pause_reason !== undefined) {
@@ -261,18 +273,51 @@ export function cmdLog(ctx: ProjectContext, id: string, message: string): void {
   ctx.logStore.append(id, phase, message);
 }
 
-function buildSuggestedCommands(id: string, phaseType: string, auto: boolean): string[] {
-  if (phaseType === "review") {
+function buildSuggestedCommands(
+  id: string,
+  phaseType: string,
+  status: string,
+  pauseReason?: PauseReason,
+): string[] {
+  if (status === "paused" && pauseReason === "human_review") {
     return [
-      `ccsquad job log ${id} "レビュー結果のサマリー"`,
-      `ccsquad job transition ${id} approved --message "承認理由"`,
-      `ccsquad job transition ${id} rejected --message "却下理由（未達 AC と改善指示を明記）"`,
+      `# レビュー待ち — 人間が以下を実行する`,
+      `ccsquad job transition ${id} approved  --message "承認理由"`,
+      `ccsquad job transition ${id} rejected  --message "却下理由（未達 AC と改善指示を明記）"`,
     ];
   }
+
+  if (status === "paused" && pauseReason === "max_iterations") {
+    return [
+      `# 最大イテレーション到達 — 人間が判断する`,
+      `ccsquad job transition ${id} completed --message "完了と判断した理由"`,
+      `ccsquad job transition ${id} failed    --message "失敗と判断した理由"`,
+      `ccsquad job abort ${id}`,
+    ];
+  }
+
+  if (phaseType === "plan") {
+    return [
+      `ccsquad job update ${id} --ac '[{"description":"基準1"},{"description":"基準2"}]'`,
+      `ccsquad job log ${id} "調査・設計の内容"`,
+      `ccsquad job transition ${id} completed --message "計画内容の要約"`,
+      `ccsquad job transition ${id} failed    --message "失敗理由"`,
+    ];
+  }
+
+  if (phaseType === "execute") {
+    return [
+      `ccsquad job log ${id} "実装内容のサマリー"`,
+      `ccsquad job transition ${id} completed --message "実装内容の要約"`,
+      `ccsquad job transition ${id} failed    --message "失敗理由"`,
+    ];
+  }
+
+  // review (auto)
   return [
-    `ccsquad job log ${id} "作業内容のサマリー"`,
-    `ccsquad job transition ${id} completed --message "完了理由"`,
-    `ccsquad job transition ${id} failed --message "失敗理由"`,
+    `ccsquad job log ${id} "レビュー結果のサマリー"`,
+    `ccsquad job transition ${id} approved  --message "承認理由"`,
+    `ccsquad job transition ${id} rejected  --message "却下理由（未達 AC と改善指示を明記）"`,
   ];
 }
 

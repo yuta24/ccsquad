@@ -9,7 +9,6 @@ import {
   cmdAbort, cmdUpdate, cmdLog,
   parseWorkflowInput, parseAcInput,
 } from "./cli/commands/job.js";
-import { cmdDagRun, cmdDagClean } from "./cli/commands/dag.js";
 
 const program = new Command();
 program
@@ -52,17 +51,23 @@ jobCmd.command("list").description("ジョブ一覧を表示")
   });
 
 jobCmd.command("show <id>").description("ジョブ詳細を表示")
-  .option("--format <format>", "出力形式 (text|json)", "text")
+  .option("--format <format>", "出力形式 (text|json|prompt)", "text")
   .addHelpText("after", `
 JSON 出力には以下のフィールドが含まれます:
   phase_config      現在のフェーズの設定 (type, agent, auto)
   suggested_commands  次に実行すべきコマンドの候補
 
+prompt 出力: エージェントに渡すプロンプトを stdout に出力します。
+  phase-log の内容を自動的に含めます。
+
 例:
   ccsquad job show J000001
-  ccsquad job show J000001 --format json`)
+  ccsquad job show J000001 --format json
+  ccsquad job show J000001 --format prompt
+  claude -p "$(ccsquad job show J000001 --format prompt)"`)
   .action((id: string, opts: { format: string }) => {
-    cmdShow(createProjectContext(), id, opts.format === "json" ? "json" : "text");
+    const format = opts.format === "json" ? "json" : opts.format === "prompt" ? "prompt" : "text";
+    cmdShow(createProjectContext(), id, format);
   });
 
 jobCmd.command("add <title>").description("ジョブを追加")
@@ -195,33 +200,6 @@ jobCmd.command("log <id> <message>").description("フェーズログを記録す
   ccsquad job log J000001 "設計完了。AC を 3 項目に絞った。既存コードとの互換性を確認済み"`)
   .action((id: string, message: string) => {
     cmdLog(createProjectContext(), id, message);
-  });
-
-// ===== dag commands =====
-const dagCmd = program.command("dag").description("DAG マルチジョブ並列実行");
-
-dagCmd.command("run [ids...]").description("DAG 並列実行")
-  .option("--max-concurrency <n>", "最大同時実行数 (デフォルト: 4)", "4")
-  .option("--no-cascade", "上流失敗時に依存ジョブを自動スキップしない")
-  .option("--dry-run", "実行計画のみ表示 (実行しない)")
-  .addHelpText("after", `
-ids を省略すると pending 状態の全ジョブを対象にします。
-
-例:
-  ccsquad dag run                          # pending 全件を実行
-  ccsquad dag run J000001 J000002          # 指定ジョブのみ実行
-  ccsquad dag run --dry-run                # 実行計画を確認`)
-  .action(async (ids: string[], opts: { maxConcurrency: string; cascade: boolean; dryRun: boolean }) => {
-    await cmdDagRun(createProjectContext(), ids, {
-      maxConcurrency: parseInt(opts.maxConcurrency, 10) || 4,
-      noCascade: !opts.cascade,
-      dryRun: opts.dryRun ?? false,
-    });
-  });
-
-dagCmd.command("clean").description("孤立 worktree のクリーンアップ")
-  .action(async () => {
-    await cmdDagClean(createProjectContext());
   });
 
 // ===== entry point =====
