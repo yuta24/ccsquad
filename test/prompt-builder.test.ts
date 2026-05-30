@@ -39,6 +39,13 @@ describe("buildJobPrompt", () => {
     expect(prompt).toContain("ccsquad done J000001 failed");
   });
 
+  test("includes autonomous execution protocol", () => {
+    const prompt = buildJobPrompt(makeJob("J000001"), null);
+    expect(prompt).toContain("自律実行プロトコル");
+    expect(prompt).toContain("必ず現在フェーズに対応する ccsquad done コマンドを実行する");
+    expect(prompt).toContain("人間レビューが必要な指示が出ている場合は ccsquad done を実行せず");
+  });
+
   test("static block contains title and body", () => {
     const job = makeJob("J000001");
     job.body = "## 詳細\nこれはテスト用のジョブ内容です。";

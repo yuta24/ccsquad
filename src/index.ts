@@ -2,6 +2,7 @@
 import { Command } from "commander";
 
 import { createProjectContext } from "./app/project-context.js";
+import { buildDoctorReport } from "./app/doctor.js";
 import { CcsquadError } from "./error.js";
 import { readFileSync } from "node:fs";
 import {
@@ -61,6 +62,14 @@ program.command("list").description("ジョブ一覧を表示")
   .option("--format <format>", "出力形式 (text|json)", "text")
   .action((opts: { status?: string; excludeStatus?: string; format: string }) => {
     cmdList(createProjectContext(), { status: opts.status, excludeStatus: opts.excludeStatus, format: opts.format === "json" ? "json" : "text" });
+  });
+
+program.command("doctor").description("ccsquad の保存先とエージェント連携の最小設定を確認")
+  .addHelpText("after", `
+例:
+  ccsquad doctor`)
+  .action(() => {
+    process.stdout.write(buildDoctorReport(createProjectContext()));
   });
 
 program.command("show <id>").description("ジョブ詳細を表示")

@@ -32,6 +32,12 @@ export function buildJobPrompt(job: Job, logContent: string | null): string {
     `- ID: ${id}`,
     `- フェーズ: ${current_phase ?? "（未開始）"}`,
     `- イテレーション: ${iteration}/${max_iterations}`,
+    ``,
+    `## 自律実行プロトコル`,
+    `- このプロンプトの作業が終わったら、必ず現在フェーズに対応する ccsquad done コマンドを実行する`,
+    `- completed / approved は、必要な検証を実行し Acceptance Criteria を満たしたと判断できる場合だけ使う`,
+    `- 検証不能、未達、作業継続不能の場合は failed / rejected を使い、--message に理由と次の引き継ぎを書く`,
+    `- 人間レビューが必要な指示が出ている場合は ccsquad done を実行せず、ユーザーに判断を求める`,
   ];
 
   if (logContent) {

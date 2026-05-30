@@ -14,6 +14,12 @@ cp dist/ccsquad /usr/local/bin/
 
 ## 基本的な使い方
 
+インストール後の保存先とエージェント連携の確認:
+
+```bash
+ccsquad doctor
+```
+
 ```bash
 # 1. ジョブを作成する（stdout に ID が出力される）
 ID=$(ccsquad create "認証機能の追加" 2>/dev/null)
@@ -52,6 +58,12 @@ done
 # exit 2 → 人間レビュー / exit 3 → 完了
 ```
 
+Codex に渡す場合:
+
+```bash
+codex exec "$(ccsquad prompt $ID)"
+```
+
 ## ワークフロープリセット
 
 `--workflow` を省略すると `basic` が使われます。
@@ -74,6 +86,8 @@ ccsquad create "タスク名" --workflow simple   # plan なし
 ccsquad create "タスク名" --workflow my-workflow.yaml
 ```
 
+ワークフロー設計の考え方は [docs/harness-design-guide.md](docs/harness-design-guide.md) を参照してください。
+
 ## コマンド一覧
 
 | コマンド | 説明 |
@@ -84,6 +98,7 @@ ccsquad create "タスク名" --workflow my-workflow.yaml
 | `done <id> <result>` | フェーズを遷移する（`--message` でログ自動記録） |
 | `show <id>` | ジョブ詳細を表示する |
 | `list` | ジョブ一覧を表示する |
+| `doctor` | 保存先とエージェント連携の最小設定を確認する |
 | `update <id>` | タイトル・説明・AC を更新する |
 | `abort <id>` | ジョブを中断する |
 
