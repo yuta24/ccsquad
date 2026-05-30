@@ -5,7 +5,7 @@ import { ALL_JOB_STATUSES } from "../../domain/types.js";
 import { getPhase, parseTransitionCondition, parseWorkflowObject, WORKFLOW_PRESETS } from "../../domain/workflow.js";
 import { CcsquadError } from "../../error.js";
 import type { ProjectContext } from "../../app/project-context.js";
-import { JobService, checkCircularDependency } from "../../app/job-service.js";
+import { JobService } from "../../app/job-service.js";
 import type { TransitionResult } from "../../app/job-service.js";
 import { truncate, padRight } from "../../util.js";
 import { buildJobPrompt } from "../../app/prompt-builder.js";
@@ -122,8 +122,6 @@ export function cmdCreate(
     for (const depId of dependsOn) {
       ctx.jobStore.load(depId);
     }
-    const nextId = ctx.jobStore.nextId();
-    checkCircularDependency(ctx, nextId, dependsOn);
   }
 
   const jobService = new JobService(ctx);

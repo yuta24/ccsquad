@@ -33,28 +33,29 @@ export class JobService {
       );
     }
 
-    const id = this.ctx.jobStore.nextId();
     const now = new Date().toISOString();
 
     const descBody = opts?.description ? `## 説明\n${opts.description}\n` : "";
 
-    const job: Job = {
-      frontmatter: {
-        id,
-        title,
-        status: "pending",
-        iteration: 0,
-        max_iterations: maxIterations,
-        depends_on: opts?.dependsOn ?? [],
-        acceptance_criteria: opts?.acceptanceCriteria ?? [],
-        workflow: workflowConfig,
-        created_at: now,
-        updated_at: now,
-      },
-      body: descBody,
-    };
-    this.ctx.jobStore.save(job);
-    return job;
+    const dependsOn = opts?.dependsOn ?? [];
+    return this.ctx.jobStore.createWithNextId(
+      (id) => ({
+        frontmatter: {
+          id,
+          title,
+          status: "pending",
+          iteration: 0,
+          max_iterations: maxIterations,
+          depends_on: dependsOn,
+          acceptance_criteria: opts?.acceptanceCriteria ?? [],
+          workflow: workflowConfig,
+          created_at: now,
+          updated_at: now,
+        },
+        body: descBody,
+      }),
+      (id) => checkCircularDependency(this.ctx, id, dependsOn),
+    );
   }
 
   start(jobId: string): Job {

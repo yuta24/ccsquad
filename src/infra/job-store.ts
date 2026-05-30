@@ -52,6 +52,43 @@ export class JobStore {
   }
 
   nextId(): string {
+    return formatJobId(this.nextIdNumber());
+  }
+
+  createWithNextId(buildJob: (id: string) => Job, validate?: (id: string) => void): Job {
+    try {
+      mkdirSync(this.baseDir, { recursive: true });
+    } catch (e) {
+      throw new CcsquadError("io", `ディレクトリ作成エラー: ${e}`);
+    }
+
+    let num = this.nextIdNumber();
+    while (true) {
+      const id = formatJobId(num);
+      validate?.(id);
+
+      const job = buildJob(id);
+      if (job.frontmatter.id !== id) {
+        throw new CcsquadError("job", `作成するジョブの ID が採番 ID と一致しません (${job.frontmatter.id} != ${id})`);
+      }
+
+      const yaml = serializeFrontmatter(job.frontmatter);
+      const content = writeFrontmatter(yaml, job.body);
+      const path = this.filePath(id);
+      try {
+        writeFileSync(path, content, { encoding: "utf-8", flag: "wx" });
+        return job;
+      } catch (e: unknown) {
+        if (e instanceof Error && "code" in e && (e as NodeJS.ErrnoException).code === "EEXIST") {
+          num += 1;
+          continue;
+        }
+        throw new CcsquadError("io", `ジョブ作成エラー: ${e}`);
+      }
+    }
+  }
+
+  private nextIdNumber(): number {
     let maxNum = 0;
     if (existsSync(this.baseDir)) {
       let entries: string[];
@@ -70,7 +107,7 @@ export class JobStore {
         }
       }
     }
-    return `J${String(maxNum + 1).padStart(6, "0")}`;
+    return maxNum + 1;
   }
 
   save(job: Job): void {
@@ -252,4 +289,8 @@ export class JobStore {
       throw new CcsquadError("io", `ジョブ削除エラー: ${e}`);
     }
   }
+}
+
+function formatJobId(num: number): string {
+  return `J${String(num).padStart(6, "0")}`;
 }

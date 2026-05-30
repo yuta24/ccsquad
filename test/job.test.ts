@@ -74,6 +74,25 @@ describe("JobStore", () => {
     expect(store.nextId()).toBe("J000004");
   });
 
+  it("createWithNextId は作成直前に ID が競合した場合に次の ID で再試行する", () => {
+    const store = makeTempStore();
+    let injectedRace = false;
+
+    const created = store.createWithNextId(
+      (id) => makeJob(id, "created"),
+      (id) => {
+        if (id === "J000001" && !injectedRace) {
+          injectedRace = true;
+          store.save(makeJob("J000001", "racer"));
+        }
+      },
+    );
+
+    expect(created.frontmatter.id).toBe("J000002");
+    expect(store.load("J000001").frontmatter.title).toBe("racer");
+    expect(store.load("J000002").frontmatter.title).toBe("created");
+  });
+
   it("全ジョブ一覧（ID昇順）", () => {
     const store = makeTempStore();
     store.save(makeJob("J000001", "a"));
