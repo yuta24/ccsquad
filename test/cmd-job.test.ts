@@ -111,6 +111,12 @@ describe("cmdCreate", () => {
     expect(job.frontmatter.max_iterations).toBe(5);
   });
 
+  it("test_create_rejects_invalid_max_iterations", () => {
+    const { ctx } = setup();
+    expect(() => cmdCreate(ctx, "タスク", WORKFLOW, undefined, [], 0)).toThrow(/max_iterations/);
+    expect(() => cmdCreate(ctx, "タスク", WORKFLOW, undefined, [], 1.5)).toThrow(/max_iterations/);
+  });
+
   it("test_create_increments_id_sequentially", () => {
     const { ctx } = setup();
     cmdCreate(ctx, "タスク1", WORKFLOW);

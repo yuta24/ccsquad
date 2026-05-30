@@ -48,4 +48,10 @@ describe("LogStore", () => {
     const store = makeLogStore();
     expect(store.logPath("J000001")).toContain("J000001.md");
   });
+
+  it("不正なジョブ ID はログパスとして扱わずエラー", () => {
+    const store = makeLogStore();
+    expect(() => store.read("../J000001")).toThrow(/不正なジョブ ID/);
+    expect(() => store.append("../J000001", "plan", "message")).toThrow(/不正なジョブ ID/);
+  });
 });

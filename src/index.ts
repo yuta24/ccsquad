@@ -13,6 +13,17 @@ import { WORKFLOW_PRESETS } from "./domain/workflow.js";
 
 const PRESET_NAMES = Object.keys(WORKFLOW_PRESETS).join(", ");
 
+function parsePositiveInteger(input: string, optionName: string): number {
+  if (!/^\d+$/.test(input)) {
+    throw new CcsquadError("config", `${optionName} は 1 以上の整数で指定してください`);
+  }
+  const value = Number(input);
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new CcsquadError("config", `${optionName} は 1 以上の整数で指定してください`);
+  }
+  return value;
+}
+
 const program = new Command();
 program
   .name("ccsquad")
@@ -105,7 +116,7 @@ stdout: ジョブ ID のみ出力 (パイプ対応)
     const workflowConfig = parseWorkflowInput(opts.workflow);
     const dependsOn = opts.dependsOn ? opts.dependsOn.split(",").map((s) => s.trim()).filter(Boolean) : [];
     const ac = opts.ac ? parseAcInput(opts.ac) : undefined;
-    cmdCreate(ctx, title, workflowConfig, opts.description, dependsOn, parseInt(opts.maxIterations, 10) || 10, ac);
+    cmdCreate(ctx, title, workflowConfig, opts.description, dependsOn, parsePositiveInteger(opts.maxIterations, "--max-iterations"), ac);
   });
 
 program.command("run <id>").description("ジョブを開始する (pending → running)")

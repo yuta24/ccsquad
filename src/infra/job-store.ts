@@ -1,7 +1,9 @@
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { stringify, parse as parseYaml } from "yaml";
 import { parse as parseFrontmatter, write as writeFrontmatter } from "./frontmatter.js";
+import { assertValidJobId } from "./job-id.js";
 import { CcsquadError } from "../error.js";
 import type { Job, JobFrontmatter, JobStatus, AcceptanceCriterion, PauseReason } from "../domain/types.js";
 import { ALL_JOB_STATUSES, workflowToObject } from "../domain/types.js";
@@ -45,6 +47,7 @@ export class JobStore {
   }
 
   private filePath(id: string): string {
+    assertValidJobId(id);
     return join(this.baseDir, `${id}.md`);
   }
 
@@ -71,10 +74,15 @@ export class JobStore {
   }
 
   save(job: Job): void {
+    assertValidJobId(job.frontmatter.id);
     const yaml = serializeFrontmatter(job.frontmatter);
     const content = writeFrontmatter(yaml, job.body);
+    const path = this.filePath(job.frontmatter.id);
+    const tmpPath = join(this.baseDir, `.${job.frontmatter.id}.${process.pid}.${randomUUID()}.tmp`);
     try {
-      writeFileSync(this.filePath(job.frontmatter.id), content, "utf-8");
+      mkdirSync(this.baseDir, { recursive: true });
+      writeFileSync(tmpPath, content, "utf-8");
+      renameSync(tmpPath, path);
     } catch (e) {
       throw new CcsquadError("io", `ジョブ保存エラー: ${e}`);
     }
@@ -114,6 +122,9 @@ export class JobStore {
     const raw = parsed as Record<string, unknown>;
     if (typeof raw["id"] !== "string") {
       throw new CcsquadError("serialization", "frontmatter が不正です: id が文字列ではありません");
+    }
+    if (raw["id"] !== id) {
+      throw new CcsquadError("serialization", `frontmatter が不正です: id '${raw["id"]}' がファイル名 '${id}' と一致しません`);
     }
     if (typeof raw["title"] !== "string") {
       throw new CcsquadError("serialization", "frontmatter が不正です: title が文字列ではありません");
@@ -215,7 +226,7 @@ export class JobStore {
 
     const jobs: Job[] = [];
     for (const name of entries) {
-      if (name.startsWith("J") && name.endsWith(".md")) {
+      if (/^J\d{6,}\.md$/.test(name)) {
         const id = name.slice(0, -3);
         try {
           jobs.push(this.load(id));

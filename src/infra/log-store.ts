@@ -1,11 +1,13 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { CcsquadError } from "../error.js";
+import { assertValidJobId } from "./job-id.js";
 
 export class LogStore {
   constructor(private logsDir: string) {}
 
   append(jobId: string, phase: string, message: string): void {
+    assertValidJobId(jobId);
     try {
       mkdirSync(this.logsDir, { recursive: true });
     } catch (e) {
@@ -24,6 +26,7 @@ export class LogStore {
   }
 
   read(jobId: string): string | null {
+    assertValidJobId(jobId);
     const path = join(this.logsDir, `${jobId}.md`);
     if (!existsSync(path)) return null;
     try {
@@ -34,6 +37,7 @@ export class LogStore {
   }
 
   delete(jobId: string): void {
+    assertValidJobId(jobId);
     const path = join(this.logsDir, `${jobId}.md`);
     if (!existsSync(path)) return;
     try {
@@ -44,6 +48,7 @@ export class LogStore {
   }
 
   logPath(jobId: string): string {
+    assertValidJobId(jobId);
     return join(this.logsDir, `${jobId}.md`);
   }
 }

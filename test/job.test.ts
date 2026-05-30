@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JobStore } from "../src/infra/job-store.js";
@@ -95,5 +95,38 @@ describe("JobStore", () => {
     const store = makeTempStore();
     expect(() => store.load("J999999")).toThrow();
   });
-});
 
+  it("不正なジョブ ID はパスとして扱わずエラー", () => {
+    const store = makeTempStore();
+    expect(() => store.load("../J000001")).toThrow(/不正なジョブ ID/);
+  });
+
+  it("frontmatter の id がファイル名と違う場合はエラー", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ccsquad-job-test-"));
+    const store = new JobStore(dir);
+    store.ensureDir();
+    const job = makeJob("J000002", "mismatch");
+    const yaml = [
+      "---",
+      "id: J000002",
+      "title: mismatch",
+      "status: pending",
+      "iteration: 0",
+      "max_iterations: 10",
+      "workflow:",
+      "  plan:",
+      "    type: plan",
+      "    agent: developer",
+      "    on:",
+      "      completed: COMPLETE",
+      "      failed: ABORT",
+      `created_at: "${job.frontmatter.created_at}"`,
+      `updated_at: "${job.frontmatter.updated_at}"`,
+      "---",
+      "",
+    ].join("\n");
+    writeFileSync(join(dir, "J000001.md"), yaml, "utf-8");
+
+    expect(() => store.load("J000001")).toThrow(/ファイル名 'J000001' と一致しません/);
+  });
+});

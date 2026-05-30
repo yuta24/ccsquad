@@ -25,6 +25,14 @@ export class JobService {
     workflowConfig: WorkflowConfig,
     opts?: { description?: string; dependsOn?: string[]; maxIterations?: number; acceptanceCriteria?: AcceptanceCriterion[] },
   ): Job {
+    const maxIterations = opts?.maxIterations ?? 10;
+    if (!Number.isInteger(maxIterations) || maxIterations < 1) {
+      throw new CcsquadError(
+        "job",
+        `max_iterations は 1 以上の整数でなければなりません (値: ${maxIterations})`,
+      );
+    }
+
     const id = this.ctx.jobStore.nextId();
     const now = new Date().toISOString();
 
@@ -36,7 +44,7 @@ export class JobService {
         title,
         status: "pending",
         iteration: 0,
-        max_iterations: opts?.maxIterations ?? 10,
+        max_iterations: maxIterations,
         depends_on: opts?.dependsOn ?? [],
         acceptance_criteria: opts?.acceptanceCriteria ?? [],
         workflow: workflowConfig,
