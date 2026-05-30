@@ -327,10 +327,11 @@ describe("cmdPrompt", () => {
     expect(code).toBe(3);
   });
 
-  it("test_prompt_rejects_pending_job", () => {
+  it("test_prompt_returns_exit3_for_pending_job", () => {
     const { ctx } = setup();
     ctx.jobStore.save(makeJob("J000001", "pending"));
-    expect(() => cmdPrompt(ctx, "J000001")).toThrow("まだ開始されていません");
+    const code = cmdPrompt(ctx, "J000001");
+    expect(code).toBe(3);
   });
 });
 
@@ -605,6 +606,44 @@ describe("cmdShow", () => {
   it("test_show_throws_for_nonexistent_job", () => {
     const { ctx } = setup();
     expect(() => cmdShow(ctx, "J999999", "text")).toThrow();
+  });
+});
+
+// ─── cmdUpdate depends-on ───────────────────────────────────────────────────
+
+describe("cmdUpdate depends-on", () => {
+  it("test_update_depends_on_pending_job", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "completed"));
+    cmdCreate(ctx, "子ジョブ", WORKFLOW);
+    cmdUpdate(ctx, "J000002", { dependsOn: ["J000001"] });
+    const job = ctx.jobStore.load("J000002");
+    expect(job.frontmatter.depends_on).toEqual(["J000001"]);
+  });
+
+  it("test_update_depends_on_rejects_running_job", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "completed"));
+    const job2 = makeJob("J000002", "running");
+    ctx.jobStore.save(job2);
+    expect(() => cmdUpdate(ctx, "J000002", { dependsOn: ["J000001"] })).toThrow("pending 状態でない");
+  });
+
+  it("test_update_depends_on_rejects_nonexistent_dep", () => {
+    const { ctx } = setup();
+    cmdCreate(ctx, "子ジョブ", WORKFLOW);
+    expect(() => cmdUpdate(ctx, "J000001", { dependsOn: ["J999999"] })).toThrow();
+  });
+
+  it("test_update_depends_on_clears_when_empty", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "completed"));
+    const job2 = makeJob("J000002", "pending");
+    job2.frontmatter.depends_on = ["J000001"];
+    ctx.jobStore.save(job2);
+    cmdUpdate(ctx, "J000002", { dependsOn: [] });
+    const job = ctx.jobStore.load("J000002");
+    expect(job.frontmatter.depends_on).toEqual([]);
   });
 });
 

@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { JobStore } from "../../src/infra/job-store.js";
 import { LogStore } from "../../src/infra/log-store.js";
-import { cmdAbort, cmdDelete, cmdList } from "../../src/cli/commands/job.js";
-import { cmdCreate, cmdRun } from "../../src/cli/commands/job.js";
+import { cmdAbort, cmdDelete, cmdList, cmdShowLog } from "../../src/cli/commands/job.js";
+import { cmdCreate, cmdRun, cmdDone } from "../../src/cli/commands/job.js";
 import { CcsquadError } from "../../src/error.js";
 import type { ProjectContext } from "../../src/app/project-context.js";
 import { parseWorkflowObject } from "../../src/domain/workflow.js";
@@ -132,11 +132,18 @@ describe("cmdDelete", () => {
     expect(() => cmdDelete(ctx, "J999999")).toThrow(CcsquadError);
   });
 
-  it("running 状態のジョブも削除できる", () => {
+  it("running 状態のジョブは --force なしでエラー", () => {
     cmdCreate(ctx, "テスト", BASIC_WF);
     const id = ctx.jobStore.listAll()[0].frontmatter.id;
     cmdRun(ctx, id);
-    expect(() => cmdDelete(ctx, id)).not.toThrow();
+    expect(() => cmdDelete(ctx, id)).toThrow(CcsquadError);
+  });
+
+  it("running 状態のジョブも --force で削除できる", () => {
+    cmdCreate(ctx, "テスト", BASIC_WF);
+    const id = ctx.jobStore.listAll()[0].frontmatter.id;
+    cmdRun(ctx, id);
+    expect(() => cmdDelete(ctx, id, { force: true })).not.toThrow();
   });
 
   it("削除時にログファイルも一緒に削除される", () => {
@@ -148,7 +155,7 @@ describe("cmdDelete", () => {
     const logPath = ctx.logStore.logPath(id);
     expect(existsSync(logPath)).toBe(true);
 
-    cmdDelete(ctx, id);
+    cmdDelete(ctx, id, { force: true });
     expect(existsSync(logPath)).toBe(false);
   });
 
@@ -156,6 +163,131 @@ describe("cmdDelete", () => {
     cmdCreate(ctx, "テスト", BASIC_WF);
     const id = ctx.jobStore.listAll()[0].frontmatter.id;
     expect(() => cmdDelete(ctx, id)).not.toThrow();
+  });
+
+  it("他ジョブから depends_on 参照されているジョブは削除できない", () => {
+    cmdCreate(ctx, "ジョブ1", BASIC_WF);
+    const id1 = ctx.jobStore.listAll()[0].frontmatter.id;
+    cmdCreate(ctx, "ジョブ2", BASIC_WF, undefined, [id1]);
+    expect(() => cmdDelete(ctx, id1)).toThrow(CcsquadError);
+  });
+
+  it("depends_on 参照ジョブを削除した後は参照元を削除できる", () => {
+    cmdCreate(ctx, "ジョブ1", BASIC_WF);
+    const id1 = ctx.jobStore.listAll()[0].frontmatter.id;
+    cmdCreate(ctx, "ジョブ2", BASIC_WF, undefined, [id1]);
+    const id2 = ctx.jobStore.listAll()[1].frontmatter.id;
+    cmdDelete(ctx, id2); // 参照元を先に削除
+    expect(() => cmdDelete(ctx, id1)).not.toThrow();
+  });
+
+  it("--force で参照元があっても強制削除できる", () => {
+    cmdCreate(ctx, "ジョブ1", BASIC_WF);
+    const id1 = ctx.jobStore.listAll()[0].frontmatter.id;
+    cmdCreate(ctx, "ジョブ2", BASIC_WF, undefined, [id1]);
+    expect(() => cmdDelete(ctx, id1, { force: true })).not.toThrow();
+    expect(() => ctx.jobStore.load(id1)).toThrow(CcsquadError);
+  });
+
+  it("paused 状態のジョブは --force なしでエラー", () => {
+    cmdCreate(ctx, "テスト", BASIC_WF);
+    const id = ctx.jobStore.listAll()[0].frontmatter.id;
+    cmdRun(ctx, id);
+    const job = ctx.jobStore.load(id);
+    job.frontmatter.status = "paused";
+    job.frontmatter.pause_reason = "human_review";
+    ctx.jobStore.save(job);
+    expect(() => cmdDelete(ctx, id)).toThrow(CcsquadError);
+  });
+
+  it("paused 状態のジョブも --force で削除できる", () => {
+    cmdCreate(ctx, "テスト", BASIC_WF);
+    const id = ctx.jobStore.listAll()[0].frontmatter.id;
+    cmdRun(ctx, id);
+    const job = ctx.jobStore.load(id);
+    job.frontmatter.status = "paused";
+    job.frontmatter.pause_reason = "human_review";
+    ctx.jobStore.save(job);
+    expect(() => cmdDelete(ctx, id, { force: true })).not.toThrow();
+  });
+});
+
+// ── log ──
+
+describe("cmdShowLog", () => {
+  let tmpDir: string;
+  let ctx: ProjectContext;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "ccsquad-test-"));
+    ctx = makeCtx(tmpDir);
+    ctx.jobStore.ensureDir();
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("ログがある場合は内容を出力する", () => {
+    cmdCreate(ctx, "テスト", BASIC_WF);
+    const id = ctx.jobStore.listAll()[0].frontmatter.id;
+    ctx.logStore.append(id, "plan", "計画フェーズのログ");
+
+    const written: string[] = [];
+    const orig = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk: unknown) => { written.push(String(chunk)); return true; };
+    try {
+      cmdShowLog(ctx, id);
+    } finally {
+      process.stdout.write = orig;
+    }
+
+    const output = written.join("");
+    expect(output).toContain("計画フェーズのログ");
+    expect(output).toContain("[plan]");
+  });
+
+  it("ログがない場合は stderr に案内を出す", () => {
+    cmdCreate(ctx, "テスト", BASIC_WF);
+    const id = ctx.jobStore.listAll()[0].frontmatter.id;
+
+    const written: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk: unknown) => { written.push(String(chunk)); return true; };
+    try {
+      cmdShowLog(ctx, id);
+    } finally {
+      process.stderr.write = orig;
+    }
+
+    expect(written.join("")).toContain("ログはありません");
+  });
+
+  it("存在しないジョブ ID を指定するとエラー", () => {
+    expect(() => cmdShowLog(ctx, "J999999")).toThrow(CcsquadError);
+  });
+
+  it("空のログファイルがある場合は stdout に空文字列を出力し 'ログはありません' とは言わない", () => {
+    cmdCreate(ctx, "テスト", BASIC_WF);
+    const id = ctx.jobStore.listAll()[0].frontmatter.id;
+    mkdirSync(ctx.logsDir, { recursive: true });
+    writeFileSync(join(ctx.logsDir, `${id}.md`), "");
+
+    const stdoutWritten: string[] = [];
+    const stderrWritten: string[] = [];
+    const origOut = process.stdout.write.bind(process.stdout);
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = (chunk: unknown) => { stdoutWritten.push(String(chunk)); return true; };
+    process.stderr.write = (chunk: unknown) => { stderrWritten.push(String(chunk)); return true; };
+    try {
+      cmdShowLog(ctx, id);
+    } finally {
+      process.stdout.write = origOut;
+      process.stderr.write = origErr;
+    }
+
+    expect(stderrWritten.join("")).not.toContain("ログはありません");
+    expect(stdoutWritten.join("")).toBe("");
   });
 });
 

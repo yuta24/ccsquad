@@ -6,7 +6,7 @@ import { CcsquadError } from "./error.js";
 import { readFileSync } from "node:fs";
 import {
   cmdList, cmdShow, cmdCreate, cmdRun, cmdPrompt, cmdDone,
-  cmdAbort, cmdUpdate, cmdDelete,
+  cmdAbort, cmdUpdate, cmdDelete, cmdShowLog,
   parseWorkflowInput, parseAcInput,
 } from "./cli/commands/job.js";
 import { WORKFLOW_PRESETS } from "./domain/workflow.js";
@@ -167,23 +167,35 @@ program.command("abort <id>").description("ジョブを中断 (→ aborted)")
   });
 
 program.command("delete <id>").description("ジョブを削除する")
+  .option("--force", "running/paused 状態でも強制削除する")
   .addHelpText("after", `
 例:
-  ccsquad delete J000001`)
+  ccsquad delete J000001
+  ccsquad delete --force J000001`)
+  .action((id: string, opts: { force?: boolean }) => {
+    cmdDelete(createProjectContext(), id, { force: opts.force });
+  });
+
+program.command("log <id>").description("フェーズログを表示する")
+  .addHelpText("after", `
+例:
+  ccsquad log J000001`)
   .action((id: string) => {
-    cmdDelete(createProjectContext(), id);
+    cmdShowLog(createProjectContext(), id);
   });
 
 program.command("update <id>").description("ジョブを更新")
   .option("--title <title>", "タイトル")
   .option("--description <description>", "説明 (- で stdin から読み込み)")
   .option("--workflow <workflow>", "ワークフロー定義 (pending 状態のみ変更可)")
+  .option("--depends-on <ids>", "依存ジョブ ID (カンマ区切り、例: J000001,J000002、pending 状態のみ変更可)")
   .option("--ac <ac>", "Acceptance Criteria (JSON/YAML 文字列、ファイルパス、または - で stdin)")
   .addHelpText("after", `
 例:
   ccsquad update J000001 --ac '["テストが通ること", "型エラーがないこと"]'
+  ccsquad update J000001 --depends-on J000002,J000003
   ccsquad update J000001 --description - < description.md`)
-  .action((id: string, opts: { title?: string; description?: string; workflow?: string; ac?: string }) => {
+  .action((id: string, opts: { title?: string; description?: string; workflow?: string; dependsOn?: string; ac?: string }) => {
     const ctx = createProjectContext();
 
     let description: string | undefined;
@@ -195,13 +207,14 @@ program.command("update <id>").description("ジョブを更新")
 
     const workflowConfig = opts.workflow ? parseWorkflowInput(opts.workflow) : undefined;
     const acceptanceCriteria = opts.ac ? parseAcInput(opts.ac) : undefined;
+    const dependsOn = opts.dependsOn ? opts.dependsOn.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
 
-    if (opts.title === undefined && description === undefined && workflowConfig === undefined && acceptanceCriteria === undefined) {
-      console.error("エラー: --title, --description, --workflow, --ac のいずれかを指定してください");
+    if (opts.title === undefined && description === undefined && workflowConfig === undefined && acceptanceCriteria === undefined && dependsOn === undefined) {
+      console.error("エラー: --title, --description, --workflow, --depends-on, --ac のいずれかを指定してください");
       process.exit(1);
     }
 
-    cmdUpdate(ctx, id, { title: opts.title, description, workflowConfig, acceptanceCriteria });
+    cmdUpdate(ctx, id, { title: opts.title, description, workflowConfig, acceptanceCriteria, dependsOn });
   });
 
 // ===== entry point =====

@@ -138,6 +138,7 @@ export function cmdRun(ctx: ProjectContext, id: string): void {
   const job = jobService.start(id);
   const phase = job.frontmatter.current_phase ?? "?";
   process.stderr.write(`ジョブを開始しました: ${id} (フェーズ: ${phase})\n`);
+  process.stderr.write(`次のアクション:\n  ccsquad prompt ${id}\n`);
 }
 
 // prompt: 現在のフェーズのプロンプトを stdout に出力する（旧 next）
@@ -154,16 +155,21 @@ export function cmdPrompt(ctx: ProjectContext, id: string): number {
   }
 
   if (job.frontmatter.status === "paused") {
+    const phaseConfig = job.frontmatter.current_phase ? getPhase(job.frontmatter.workflow, job.frontmatter.current_phase) : undefined;
+    const phaseType = phaseConfig?.type ?? "execute";
     if (job.frontmatter.pause_reason === "human_review") {
       process.stderr.write(`レビュー待ち: 人間のレビューが必要です (${id})\n`);
     } else {
       process.stderr.write(`最大イテレーション到達: 人間の判断が必要です (${id})\n`);
     }
+    const cmds = buildSuggestedCommands(id, phaseType, "paused", job.frontmatter.pause_reason);
+    process.stderr.write(`次のアクション:\n${cmds.map((c) => `  ${c}`).join("\n")}\n`);
     return 2;
   }
 
   if (job.frontmatter.status === "pending") {
-    throw new CcsquadError("job", `ジョブ '${id}' はまだ開始されていません。先に実行してください: ccsquad run ${id}`);
+    process.stderr.write(`ジョブ '${id}' はまだ開始されていません。先に実行してください: ccsquad run ${id}\n`);
+    return 3;
   }
 
   if (job.frontmatter.status !== "running") {
@@ -210,18 +216,34 @@ export function cmdAbort(ctx: ProjectContext, id: string, message?: string): voi
 }
 
 // delete: ジョブを削除する
-export function cmdDelete(ctx: ProjectContext, id: string): void {
-  ctx.jobStore.delete(id);
-  ctx.logStore.delete(id);
+export function cmdDelete(ctx: ProjectContext, id: string, opts?: { force?: boolean }): void {
+  const jobService = new JobService(ctx);
+  jobService.delete(id, opts?.force ?? false);
   process.stderr.write(`ジョブを削除しました: ${id}\n`);
+}
+
+// log: フェーズログを表示する
+export function cmdShowLog(ctx: ProjectContext, id: string): void {
+  ctx.jobStore.load(id); // ジョブ存在チェック
+  const content = ctx.logStore.read(id);
+  if (content === null) {
+    process.stderr.write(`ジョブ '${id}' のログはありません\n`);
+    return;
+  }
+  process.stdout.write(content);
 }
 
 // update: ジョブを更新する
 export function cmdUpdate(
   ctx: ProjectContext,
   id: string,
-  opts: { title?: string; description?: string; workflowConfig?: WorkflowConfig; acceptanceCriteria?: AcceptanceCriterion[] },
+  opts: { title?: string; description?: string; workflowConfig?: WorkflowConfig; acceptanceCriteria?: AcceptanceCriterion[]; dependsOn?: string[] },
 ): void {
+  if (opts.dependsOn !== undefined) {
+    for (const depId of opts.dependsOn) {
+      ctx.jobStore.load(depId);
+    }
+  }
   const jobService = new JobService(ctx);
   const job = jobService.update(id, opts);
   process.stderr.write(`ジョブを更新しました: ${job.frontmatter.id}\n`);

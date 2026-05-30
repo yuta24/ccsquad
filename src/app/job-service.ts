@@ -117,21 +117,36 @@ export class JobService {
 
   update(
     jobId: string,
-    opts: { title?: string; description?: string; workflowConfig?: WorkflowConfig; acceptanceCriteria?: AcceptanceCriterion[] },
+    opts: { title?: string; description?: string; workflowConfig?: WorkflowConfig; acceptanceCriteria?: AcceptanceCriterion[]; dependsOn?: string[] },
   ): Job {
     const job = this.loadJob(jobId);
 
-    if (opts.workflowConfig !== undefined) {
+    // バリデーションフェーズ（副作用なし）— 全チェックを先に行い、通過後にまとめて適用する
+    if (opts.workflowConfig !== undefined && job.frontmatter.status !== "pending") {
+      throw new CcsquadError(
+        "job",
+        `ジョブ '${jobId}' は pending 状態でないためワークフローを変更できません (status: ${job.frontmatter.status})。` +
+        `ジョブを中断して新しいジョブを作成してください: ccsquad abort ${jobId} && ccsquad create "タイトル" --workflow <新しいワークフロー>`,
+      );
+    }
+
+    if (opts.dependsOn !== undefined) {
       if (job.frontmatter.status !== "pending") {
         throw new CcsquadError(
           "job",
-          `ジョブ '${jobId}' は pending 状態でないためワークフローを変更できません (status: ${job.frontmatter.status})。` +
-          `ジョブを中断して新しいジョブを作成してください: ccsquad abort ${jobId} && ccsquad create "タイトル" --workflow <新しいワークフロー>`,
+          `ジョブ '${jobId}' は pending 状態でないため依存関係を変更できません (status: ${job.frontmatter.status})`,
         );
       }
-      job.frontmatter.workflow = opts.workflowConfig;
+      checkCircularDependency(this.ctx, jobId, opts.dependsOn);
     }
 
+    // 適用フェーズ
+    if (opts.workflowConfig !== undefined) {
+      job.frontmatter.workflow = opts.workflowConfig;
+    }
+    if (opts.dependsOn !== undefined) {
+      job.frontmatter.depends_on = opts.dependsOn;
+    }
     if (opts.title !== undefined) {
       job.frontmatter.title = opts.title;
     }
@@ -145,6 +160,32 @@ export class JobService {
     job.frontmatter.updated_at = new Date().toISOString();
     this.ctx.jobStore.save(job);
     return job;
+  }
+
+  delete(jobId: string, force: boolean = false): void {
+    const job = this.loadJob(jobId);
+
+    if (!force && (job.frontmatter.status === "running" || job.frontmatter.status === "paused")) {
+      throw new CcsquadError(
+        "job",
+        `ジョブ '${jobId}' は ${job.frontmatter.status} 状態です。削除するには --force を指定してください: ccsquad delete --force ${jobId}`,
+      );
+    }
+
+    const allJobs = this.ctx.jobStore.listAll();
+    const dependents = allJobs.filter(
+      (j) => j.frontmatter.id !== jobId && (j.frontmatter.depends_on ?? []).includes(jobId),
+    );
+    if (dependents.length > 0 && !force) {
+      const ids = dependents.map((j) => j.frontmatter.id).join(", ");
+      throw new CcsquadError(
+        "job",
+        `ジョブ '${jobId}' は他のジョブ (${ids}) から参照されています。先に参照元を削除するか、--force で強制削除してください`,
+      );
+    }
+
+    this.ctx.jobStore.delete(jobId);
+    this.ctx.logStore.delete(jobId);
   }
 
   get(jobId: string): Job {
