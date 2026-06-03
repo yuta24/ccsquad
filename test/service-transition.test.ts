@@ -255,9 +255,8 @@ describe("JobService.transition - reviewer フェーズ", () => {
 // ─── JobService.transition - AC 自動更新 ───────────────────────────────
 
 describe("JobService.transition - AC 自動更新", () => {
-  it("approved 時にチェック済み AC の done が true になる", () => {
+  it("approved 時は全 AC が done:true になる（メッセージ書式によらず）", () => {
     const { store, jobService } = setup();
-    // AC を設定
     const job = store.load("J000001");
     job.frontmatter.acceptance_criteria = [
       { description: "テスト基準", done: false },
@@ -268,14 +267,12 @@ describe("JobService.transition - AC 自動更新", () => {
     jobService.transition("J000001", "completed", "");
     jobService.transition("J000001", "completed", "");
 
-    const reviewMessage = `## 検証結果
-- [x] テスト基準: 確認済み
-- [ ] セキュリティ: 未確認`;
-    jobService.transition("J000001", "approved", reviewMessage);
+    // チェックリスト書式でなくても全件 true になる
+    jobService.transition("J000001", "approved", "全3件のACを確認。問題なし。");
 
     const updated = store.load("J000001");
     expect(updated.frontmatter.acceptance_criteria[0].done).toBe(true);
-    expect(updated.frontmatter.acceptance_criteria[1].done).toBe(false);
+    expect(updated.frontmatter.acceptance_criteria[1].done).toBe(true);
   });
 
   it("rejected 時もチェック済み AC は更新される", () => {
