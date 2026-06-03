@@ -5,6 +5,7 @@ import { createProjectContext } from "./app/project-context.js";
 import { buildDoctorReport } from "./app/doctor.js";
 import { CcsquadError } from "./error.js";
 import { readFileSync } from "node:fs";
+import pkg from "../package.json" with { type: "json" };
 import {
   cmdList, cmdShow, cmdCreate, cmdRun, cmdPrompt, cmdDone,
   cmdAbort, cmdUpdate, cmdDelete, cmdShowLog,
@@ -29,7 +30,7 @@ const program = new Command();
 program
   .name("ccsquad")
   .description("ステートマシン型ワークフローエンジン CLI")
-  .version("0.3.0")
+  .version(pkg.version)
   .addHelpText("after", `
 基本ワークフロー:
   1. ジョブを作成する
