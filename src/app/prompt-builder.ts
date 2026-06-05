@@ -31,6 +31,7 @@ export function buildJobPrompt(job: Job, logContent: string | null): string {
     `## 現在の状態`,
     `- ID: ${id}`,
     `- フェーズ: ${current_phase ?? "（未開始）"}`,
+    `- エージェント: ${phaseConfig?.agent ?? "（未定義）"}`,
     `- イテレーション: ${iteration}/${max_iterations}`,
     ``,
     `## 自律実行プロトコル`,

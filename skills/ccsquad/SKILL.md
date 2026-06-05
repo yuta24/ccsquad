@@ -45,43 +45,11 @@ EXIT_CODE=$?
 
 #### exit 0 — 実行継続
 
-`$PROMPT` を読み、現在のフェーズに応じた作業を行う。
+`$PROMPT` の「エージェント」行からエージェント名を読み取り、Agent ツールでサブエージェントを起動する。
+サブエージェントには `$PROMPT` の内容をそのままプロンプトとして渡す。
 
-**plan フェーズの場合:**
-1. タスクの要件・技術的課題を調査・分析する
-2. 実装方針を決定する
-3. Acceptance Criteria を定義して登録する:
-   ```bash
-   ccsquad update $ID --ac '[{"description":"基準1"},{"description":"基準2"}]'
-   ```
-4. 完了したら遷移:
-   ```bash
-   ccsquad done $ID completed --message "<計画内容の要約>"
-   ```
-
-**execute フェーズの場合:**
-1. Acceptance Criteria を確認しながら実装・テストを行う
-2. 完了したら遷移:
-   ```bash
-   ccsquad done $ID completed --message "<実装内容の要約>"
-   ```
-   失敗した場合:
-   ```bash
-   ccsquad done $ID failed --message "<失敗理由と引き継ぎ事項>"
-   ```
-
-**review フェーズの場合（auto:true）:**
-1. 各 Acceptance Criteria を実際に検証する
-2. 全て達成していれば:
-   ```bash
-   ccsquad done $ID approved --message "<各ACの達成根拠>"
-   ```
-   未達があれば:
-   ```bash
-   ccsquad done $ID rejected --message "<未達のAC名と具体的な改善指示>"
-   ```
-
-`done` 実行後、exit code を再取得してループを続ける。
+サブエージェントは `ccsquad done`（completed / failed / approved / rejected）の実行まで含めた作業を完了させる。
+サブエージェントが完了したら、exit code を再取得してループを続ける。
 
 #### exit 2 — 人間レビュー待ち（basic ワークフロー）
 
@@ -108,7 +76,9 @@ ccsquad log $ID
 
 ## 制約
 
-- `ccsquad done` を実行する前に、必ず実際の作業（実装・検証など）を完了させること
-- `approved` は Acceptance Criteria を一つずつ検証して達成を確認した場合のみ使用する
-- `completed` / `approved` は「AC を満たした」と判断できる場合のみ。不確かな場合は `failed` / `rejected` を使う
+**オーケストレーター（このスキル）:**
+- 作業の実施・判断はサブエージェントに委譲する。オーケストレーター自身は作業を行わない
 - ループの最大イテレーション数は ccsquad 側で管理（デフォルト 10）。上限に達した場合はユーザーに報告して終了
+
+**サブエージェント:**
+- 各フェーズの作業指示・判断基準は `$PROMPT`（`ccsquad prompt` の出力）に含まれる。追加の制約はサブエージェントに渡す必要はない
