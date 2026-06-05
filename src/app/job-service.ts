@@ -95,10 +95,21 @@ export class JobService {
     return job;
   }
 
-  transition(jobId: string, condition: TransitionCondition, message: string): TransitionResult {
+  transition(jobId: string, condition: TransitionCondition, message: string, workflowConfig?: WorkflowConfig): TransitionResult {
     const job = this.loadJob(jobId);
-    const wf = job.frontmatter.workflow;
 
+    if (workflowConfig !== undefined) {
+      const currentPhaseConfig = getPhase(job.frontmatter.workflow, job.frontmatter.current_phase!);
+      if (currentPhaseConfig?.type !== "plan") {
+        throw new CcsquadError(
+          "job",
+          `--workflow によるワークフロー変更は plan フェーズでのみ許可されています (現在: ${currentPhaseConfig?.type ?? "unknown"})`,
+        );
+      }
+      job.frontmatter.workflow = workflowConfig;
+    }
+
+    const wf = job.frontmatter.workflow;
     const decision = computeTransition({ job, workflow: wf, condition });
     const phaseName = job.frontmatter.current_phase!;
 

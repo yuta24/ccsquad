@@ -64,6 +64,82 @@ describe("JobService.start — 依存関係チェック", () => {
   });
 });
 
+describe("JobService.transition — --workflow による動的ワークフロー変更", () => {
+  let ctx: ProjectContext;
+
+  afterEach(() => {
+    rmSync(ctx.projectRoot, { recursive: true, force: true });
+  });
+
+  it("plan done 時に新しいワークフローに切り替わる", () => {
+    ctx = createTestContext();
+    const svc = new JobService(ctx);
+    const job = svc.create("テスト", BASIC_WF, {
+      acceptanceCriteria: [{ description: "AC1", done: false }],
+    });
+    svc.start(job.frontmatter.id);
+
+    const newWf = parseWorkflowObject({
+      plan: { type: "plan", agent: "plan", on: { completed: "custom", failed: "ABORT" } },
+      custom: { type: "execute", agent: "custom-agent", on: { completed: "COMPLETE", failed: "plan" } },
+    });
+
+    svc.transition(job.frontmatter.id, "completed", "計画完了", newWf);
+
+    const updated = ctx.jobStore.load(job.frontmatter.id);
+    expect(updated.frontmatter.current_phase).toBe("custom");
+    expect(updated.frontmatter.workflow.phases.find((p) => p.name === "custom")?.agent).toBe("custom-agent");
+  });
+
+  it("--workflow なしの場合は元のワークフローを維持する", () => {
+    ctx = createTestContext();
+    const svc = new JobService(ctx);
+    const job = svc.create("テスト", BASIC_WF, {
+      acceptanceCriteria: [{ description: "AC1", done: false }],
+    });
+    svc.start(job.frontmatter.id);
+
+    svc.transition(job.frontmatter.id, "completed", "計画完了");
+
+    const updated = ctx.jobStore.load(job.frontmatter.id);
+    expect(updated.frontmatter.current_phase).toBe("execute");
+    expect(updated.frontmatter.workflow.phases).toHaveLength(3);
+  });
+
+  it("新ワークフローに現在フェーズがなければエラー", () => {
+    ctx = createTestContext();
+    const svc = new JobService(ctx);
+    const job = svc.create("テスト", BASIC_WF, {
+      acceptanceCriteria: [{ description: "AC1", done: false }],
+    });
+    svc.start(job.frontmatter.id);
+
+    const invalidWf = parseWorkflowObject({
+      other: { type: "execute", agent: "developer", on: { completed: "COMPLETE", failed: "ABORT" } },
+    });
+
+    expect(() => svc.transition(job.frontmatter.id, "completed", "計画完了", invalidWf)).toThrow(CcsquadError);
+  });
+
+  it("plan 以外のフェーズで --workflow を指定するとエラー", () => {
+    ctx = createTestContext();
+    const svc = new JobService(ctx);
+    const job = svc.create("テスト", BASIC_WF, {
+      acceptanceCriteria: [{ description: "AC1", done: false }],
+    });
+    svc.start(job.frontmatter.id);
+    // plan → execute に遷移
+    svc.transition(job.frontmatter.id, "completed", "計画完了");
+
+    const newWf = parseWorkflowObject({
+      execute: { type: "execute", agent: "developer", on: { completed: "COMPLETE", failed: "ABORT" } },
+    });
+
+    expect(() => svc.transition(job.frontmatter.id, "completed", "実装完了", newWf))
+      .toThrow(/plan フェーズでのみ許可/);
+  });
+});
+
 describe("replaceDescriptionSection", () => {
   it("既存の ## 説明 セクションを置換する", () => {
     const body = "## 説明\n旧説明文\n";

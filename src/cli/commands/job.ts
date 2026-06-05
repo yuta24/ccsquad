@@ -1,4 +1,5 @@
 import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 import YAML from "yaml";
 import type { Job, JobStatus, WorkflowConfig, AcceptanceCriterion, PauseReason } from "../../domain/types.js";
 import { ALL_JOB_STATUSES } from "../../domain/types.js";
@@ -12,11 +13,19 @@ import { buildJobPrompt } from "../../app/prompt-builder.js";
 
 // ── Input parsers ──
 
-// Parse --workflow input: preset name, JSON/YAML string, file path, or "-" (stdin)
-export function parseWorkflowInput(input: string): WorkflowConfig {
+// Parse --workflow input: preset name, .ccsquad/workflows/<name>.yaml, JSON/YAML string, file path, or "-" (stdin)
+export function parseWorkflowInput(input: string, squadDir?: string): WorkflowConfig {
   // Check preset names first
   if (WORKFLOW_PRESETS[input]) {
     return parseWorkflowObject(YAML.parse(WORKFLOW_PRESETS[input]));
+  }
+
+  // Check .ccsquad/workflows/<name>.yaml when squadDir is provided and input looks like a plain name
+  if (squadDir && !input.includes("/") && !input.includes("\\") && !input.includes(":") && input !== "-") {
+    const namedPath = join(squadDir, "workflows", `${input}.yaml`);
+    if (existsSync(namedPath)) {
+      return parseWorkflowObject(YAML.parse(readFileSync(namedPath, "utf-8")));
+    }
   }
 
   let raw: string;
@@ -181,14 +190,14 @@ export function cmdPrompt(ctx: ProjectContext, id: string): number {
 
 // done: フェーズを遷移する（旧 pass）
 // --message はフェーズログに自動記録される（遷移成功後）
-export function cmdDone(ctx: ProjectContext, id: string, result: string, message: string): void {
+export function cmdDone(ctx: ProjectContext, id: string, result: string, message: string, workflowConfig?: WorkflowConfig): void {
   const condition = parseTransitionCondition(result);
 
   const job = ctx.jobStore.load(id);
   const phase = job.frontmatter.current_phase ?? "unknown";
 
   const jobService = new JobService(ctx);
-  const txResult = jobService.transition(id, condition, message);
+  const txResult = jobService.transition(id, condition, message, workflowConfig);
 
   // 遷移成功後にログ記録（遷移失敗時は記録しない）
   if (message) {

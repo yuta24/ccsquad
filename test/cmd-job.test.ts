@@ -1,5 +1,5 @@
 import { describe, it, expect, spyOn } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -196,6 +196,35 @@ code:
 
   it("test_rejects_invalid_workflow_structure", () => {
     expect(() => parseWorkflowInput('{"plan": {"type": "invalid", "agent": "dev", "on": {"completed": "COMPLETE"}}}')).toThrow("不正なフェーズタイプ");
+  });
+
+  it("squadDir が指定されていれば .ccsquad/workflows/<name>.yaml を解決する", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ccsquad-wf-named-"));
+    const workflowsDir = join(dir, ".ccsquad", "workflows");
+    mkdirSync(workflowsDir, { recursive: true });
+    writeFileSync(join(workflowsDir, "my-custom.yaml"), `plan:
+  type: plan
+  agent: plan
+  on:
+    completed: COMPLETE
+    failed: ABORT
+`, "utf-8");
+    const squadDir = join(dir, ".ccsquad");
+    const wf = parseWorkflowInput("my-custom", squadDir);
+    expect(wf.phases).toHaveLength(1);
+    expect(wf.phases[0].name).toBe("plan");
+    expect(wf.phases[0].agent).toBe("plan");
+  });
+
+  it("squadDir を指定してもファイルが存在しなければインライン YAML として試みる", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ccsquad-wf-named-"));
+    const squadDir = join(dir, ".ccsquad");
+    const yaml = `plan:\n  type: plan\n  agent: developer\n  on:\n    completed: COMPLETE\n    failed: ABORT`;
+    expect(() => parseWorkflowInput("nonexistent", squadDir)).toThrow();
+  });
+
+  it("squadDir が指定されていなければ named 解決をスキップする", () => {
+    expect(() => parseWorkflowInput("nonexistent")).toThrow();
   });
 });
 

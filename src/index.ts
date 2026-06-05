@@ -124,7 +124,7 @@ stdout: ジョブ ID のみ出力 (パイプ対応)
   ccsquad create "機能実装" --workflow workflow.yaml --ac '["テストが通ること"]'`)
   .action((title: string, opts: { workflow: string; description?: string; dependsOn?: string; maxIterations: string; ac?: string }) => {
     const ctx = createProjectContext();
-    const workflowConfig = parseWorkflowInput(opts.workflow);
+    const workflowConfig = parseWorkflowInput(opts.workflow, ctx.squadDir);
     const dependsOn = opts.dependsOn ? opts.dependsOn.split(",").map((s) => s.trim()).filter(Boolean) : [];
     const ac = opts.ac ? parseAcInput(opts.ac) : undefined;
     cmdCreate(ctx, title, workflowConfig, opts.description, dependsOn, parsePositiveInteger(opts.maxIterations, "--max-iterations"), ac);
@@ -160,6 +160,7 @@ exit コード:
 
 program.command("done <id> <result>").description("フェーズを遷移する（--message はフェーズログに自動記録）")
   .option("--message <message>", "遷移メッセージ（次フェーズへの引き継ぎ情報・ログ）", "")
+  .option("--workflow <workflow>", `後続ワークフロー定義 (プリセット: ${PRESET_NAMES}、ファイルパス、または - で stdin)`)
   .addHelpText("after", `
 result の値:
   completed   plan / execute フェーズが成功した場合
@@ -170,12 +171,19 @@ result の値:
 --message の内容はフェーズログに自動記録されます。
 別途 log コマンドを実行する必要はありません。
 
+--workflow を指定すると遷移と同時にワークフローを更新します。
+plan フェーズで動的にワークフローを構築する場合に使用します。
+新しいワークフローには現在のフェーズ（plan）の定義も含める必要があります。
+
 例:
   ccsquad done J000001 completed --message "テスト全件パス"
   ccsquad done J000001 approved  --message "LGTM"
-  ccsquad done J000001 rejected  --message "テストカバレッジが不足"`)
-  .action((id: string, result: string, opts: { message: string }) => {
-    cmdDone(createProjectContext(), id, result, opts.message);
+  ccsquad done J000001 rejected  --message "テストカバレッジが不足"
+  ccsquad done J000001 completed --workflow workflow.yaml --message "計画完了"`)
+  .action((id: string, result: string, opts: { message: string; workflow?: string }) => {
+    const ctx = createProjectContext();
+    const workflowConfig = opts.workflow ? parseWorkflowInput(opts.workflow, ctx.squadDir) : undefined;
+    cmdDone(ctx, id, result, opts.message, workflowConfig);
   });
 
 program.command("abort <id>").description("ジョブを中断 (→ aborted)")
@@ -227,7 +235,7 @@ program.command("update <id>").description("ジョブを更新")
       description = opts.description;
     }
 
-    const workflowConfig = opts.workflow ? parseWorkflowInput(opts.workflow) : undefined;
+    const workflowConfig = opts.workflow ? parseWorkflowInput(opts.workflow, ctx.squadDir) : undefined;
     const acceptanceCriteria = opts.ac ? parseAcInput(opts.ac) : undefined;
     const dependsOn = opts.dependsOn ? opts.dependsOn.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
 
