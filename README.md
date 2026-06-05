@@ -8,10 +8,16 @@
 curl -fsSL https://raw.githubusercontent.com/yuta24/ccsquad/main/install.sh | bash
 ```
 
-インストール先を変更する場合:
+デフォルトのインストール先は `/usr/local/bin` です。書き込み権限がない場合は `sudo` が実行されパスワードを求められます。パスワードを入力したくない場合は `INSTALL_DIR` で書き込み権限のあるディレクトリを指定してください:
 
 ```bash
-INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/yuta24/ccsquad/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/yuta24/ccsquad/main/install.sh | INSTALL_DIR=~/.local/bin bash
+```
+
+`~/.local/bin` を使う場合は `PATH` に含まれているか確認してください:
+
+```bash
+echo $PATH | grep -q "$HOME/.local/bin" || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 ```
 
 対応環境: macOS (arm64 / x64)、Linux (arm64 / x64)
