@@ -11,6 +11,7 @@ import {
   cmdAbort, cmdUpdate, cmdDelete, cmdShowLog,
   parseWorkflowInput, parseAcInput,
 } from "./cli/commands/job.js";
+import { cmdSetup } from "./cli/commands/setup.js";
 import { WORKFLOW_PRESETS } from "./domain/workflow.js";
 
 const PRESET_NAMES = Object.keys(WORKFLOW_PRESETS).join(", ");
@@ -236,6 +237,24 @@ program.command("update <id>").description("ジョブを更新")
     }
 
     cmdUpdate(ctx, id, { title: opts.title, description, workflowConfig, acceptanceCriteria, dependsOn });
+  });
+
+program.command("setup").description("Claude Code スキルをインストールする")
+  .option("--global", "ユーザースコープ (~/.claude/skills/) にインストールする")
+  .option("--dir <path>", "インストール先ディレクトリ（デフォルト: カレントディレクトリ）")
+  .option("--force", "既存ファイルを上書きする")
+  .addHelpText("after", `
+インストール先:
+  デフォルト: <dir>/.claude/skills/ccsquad/SKILL.md  (プロジェクトスコープ)
+  --global:   ~/.claude/skills/ccsquad/SKILL.md      (ユーザースコープ)
+
+例:
+  ccsquad setup
+  ccsquad setup --global
+  ccsquad setup --dir ~/myproject
+  ccsquad setup --force`)
+  .action((opts: { global?: boolean; dir?: string; force?: boolean }) => {
+    cmdSetup({ global: opts.global, dir: opts.dir, force: opts.force });
   });
 
 // ===== entry point =====
