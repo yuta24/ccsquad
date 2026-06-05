@@ -107,7 +107,7 @@ stdout: ジョブ ID のみ出力 (パイプ対応)
 カスタムワークフロー (YAML):
   plan:
     type: plan
-    agent: plan
+    agent: Plan
     on:
       completed: code
       failed: ABORT
