@@ -5,12 +5,16 @@
 ## インストール
 
 ```bash
-git clone https://github.com/yuta24/ccsquad.git
-cd ccsquad
-bun install
-bun run build
-cp dist/ccsquad /usr/local/bin/
+curl -fsSL https://raw.githubusercontent.com/yuta24/ccsquad/main/install.sh | bash
 ```
+
+インストール先を変更する場合:
+
+```bash
+INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/yuta24/ccsquad/main/install.sh | bash
+```
+
+対応環境: macOS (arm64 / x64)、Linux (arm64 / x64)
 
 ## 基本的な使い方
 
