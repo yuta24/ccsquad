@@ -1,6 +1,6 @@
 {
   "name": "ccsquad",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "ステートマシン型ワークフローエンジン CLI — Claude Code の計画→実装→評価ループを強制するハーネス",
   "type": "module",
   "bin": {
