@@ -351,7 +351,11 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
       const wf = job.frontmatter.workflow;
       const phase = getPhase(wf, job.frontmatter.current_phase);
       if (phase) {
-        output.phase_config = { type: phase.type, agent: phase.agent, auto: phase.auto ?? false };
+        output.phase_config = {
+          type: phase.type,
+          ...(phase.agents ? { agents: phase.agents } : { agent: phase.agent }),
+          auto: phase.auto ?? false,
+        };
         output.suggested_commands = buildSuggestedCommands(
           id,
           phase.type,
@@ -374,7 +378,10 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
       const phase = getPhase(wf, fm.current_phase);
       if (phase) {
         console.log(`  タイプ: ${phase.type}`);
-        console.log(`  エージェント: ${phase.agent}`);
+        const agentDisplay = phase.agents
+          ? `並列実行 (${phase.agents.map((a) => a.agent).join(", ")})`
+          : phase.agent ?? "（未定義）";
+        console.log(`  エージェント: ${agentDisplay}`);
       }
     }
     console.log(`イテレーション: ${fm.iteration}/${fm.max_iterations}`);

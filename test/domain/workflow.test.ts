@@ -57,7 +57,7 @@ describe("parseWorkflowObject", () => {
 
   it("agent がない場合はエラー", () => {
     const obj = { plan: { type: "plan", on: { completed: "COMPLETE" } } };
-    expect(() => parseWorkflowObject(obj)).toThrow("agent を指定してください");
+    expect(() => parseWorkflowObject(obj)).toThrow("agent または agents");
   });
 
   it("on がない場合はエラー", () => {

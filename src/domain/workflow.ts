@@ -5,6 +5,7 @@ import type {
   PhaseConfig,
   PhaseType,
   TransitionCondition,
+  AgentEntry,
 } from "./types.js";
 import { ALL_CONDITIONS, ALL_PHASE_TYPES } from "./types.js";
 
@@ -143,10 +144,28 @@ export function parseWorkflowObject(parsed: unknown): WorkflowConfig {
       throw new CcsquadError("workflow", `不正なフェーズタイプ: ${type} (${ALL_PHASE_TYPES.join(", ")} を指定してください)`);
     }
 
-    if (entry.agent == null) {
-      throw new CcsquadError("workflow", `フェーズ '${name}': agent を指定してください`);
+    let agent: string | undefined;
+    let agents: AgentEntry[] | undefined;
+
+    if (entry.agents !== undefined) {
+      if (!Array.isArray(entry.agents) || (entry.agents as unknown[]).length === 0) {
+        throw new CcsquadError("workflow", `フェーズ '${name}': agents は1つ以上のエントリを持つ配列で指定してください`);
+      }
+      agents = (entry.agents as unknown[]).map((a, i) => {
+        if (typeof a !== "object" || a === null) {
+          throw new CcsquadError("workflow", `フェーズ '${name}': agents[${i}] はオブジェクトで指定してください`);
+        }
+        const ae = a as Record<string, unknown>;
+        if (ae.agent == null) {
+          throw new CcsquadError("workflow", `フェーズ '${name}': agents[${i}] に agent を指定してください`);
+        }
+        return { agent: String(ae.agent), ...(ae.constraint != null ? { constraint: String(ae.constraint) } : {}) };
+      });
+    } else if (entry.agent != null) {
+      agent = String(entry.agent);
+    } else {
+      throw new CcsquadError("workflow", `フェーズ '${name}': agent または agents を指定してください`);
     }
-    const agent = String(entry.agent);
 
     const auto = entry.auto === true ? true : undefined;
 
@@ -163,7 +182,11 @@ export function parseWorkflowObject(parsed: unknown): WorkflowConfig {
       on[cond as TransitionCondition] = String(target);
     }
 
-    phases.push({ name, type: type as PhaseType, agent, ...(auto ? { auto } : {}), on });
+    if (agents) {
+      phases.push({ name, type: type as PhaseType, agents, ...(auto ? { auto } : {}), on });
+    } else {
+      phases.push({ name, type: type as PhaseType, agent: agent!, ...(auto ? { auto } : {}), on });
+    }
   }
 
   if (phases.length === 0) {

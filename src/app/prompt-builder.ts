@@ -25,13 +25,17 @@ export function buildJobPrompt(job: Job, logContent: string | null): string {
     `</static>`,
   ];
 
+  const agentDisplay = phaseConfig?.agents
+    ? `並列実行 (${phaseConfig.agents.length}エージェント)`
+    : (phaseConfig?.agent ?? "（未定義）");
+
   // DYNAMIC: 現在フェーズ・前回ログ・作業指示（毎回変わる部分）
   const dynamicLines = [
     `<dynamic>`,
     `## 現在の状態`,
     `- ID: ${id}`,
     `- フェーズ: ${current_phase ?? "（未開始）"}`,
-    `- エージェント: ${phaseConfig?.agent ?? "（未定義）"}`,
+    `- エージェント: ${agentDisplay}`,
     `- イテレーション: ${iteration}/${max_iterations}`,
     ``,
     `## 自律実行プロトコル`,
@@ -40,6 +44,23 @@ export function buildJobPrompt(job: Job, logContent: string | null): string {
     `- 検証不能、未達、作業継続不能の場合は failed / rejected を使い、--message に理由と次の引き継ぎを書く`,
     `- 人間レビューが必要な指示が出ている場合は ccsquad done を実行せず、ユーザーに判断を求める`,
   ];
+
+  if (phaseConfig?.agents) {
+    dynamicLines.push(
+      ``,
+      `## 並列エージェント構成`,
+      `以下のエージェントを同時起動してください（Agent ツールを複数同時呼び出し）。`,
+      `各エージェントにはこのプロンプト全体と、個別の追加制約を渡してください。`,
+      ``,
+      ...phaseConfig.agents.map((a, i) =>
+        a.constraint
+          ? `${i + 1}. agent: ${a.agent}\n   constraint: ${a.constraint}`
+          : `${i + 1}. agent: ${a.agent}`
+      ),
+      ``,
+      `集約ルール: 全エージェントが completed → completed、いずれかが failed → failed`,
+    );
+  }
 
   if (logContent) {
     dynamicLines.push(

@@ -62,7 +62,7 @@ describe("parseWorkflowObject", () => {
 
   it("agent 省略時はエラーをスローする", () => {
     const obj = { plan: { type: "plan", on: { completed: "COMPLETE" } } };
-    expect(() => parseWorkflowObject(obj)).toThrow("agent を指定してください");
+    expect(() => parseWorkflowObject(obj)).toThrow("agent または agents");
   });
 
   it("auto キーワードをパースする", () => {
@@ -83,6 +83,58 @@ describe("parseWorkflowObject", () => {
     const wf = parseWorkflowObject(obj);
     expect(wf.phases[0].agent).toBe("my-reviewer");
     expect(wf.phases[0].auto).toBe(true);
+  });
+});
+
+describe("parseWorkflowObject — agents 配列", () => {
+  it("agents 配列をパースする", () => {
+    const obj = {
+      execute: {
+        type: "execute",
+        agents: [
+          { agent: "developer", constraint: "フロントエンド担当" },
+          { agent: "developer", constraint: "バックエンド担当" },
+        ],
+        on: { completed: "COMPLETE", failed: "ABORT" },
+      },
+    };
+    const wf = parseWorkflowObject(obj);
+    expect(wf.phases[0].agents).toHaveLength(2);
+    expect(wf.phases[0].agents![0]).toEqual({ agent: "developer", constraint: "フロントエンド担当" });
+    expect(wf.phases[0].agents![1]).toEqual({ agent: "developer", constraint: "バックエンド担当" });
+    expect(wf.phases[0].agent).toBeUndefined();
+  });
+
+  it("constraint なしの agents エントリをパースする", () => {
+    const obj = {
+      execute: {
+        type: "execute",
+        agents: [{ agent: "developer" }, { agent: "reviewer" }],
+        on: { completed: "COMPLETE", failed: "ABORT" },
+      },
+    };
+    const wf = parseWorkflowObject(obj);
+    expect(wf.phases[0].agents![0]).toEqual({ agent: "developer" });
+    expect(wf.phases[0].agents![1]).toEqual({ agent: "reviewer" });
+  });
+
+  it("agents が空配列のときエラー", () => {
+    const obj = {
+      execute: { type: "execute", agents: [], on: { completed: "COMPLETE" } },
+    };
+    expect(() => parseWorkflowObject(obj)).toThrow("1つ以上");
+  });
+
+  it("agents の各エントリに agent がなければエラー", () => {
+    const obj = {
+      execute: { type: "execute", agents: [{ constraint: "foo" }], on: { completed: "COMPLETE" } },
+    };
+    expect(() => parseWorkflowObject(obj)).toThrow("agents[0] に agent を指定してください");
+  });
+
+  it("agent も agents も指定されていなければエラー", () => {
+    const obj = { execute: { type: "execute", on: { completed: "COMPLETE" } } };
+    expect(() => parseWorkflowObject(obj)).toThrow("agent または agents");
   });
 });
 
@@ -147,5 +199,27 @@ describe("workflowToObject", () => {
     const obj = workflowToObject(original);
     const parsed = parseWorkflowObject(obj);
     expect(parsed.phases[1].auto).toBe(true);
+  });
+
+  it("agents ありでラウンドトリップが正しい", () => {
+    const original = {
+      phases: [
+        { name: "plan", type: "plan" as const, agent: "plan", on: { completed: "execute", failed: "ABORT" } },
+        {
+          name: "execute",
+          type: "execute" as const,
+          agents: [
+            { agent: "developer", constraint: "フロントエンド担当" },
+            { agent: "developer", constraint: "バックエンド担当" },
+          ],
+          on: { completed: "COMPLETE", failed: "plan" },
+        },
+      ],
+    };
+    const obj = workflowToObject(original);
+    const parsed = parseWorkflowObject(obj);
+    expect(parsed.phases[1].agents).toHaveLength(2);
+    expect(parsed.phases[1].agents![0]).toEqual({ agent: "developer", constraint: "フロントエンド担当" });
+    expect(parsed.phases[1].agent).toBeUndefined();
   });
 });
