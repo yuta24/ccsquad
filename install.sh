@@ -20,17 +20,27 @@ case "$OS" in
 esac
 
 ASSET="${BINARY}-${OS}-${ARCH}"
-URL="https://github.com/${REPO}/releases/latest/download/${ASSET}"
-TMP="$(mktemp)"
+BASE_URL="https://github.com/${REPO}/releases/latest/download"
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
 
 echo "Downloading ${ASSET}..."
-curl -fsSL "$URL" -o "$TMP"
-chmod +x "$TMP"
+curl -fsSL "${BASE_URL}/${ASSET}" -o "${TMP_DIR}/${ASSET}"
+curl -fsSL "${BASE_URL}/SHA256SUMS" -o "${TMP_DIR}/SHA256SUMS"
+
+echo "Verifying checksum..."
+if command -v sha256sum >/dev/null 2>&1; then
+  grep "${ASSET}" "${TMP_DIR}/SHA256SUMS" | (cd "${TMP_DIR}" && sha256sum -c -)
+else
+  grep "${ASSET}" "${TMP_DIR}/SHA256SUMS" | (cd "${TMP_DIR}" && shasum -a 256 -c -)
+fi
+
+chmod +x "${TMP_DIR}/${ASSET}"
 
 if [ -w "$INSTALL_DIR" ]; then
-  mv "$TMP" "${INSTALL_DIR}/${BINARY}"
+  mv "${TMP_DIR}/${ASSET}" "${INSTALL_DIR}/${BINARY}"
 else
-  sudo mv "$TMP" "${INSTALL_DIR}/${BINARY}"
+  sudo mv "${TMP_DIR}/${ASSET}" "${INSTALL_DIR}/${BINARY}"
 fi
 
 echo "Installed: ${INSTALL_DIR}/${BINARY}"
