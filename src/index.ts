@@ -9,7 +9,7 @@ import pkg from "../package.json" with { type: "json" };
 import {
   cmdList, cmdShow, cmdCreate, cmdRun, cmdPrompt, cmdDone,
   cmdAbort, cmdUpdate, cmdDelete, cmdShowLog,
-  parseWorkflowInput, parseAcInput,
+  parseWorkflowInput, parseAcInput, parsePlanFileInput,
 } from "./cli/commands/job.js";
 import { cmdSetup } from "./cli/commands/setup.js";
 import { WORKFLOW_PRESETS } from "./domain/workflow.js";
@@ -161,6 +161,7 @@ exit コード:
 program.command("done <id> <result>").description("フェーズを遷移する（--message はフェーズログに自動記録）")
   .option("--message <message>", "遷移メッセージ（次フェーズへの引き継ぎ情報・ログ）", "")
   .option("--workflow <workflow>", `後続ワークフロー定義 (プリセット: ${PRESET_NAMES}、ファイルパス、または - で stdin)`)
+  .option("--plan-file <path>", "計画文書のファイルパス（plan フェーズ専用。.ccsquad/plans/<id>.md を上書きし、以後のフェーズに引き継がれる）")
   .addHelpText("after", `
 result の値:
   completed   plan / execute フェーズが成功した場合
@@ -175,15 +176,23 @@ result の値:
 plan フェーズで動的にワークフローを構築する場合に使用します。
 新しいワークフローには現在のフェーズ（plan）の定義も含める必要があります。
 
+--plan-file を指定すると、指定したファイルの内容を計画文書として
+.ccsquad/plans/<id>.md に記録します（plan フェーズでのみ使用可）。
+記録した内容は以後のフェーズのプロンプトにも自動的に含まれます。
+--message と異なり追記ではなく上書きです。plan フェーズを再実行して
+再度 --plan-file を指定すると、以前の内容は失われます。
+
 例:
   ccsquad done J000001 completed --message "テスト全件パス"
   ccsquad done J000001 approved  --message "LGTM"
   ccsquad done J000001 rejected  --message "テストカバレッジが不足"
-  ccsquad done J000001 completed --workflow workflow.yaml --message "計画完了"`)
-  .action((id: string, result: string, opts: { message: string; workflow?: string }) => {
+  ccsquad done J000001 completed --workflow workflow.yaml --message "計画完了"
+  ccsquad done J000001 completed --plan-file plan.md --message "計画内容の要約"`)
+  .action((id: string, result: string, opts: { message: string; workflow?: string; planFile?: string }) => {
     const ctx = createProjectContext();
     const workflowConfig = opts.workflow ? parseWorkflowInput(opts.workflow, ctx.squadDir) : undefined;
-    cmdDone(ctx, id, result, opts.message, workflowConfig);
+    const planContent = opts.planFile !== undefined ? parsePlanFileInput(opts.planFile) : undefined;
+    cmdDone(ctx, id, result, opts.message, workflowConfig, planContent);
   });
 
 program.command("abort <id>").description("ジョブを中断 (→ aborted)")

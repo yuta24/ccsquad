@@ -206,6 +206,7 @@ export class JobService {
 
     this.ctx.jobStore.delete(jobId);
     this.ctx.logStore.delete(jobId);
+    this.ctx.planStore.delete(jobId);
   }
 
   get(jobId: string): Job {

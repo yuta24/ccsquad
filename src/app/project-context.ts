@@ -2,14 +2,17 @@ import { mkdirSync, existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join, resolve, dirname } from "node:path";
 import { JobStore } from "../infra/job-store.js";
 import { LogStore } from "../infra/log-store.js";
+import { PlanStore } from "../infra/plan-store.js";
 
 export interface ProjectContext {
   jobStore: JobStore;
   logStore: LogStore;
+  planStore: PlanStore;
   projectRoot: string;
   squadDir: string;
   jobsDir: string;
   logsDir: string;
+  plansDir: string;
 }
 
 export function createProjectContext(): ProjectContext {
@@ -17,16 +20,20 @@ export function createProjectContext(): ProjectContext {
   const squadDir = join(projectRoot, ".ccsquad");
   const jobsDir = join(squadDir, "jobs");
   const logsDir = join(squadDir, "logs");
+  const plansDir = join(squadDir, "plans");
   mkdirSync(jobsDir, { recursive: true });
   mkdirSync(logsDir, { recursive: true });
+  mkdirSync(plansDir, { recursive: true });
 
   return {
     jobStore: new JobStore(jobsDir),
     logStore: new LogStore(logsDir),
+    planStore: new PlanStore(plansDir),
     projectRoot,
     squadDir,
     jobsDir,
     logsDir,
+    plansDir,
   };
 }
 

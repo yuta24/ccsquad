@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { JobStore } from "../../src/infra/job-store.js";
 import { LogStore } from "../../src/infra/log-store.js";
+import { PlanStore } from "../../src/infra/plan-store.js";
 import { cmdAbort, cmdDelete, cmdList, cmdShowLog } from "../../src/cli/commands/job.js";
 import { cmdCreate, cmdRun, cmdDone } from "../../src/cli/commands/job.js";
 import { CcsquadError } from "../../src/error.js";
@@ -15,13 +16,16 @@ import { parseWorkflowObject } from "../../src/domain/workflow.js";
 function makeCtx(tmpDir: string): ProjectContext {
   const jobsDir = join(tmpDir, "jobs");
   const logsDir = join(tmpDir, "logs");
+  const plansDir = join(tmpDir, "plans");
   return {
     jobStore: new JobStore(jobsDir),
     logStore: new LogStore(logsDir),
+    planStore: new PlanStore(plansDir),
     projectRoot: tmpDir,
     squadDir: tmpDir,
     jobsDir,
     logsDir,
+    plansDir,
   };
 }
 

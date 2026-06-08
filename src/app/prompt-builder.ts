@@ -2,7 +2,8 @@ import type { Job, PhaseConfig } from "../domain/types.js";
 import { getPhase } from "../domain/workflow.js";
 
 // logContent: .ccsquad/logs/<id>.md の内容。null の場合はログなし
-export function buildJobPrompt(job: Job, logContent: string | null): string {
+// planContent: .ccsquad/plans/<id>.md の内容（plan フェーズの計画文書）。null の場合は未作成
+export function buildJobPrompt(job: Job, logContent: string | null, planContent: string | null = null): string {
   const { id, title, current_phase, iteration, max_iterations, acceptance_criteria, workflow } = job.frontmatter;
 
   const acList = acceptance_criteria.length > 0
@@ -62,6 +63,14 @@ export function buildJobPrompt(job: Job, logContent: string | null): string {
     );
   }
 
+  if (planContent) {
+    dynamicLines.push(
+      ``,
+      `## 計画`,
+      planContent.trim(),
+    );
+  }
+
   if (logContent) {
     dynamicLines.push(
       ``,
@@ -95,7 +104,19 @@ function buildPhaseInstructions(jobId: string, phaseConfig: PhaseConfig | undefi
         `要件・技術的課題を調査・分析し、実装計画を立てます。`,
         `1. 調査・分析を行い、実装方針を決定する`,
         `2. ccsquad update ${jobId} --ac '[{"description":"基準1"},{"description":"基準2"}]' で Acceptance Criteria を定義する`,
-        `3. 必要であれば後続ワークフローを設計する（任意）`,
+        `3. 計画文書（Markdown）を作成する（下記「計画文書の作成」を参照）`,
+        `4. 必要であれば後続ワークフローを設計する（任意）`,
+        ``,
+        `## 計画文書の作成`,
+        `--message には要約のみを記録します。詳細を残さないと後からの見直しに支障が出るため、`,
+        `調査結果や設計判断などの詳細は計画文書としてファイルにまとめ、--plan-file で渡してください。`,
+        `記載する内容の例（過不足はタスクに応じて調整する）:`,
+        `  - 調査結果・前提（既存実装、制約、依存関係）`,
+        `  - 設計判断とその理由（採用した方針、却下した代替案）`,
+        `  - 実装ステップ`,
+        `  - リスク・懸念事項`,
+        `--plan-file で渡した内容は .ccsquad/plans/${jobId}.md に記録され、`,
+        `以後のフェーズのプロンプトにも自動的に引き継がれます（plan フェーズが再実行された場合は上書きされます）。`,
         ``,
         `## ワークフローの変更（任意）`,
         `デフォルト（plan → execute → review）では不十分な場合、--workflow で後続フェーズを再定義できます。`,
@@ -105,14 +126,14 @@ function buildPhaseInstructions(jobId: string, phaseConfig: PhaseConfig | undefi
         `  - レビューを自動化したい（auto: true を付与）`,
         ``,
         `変更する場合は、現在の plan フェーズの定義も含む完全なワークフロー YAML を --workflow に渡します:`,
-        `  ccsquad done ${jobId} completed --workflow 'plan:\\n  type: plan\\n  agent: plan\\n  on:\\n    completed: execute\\n    failed: ABORT\\nexecute:\\n  ...' --message "計画内容の要約"`,
+        `  ccsquad done ${jobId} completed --workflow 'plan:\\n  type: plan\\n  agent: plan\\n  on:\\n    completed: execute\\n    failed: ABORT\\nexecute:\\n  ...' --plan-file plan.md --message "計画内容の要約"`,
         ``,
         `変更不要な場合は --workflow を省略します:`,
-        `  ccsquad done ${jobId} completed --message "計画内容の要約"`,
+        `  ccsquad done ${jobId} completed --plan-file plan.md --message "計画内容の要約"`,
         ``,
         `遷移:`,
-        `  ccsquad done ${jobId} completed [--workflow <YAML>] --message "計画内容の要約"`,
-        `  ccsquad done ${jobId} failed                       --message "失敗理由"`,
+        `  ccsquad done ${jobId} completed --plan-file <計画文書のパス> [--workflow <YAML>] --message "計画内容の要約"`,
+        `  ccsquad done ${jobId} failed                                                     --message "失敗理由"`,
       );
       break;
 

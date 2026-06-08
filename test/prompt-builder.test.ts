@@ -88,6 +88,18 @@ describe("buildJobPrompt", () => {
     expect(prompt).not.toContain("前回までの記録");
   });
 
+  test("includes plan content when provided", () => {
+    const planContent = "## 設計方針\nレイヤードアーキテクチャを採用する。";
+    const prompt = buildJobPrompt(makeJob("J000001"), null, planContent);
+    expect(prompt).toContain("## 計画");
+    expect(prompt).toContain("レイヤードアーキテクチャを採用する。");
+  });
+
+  test("does not include plan section when planContent is null", () => {
+    const prompt = buildJobPrompt(makeJob("J000001"), null, null);
+    expect(prompt).not.toContain("## 計画");
+  });
+
   test("review phase (auto) includes approved/rejected transitions", () => {
     const job = makeJob("J000001", {
       current_phase: "review",
@@ -100,6 +112,21 @@ describe("buildJobPrompt", () => {
     const prompt = buildJobPrompt(job, null);
     expect(prompt).toContain("ccsquad done J000001 approved");
     expect(prompt).toContain("ccsquad done J000001 rejected");
+  });
+
+  test("plan phase instructs to write a plan document and pass it via --plan-file", () => {
+    const job = makeJob("J000001", {
+      current_phase: "plan",
+      workflow: {
+        phases: [
+          { name: "plan", type: "plan", agent: "planner", on: { completed: "execute", failed: "ABORT" } },
+        ],
+      },
+    });
+    const prompt = buildJobPrompt(job, null);
+    expect(prompt).toContain("計画文書");
+    expect(prompt).toContain("--plan-file");
+    expect(prompt).toContain("ccsquad done J000001 completed --plan-file <計画文書のパス>");
   });
 
   test("review phase (manual) instructs to stop and report", () => {

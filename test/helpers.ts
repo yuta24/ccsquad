@@ -3,21 +3,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JobStore } from "../src/infra/job-store.js";
 import { LogStore } from "../src/infra/log-store.js";
+import { PlanStore } from "../src/infra/plan-store.js";
 import type { ProjectContext } from "../src/app/project-context.js";
 
 export function createTestContext(prefix = "ccsquad-test-"): ProjectContext {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   const jobsDir = join(dir, "jobs");
   const logsDir = join(dir, "logs");
+  const plansDir = join(dir, "plans");
   const store = new JobStore(jobsDir);
   store.ensureDir();
 
   return {
     jobStore: store,
     logStore: new LogStore(logsDir),
+    planStore: new PlanStore(plansDir),
     projectRoot: dir,
     squadDir: dir,
     jobsDir,
     logsDir,
+    plansDir,
   };
 }

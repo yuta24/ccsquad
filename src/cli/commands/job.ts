@@ -87,6 +87,18 @@ export function parseAcInput(input: string): AcceptanceCriterion[] {
   });
 }
 
+// Parse --plan-file input: ファイルパス
+export function parsePlanFileInput(path: string): string {
+  if (!existsSync(path)) {
+    throw new CcsquadError("config", `計画文書のファイルが見つかりません: ${path}`);
+  }
+  try {
+    return readFileSync(path, "utf-8");
+  } catch (e) {
+    throw new CcsquadError("io", `計画文書の読み込みエラー: ${e}`);
+  }
+}
+
 // ── Output helpers ──
 
 function printTransitionResult(result: TransitionResult): void {
@@ -184,24 +196,39 @@ export function cmdPrompt(ctx: ProjectContext, id: string): number {
   }
 
   const logContent = ctx.logStore.read(id);
-  process.stdout.write(buildJobPrompt(job, logContent));
+  const planContent = ctx.planStore.read(id);
+  process.stdout.write(buildJobPrompt(job, logContent, planContent));
   return 0;
 }
 
 // done: フェーズを遷移する（旧 pass）
 // --message はフェーズログに自動記録される（遷移成功後）
-export function cmdDone(ctx: ProjectContext, id: string, result: string, message: string, workflowConfig?: WorkflowConfig): void {
+// --plan-file は plan フェーズの計画文書として .ccsquad/plans/<id>.md に記録される（遷移成功後）
+export function cmdDone(ctx: ProjectContext, id: string, result: string, message: string, workflowConfig?: WorkflowConfig, planContent?: string): void {
   const condition = parseTransitionCondition(result);
 
   const job = ctx.jobStore.load(id);
   const phase = job.frontmatter.current_phase ?? "unknown";
 
+  if (planContent !== undefined) {
+    const phaseConfig = getPhase(job.frontmatter.workflow, phase);
+    if (phaseConfig?.type !== "plan") {
+      throw new CcsquadError(
+        "job",
+        `--plan-file は plan フェーズでのみ使用できます (現在: ${phaseConfig?.type ?? "unknown"})`,
+      );
+    }
+  }
+
   const jobService = new JobService(ctx);
   const txResult = jobService.transition(id, condition, message, workflowConfig);
 
-  // 遷移成功後にログ記録（遷移失敗時は記録しない）
+  // 遷移成功後に記録（遷移失敗時は記録しない）
   if (message) {
     ctx.logStore.append(id, phase, message);
+  }
+  if (planContent !== undefined) {
+    ctx.planStore.write(id, planContent);
   }
 
   printTransitionResult(txResult);
@@ -329,7 +356,8 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
 
   if (format === "prompt") {
     const logContent = ctx.logStore.read(id);
-    process.stdout.write(buildJobPrompt(job, logContent));
+    const planContent = ctx.planStore.read(id);
+    process.stdout.write(buildJobPrompt(job, logContent, planContent));
     return;
   }
 
@@ -345,6 +373,7 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
       created_at: job.frontmatter.created_at,
       updated_at: job.frontmatter.updated_at,
       body: job.body,
+      plan: ctx.planStore.read(id),
     };
     if (job.frontmatter.current_phase !== undefined) {
       output.current_phase = job.frontmatter.current_phase;
@@ -400,6 +429,13 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
       console.log();
       process.stdout.write(job.body);
     }
+    const planContent = ctx.planStore.read(id);
+    if (planContent !== null) {
+      console.log();
+      console.log(`## 計画 (${ctx.planStore.planPath(id)})`);
+      console.log();
+      process.stdout.write(planContent);
+    }
   }
 }
 
@@ -444,7 +480,7 @@ function buildSuggestedCommands(
   if (phaseType === "plan") {
     return [
       `ccsquad update ${id} --ac '[{"description":"基準1"},{"description":"基準2"}]'`,
-      `ccsquad done ${id} completed --message "計画内容の要約"`,
+      `ccsquad done ${id} completed --plan-file <計画文書のパス> --message "計画内容の要約"`,
       `ccsquad done ${id} failed    --message "失敗理由"`,
     ];
   }

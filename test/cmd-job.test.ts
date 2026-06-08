@@ -13,6 +13,7 @@ import {
   cmdUpdate,
   parseWorkflowInput,
   parseAcInput,
+  parsePlanFileInput,
 } from "../src/cli/commands/job.js";
 import type { Job, JobStatus, WorkflowConfig } from "../src/domain/types.js";
 import type { ProjectContext } from "../src/app/project-context.js";
@@ -290,6 +291,20 @@ describe("parseAcInput", () => {
   });
 });
 
+describe("parsePlanFileInput", () => {
+  it("test_reads_file_content", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ccsquad-plan-input-"));
+    const filePath = join(dir, "plan.md");
+    writeFileSync(filePath, "## 設計方針\nレイヤードアーキテクチャを採用する。", "utf-8");
+    expect(parsePlanFileInput(filePath)).toBe("## 設計方針\nレイヤードアーキテクチャを採用する。");
+  });
+
+  it("test_rejects_missing_file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ccsquad-plan-input-"));
+    expect(() => parsePlanFileInput(join(dir, "missing.md"))).toThrow("計画文書のファイルが見つかりません");
+  });
+});
+
 // ─── cmdRun ──────────────────────────────────────────────────────────────────
 
 describe("cmdRun", () => {
@@ -337,6 +352,26 @@ describe("cmdPrompt", () => {
     }
     expect(code!).toBe(0);
     expect(written.join("")).toContain("テスト");
+  });
+
+  it("test_prompt_includes_plan_content_from_plan_store", () => {
+    const { ctx } = setup();
+    const job = makeJob("J000001", "running");
+    job.frontmatter.current_phase = "code";
+    ctx.jobStore.save(job);
+    ctx.planStore.write("J000001", "## 設計方針\nレイヤードアーキテクチャを採用する。");
+    const written: string[] = [];
+    const spy = spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+      written.push(String(chunk));
+      return true;
+    });
+    try {
+      cmdPrompt(ctx, "J000001");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(written.join("")).toContain("## 計画");
+    expect(written.join("")).toContain("レイヤードアーキテクチャを採用する。");
   });
 
   it("test_prompt_returns_exit2_for_human_review", () => {
@@ -442,6 +477,32 @@ describe("cmdDone", () => {
     const log = ctx.logStore.read("J000001");
     expect(log).not.toBeNull();
     expect(log).toContain("実装完了メモ");
+  });
+
+  it("test_done_with_plan_file_records_to_plan_store", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    cmdRun(ctx, "J000001"); // current_phase: plan
+    cmdDone(ctx, "J000001", "completed", "計画完了", undefined, "## 設計方針\nレイヤードアーキテクチャを採用する。");
+    const plan = ctx.planStore.read("J000001");
+    expect(plan).toBe("## 設計方針\nレイヤードアーキテクチャを採用する。");
+  });
+
+  it("test_done_plan_file_rejected_outside_plan_phase", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    cmdRun(ctx, "J000001");
+    cmdDone(ctx, "J000001", "completed", ""); // plan -> code (execute)
+    expect(() => cmdDone(ctx, "J000001", "completed", "実装完了", undefined, "計画内容")).toThrow("--plan-file は plan フェーズでのみ使用できます");
+    expect(ctx.planStore.read("J000001")).toBeNull();
+  });
+
+  it("test_done_with_plan_file_does_not_record_when_transition_fails", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    cmdRun(ctx, "J000001");
+    expect(() => cmdDone(ctx, "J000001", "approved", "計画", undefined, "計画内容")).toThrow();
+    expect(ctx.planStore.read("J000001")).toBeNull();
   });
 });
 
@@ -636,6 +697,50 @@ describe("cmdShow", () => {
     }
     const json = JSON.parse(lines.join("\n"));
     expect(json.phase_config.agent).toBe("developer");
+  });
+
+  it("test_show_text_format_displays_plan_when_present", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    cmdRun(ctx, "J000001");
+    ctx.planStore.write("J000001", "## 設計方針\nレイヤードアーキテクチャを採用する。");
+    const chunks: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => { chunks.push(args.join(" ")); });
+    const writeSpy = spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => { chunks.push(String(chunk)); return true; });
+    try {
+      cmdShow(ctx, "J000001", "text");
+    } finally {
+      logSpy.mockRestore();
+      writeSpy.mockRestore();
+    }
+    const output = chunks.join("\n");
+    expect(output).toContain(`## 計画 (${ctx.planStore.planPath("J000001")})`);
+    expect(output).toContain("レイヤードアーキテクチャを採用する。");
+  });
+
+  it("test_show_text_format_omits_plan_section_when_absent", () => {
+    const { ctx } = setup();
+    cmdCreate(ctx, "表示テスト", WORKFLOW);
+    const lines = captureLog(() => cmdShow(ctx, "J000001", "text"));
+    expect(lines.some((l) => l.includes("## 計画"))).toBe(false);
+  });
+
+  it("test_show_json_includes_plan_field_when_present", () => {
+    const { ctx } = setup();
+    ctx.jobStore.save(makeJob("J000001", "pending"));
+    cmdRun(ctx, "J000001");
+    ctx.planStore.write("J000001", "計画の中身");
+    const lines = captureLog(() => cmdShow(ctx, "J000001", "json"));
+    const json = JSON.parse(lines.join("\n"));
+    expect(json.plan).toBe("計画の中身");
+  });
+
+  it("test_show_json_plan_field_is_null_when_absent", () => {
+    const { ctx } = setup();
+    cmdCreate(ctx, "表示テスト", WORKFLOW);
+    const lines = captureLog(() => cmdShow(ctx, "J000001", "json"));
+    const json = JSON.parse(lines.join("\n"));
+    expect(json.plan).toBeNull();
   });
 
   it("test_show_throws_for_nonexistent_job", () => {
