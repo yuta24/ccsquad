@@ -40,6 +40,7 @@ export function buildJobPrompt(job: Job, logContent: string | null, planContent:
     `- イテレーション: ${iteration}/${max_iterations}`,
     ``,
     `## 自律実行プロトコル`,
+    `- 作業を始める前に、プロジェクトの CLAUDE.md や docs/ 配下に設計ドキュメント・規約があれば確認し、それに従う`,
     `- このプロンプトの作業が終わったら、必ず現在フェーズに対応する ccsquad done コマンドを実行する`,
     `- completed / approved は、必要な検証を実行し Acceptance Criteria を満たしたと判断できる場合だけ使う`,
     `- 検証不能、未達、作業継続不能の場合は failed / rejected を使い、--message に理由と次の引き継ぎを書く`,
@@ -152,6 +153,8 @@ function buildPhaseInstructions(jobId: string, phaseConfig: PhaseConfig | undefi
     case "review":
       if (phaseConfig.auto) {
         lines.push(
+          `あなたは実装者とは独立した評価者です。実装の意図を汲み取るのではなく、`,
+          `Acceptance Criteria という客観的な契約に照らしてのみ判定してください。`,
           `Acceptance Criteria を検証します（自動レビュー）。`,
           `各 AC を検証し、必ず以下のフォーマットで評価を出力する:`,
           `  - [x] 基準の説明: 達成していると判断した理由`,
