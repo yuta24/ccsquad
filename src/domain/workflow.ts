@@ -69,6 +69,34 @@ review:
     approved: COMPLETE
     rejected: execute
 `.trim(),
+
+  gated: `
+plan:
+  type: plan
+  agent: plan
+  on:
+    completed: plan_gate
+    failed: ABORT
+plan_gate:
+  type: gate
+  agent: human
+  on:
+    approved: execute
+    rejected: plan
+execute:
+  type: execute
+  agent: developer
+  on:
+    completed: review
+    failed: plan
+review:
+  type: review
+  auto: true
+  agent: reviewer
+  on:
+    approved: COMPLETE
+    rejected: execute
+`.trim(),
 };
 
 // ── Query functions ──
@@ -116,9 +144,9 @@ export function validateConditionForPhase(
   phaseType: PhaseType,
   condition: TransitionCondition,
 ): void {
-  if (phaseType === "review") {
+  if (phaseType === "review" || phaseType === "gate") {
     if (condition !== "approved" && condition !== "rejected") {
-      throw new CcsquadError("workflow", "レビューフェーズでは approved/rejected を使用してください");
+      throw new CcsquadError("workflow", "レビューフェーズ/ゲートフェーズでは approved/rejected を使用してください");
     }
   } else if (condition === "approved" || condition === "rejected") {
     throw new CcsquadError("workflow", "通常フェーズでは completed/failed を使用してください");

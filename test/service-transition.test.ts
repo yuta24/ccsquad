@@ -331,6 +331,86 @@ describe("JobService.transition - AC 自動更新", () => {
   });
 });
 
+// ─── JobService.transition - gate フェーズ (gated プリセット相当) ─────────
+
+const GATED_WORKFLOW: WorkflowConfig = {
+  phases: [
+    { name: "plan", type: "plan", agent: "developer", on: { completed: "plan_gate", failed: "ABORT" } },
+    { name: "plan_gate", type: "gate", agent: "human", on: { approved: "code", rejected: "plan" } },
+    { name: "code", type: "execute", agent: "developer", on: { completed: "review", failed: "plan" } },
+    { name: "review", type: "review", auto: true, agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
+  ],
+};
+
+function setupGated() {
+  const ctx = createTestContext("ccsquad-svc-gated-");
+  const store = ctx.jobStore;
+  const jobService = new JobService(ctx);
+
+  const now = new Date().toISOString();
+  const job: Job = {
+    frontmatter: {
+      id: "J000001",
+      title: "テスト",
+      status: "pending",
+      iteration: 0,
+      max_iterations: 5,
+      depends_on: [],
+      acceptance_criteria: [
+        { description: "テスト基準", done: false },
+        { description: "セキュリティ", done: false },
+      ],
+      workflow: GATED_WORKFLOW,
+      created_at: now,
+      updated_at: now,
+    },
+    body: "",
+  };
+  store.save(job);
+  jobService.start("J000001");
+
+  return { store, jobService };
+}
+
+describe("JobService.transition - gate フェーズ", () => {
+  it("plan completed → plan_gate で human_review pause する", () => {
+    const { store, jobService } = setupGated();
+
+    jobService.transition("J000001", "completed", "計画完了");
+
+    const updated = store.load("J000001");
+    expect(updated.frontmatter.status).toBe("paused");
+    expect(updated.frontmatter.pause_reason).toBe("human_review");
+    expect(updated.frontmatter.current_phase).toBe("plan_gate");
+  });
+
+  it("plan_gate approved では AC が更新されない", () => {
+    const { store, jobService } = setupGated();
+
+    jobService.transition("J000001", "completed", "計画完了"); // plan -> plan_gate (paused)
+    jobService.transition("J000001", "approved", "計画を承認"); // plan_gate -> code
+
+    const updated = store.load("J000001");
+    expect(updated.frontmatter.acceptance_criteria[0].done).toBe(false);
+    expect(updated.frontmatter.acceptance_criteria[1].done).toBe(false);
+    expect(updated.frontmatter.current_phase).toBe("code");
+    expect(updated.frontmatter.status).toBe("running");
+  });
+
+  it("plan_gate rejected で plan に戻り、AC は変更されない", () => {
+    const { store, jobService } = setupGated();
+
+    jobService.transition("J000001", "completed", "計画完了"); // plan -> plan_gate (paused)
+    jobService.transition("J000001", "rejected", "計画を見直してください"); // plan_gate -> plan
+
+    const updated = store.load("J000001");
+    expect(updated.frontmatter.current_phase).toBe("plan");
+    expect(updated.frontmatter.status).toBe("running");
+    expect(updated.frontmatter.acceptance_criteria[0].done).toBe(false);
+    expect(updated.frontmatter.acceptance_criteria[1].done).toBe(false);
+  });
+});
+
 // ─── JobService.transition - バリデーション ─────────────────────────────
 
 describe("JobService.transition - バリデーション", () => {

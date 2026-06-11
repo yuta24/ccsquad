@@ -150,6 +150,16 @@ function buildPhaseInstructions(jobId: string, phaseConfig: PhaseConfig | undefi
       );
       break;
 
+    case "gate":
+      lines.push(
+        `このフェーズは人間の承認ゲートです。作業を停止してユーザーに報告してください。`,
+        ``,
+        `ユーザーが確認後に以下を実行します:`,
+        `  ccsquad done ${jobId} approved  --message "承認理由"`,
+        `  ccsquad done ${jobId} rejected  --message "却下理由（修正指示を明記）"`,
+      );
+      break;
+
     case "review":
       if (phaseConfig.auto) {
         lines.push(

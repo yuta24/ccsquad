@@ -60,6 +60,7 @@ ccsquad update J000001 --ac '[
 | スコープが明確、小から中規模 | `basic`: plan -> execute -> review |
 | 計画が不要な単純作業 | `simple`: execute -> review |
 | 自動レビューまで一気通貫したい | `develop`: plan -> execute -> review(auto) |
+| 計画だけ人間が承認し、以降は自動化したい | `gated`: plan -> gate(human) -> execute -> review(auto) |
 | 未知の技術や広い調査が必要 | カスタム workflow で調査フェーズを追加 |
 
 ## カスタムワークフロー例

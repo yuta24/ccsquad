@@ -111,6 +111,76 @@ describe("computeTransition", () => {
     });
   });
 
+  describe("pause: gate (human_review)", () => {
+    const GATE_WF_OBJ = {
+      plan: { type: "plan", agent: "developer", on: { completed: "plan_gate", failed: "ABORT" } },
+      plan_gate: { type: "gate", agent: "human", on: { approved: "execute", rejected: "plan" } },
+      execute: { type: "execute", agent: "developer", on: { completed: "review", failed: "plan" } },
+      review: { type: "review", agent: "reviewer", on: { approved: "COMPLETE", rejected: "execute" } },
+    };
+
+    it("non-auto gate フェーズへの遷移は human_review で pause する", () => {
+      const wf = parseWorkflowObject(GATE_WF_OBJ);
+      const job = makeJob({
+        current_phase: "plan",
+        workflow: wf,
+        acceptance_criteria: [{ description: "基準1", done: false }],
+      });
+      const decision = computeTransition({ job, workflow: wf, condition: "completed" });
+      expect(decision.action).toBe("pause");
+      if (decision.action === "pause") {
+        expect(decision.reason).toBe("human_review");
+        expect(decision.nextPhase).toBe("plan_gate");
+      }
+    });
+
+    it("auto: true の gate フェーズは pause しない", () => {
+      const wf = parseWorkflowObject({
+        ...GATE_WF_OBJ,
+        plan_gate: { ...GATE_WF_OBJ.plan_gate, auto: true },
+      });
+      const job = makeJob({
+        current_phase: "plan",
+        workflow: wf,
+        acceptance_criteria: [{ description: "基準1", done: false }],
+      });
+      const decision = computeTransition({ job, workflow: wf, condition: "completed" });
+      expect(decision.action).toBe("continue");
+    });
+
+    it("plan_gate approved → execute に continue する", () => {
+      const wf = parseWorkflowObject(GATE_WF_OBJ);
+      const job = makeJob({
+        current_phase: "plan_gate",
+        status: "paused",
+        pause_reason: "human_review",
+        workflow: wf,
+        acceptance_criteria: [{ description: "基準1", done: false }],
+      });
+      const decision = computeTransition({ job, workflow: wf, condition: "approved" });
+      expect(decision.action).toBe("continue");
+      if (decision.action === "continue") {
+        expect(decision.nextPhase).toBe("execute");
+      }
+    });
+
+    it("plan_gate rejected → plan に continue する", () => {
+      const wf = parseWorkflowObject(GATE_WF_OBJ);
+      const job = makeJob({
+        current_phase: "plan_gate",
+        status: "paused",
+        pause_reason: "human_review",
+        workflow: wf,
+        acceptance_criteria: [{ description: "基準1", done: false }],
+      });
+      const decision = computeTransition({ job, workflow: wf, condition: "rejected" });
+      expect(decision.action).toBe("continue");
+      if (decision.action === "continue") {
+        expect(decision.nextPhase).toBe("plan");
+      }
+    });
+  });
+
   describe("pause: max_iterations", () => {
     it("iteration が max_iterations に達した場合に pause する", () => {
       const job = makeJob({

@@ -83,11 +83,13 @@ codex exec "$(ccsquad prompt $ID)"
 | `basic`   | plan → execute → review(human) → COMPLETE |
 | `develop` | plan → execute → review(auto) → COMPLETE |
 | `simple`  | execute → review(human) → COMPLETE |
+| `gated`   | plan → gate(human) → execute → review(auto) → COMPLETE |
 
 ```bash
 ccsquad create "タスク名"                    # basic（デフォルト）
 ccsquad create "タスク名" --workflow develop  # 自動レビュー
 ccsquad create "タスク名" --workflow simple   # plan なし
+ccsquad create "タスク名" --workflow gated    # 計画を人間が承認後、以降は自動
 ```
 
 カスタムワークフローはファイルで渡せます：

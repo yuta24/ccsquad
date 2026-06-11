@@ -56,7 +56,8 @@ exit コード (prompt コマンド):
 ワークフロープリセット:
   basic     plan → execute → review(human) → COMPLETE
   develop   plan → execute → review(auto)  → COMPLETE
-  simple    execute → review(human) → COMPLETE`);
+  simple    execute → review(human) → COMPLETE
+  gated     plan → gate(human) → execute → review(auto) → COMPLETE`);
 
 program.command("list").description("ジョブ一覧を表示")
   .option("--status <statuses>", "表示するステータス (カンマ区切り、例: running,paused)")
@@ -103,6 +104,7 @@ stdout: ジョブ ID のみ出力 (パイプ対応)
   basic     plan → execute → review(human) → COMPLETE  (デフォルト)
   develop   plan → execute → review(auto)  → COMPLETE
   simple    execute → review(human) → COMPLETE
+  gated     plan → gate(human) → execute → review(auto) → COMPLETE
 
 カスタムワークフロー (YAML):
   plan:

@@ -5,10 +5,10 @@ export type Severity = "info" | "warning" | "critical";
 // ── Transition & Phase ──
 
 export type TransitionCondition = "completed" | "failed" | "rejected" | "approved";
-export type PhaseType = "plan" | "execute" | "review";
+export type PhaseType = "plan" | "execute" | "review" | "gate";
 
 export const ALL_CONDITIONS: TransitionCondition[] = ["completed", "failed", "rejected", "approved"];
-export const ALL_PHASE_TYPES: PhaseType[] = ["plan", "execute", "review"];
+export const ALL_PHASE_TYPES: PhaseType[] = ["plan", "execute", "review", "gate"];
 
 export interface AgentEntry {
   agent: string;

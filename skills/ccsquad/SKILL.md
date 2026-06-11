@@ -1,7 +1,7 @@
 ---
 name: ccsquad
-description: タスクタイトルを受け取り、ccsquad ワークフローで plan→execute→review の全ステップを自律実行する。--workflow で basic（人間レビュー必須）か develop（全自動）を選択。
-argument-hint: <task-title> [--workflow basic|develop|simple]
+description: タスクタイトルを受け取り、ccsquad ワークフローで plan→execute→review の全ステップを自律実行する。--workflow で basic（人間レビュー必須）・develop（全自動）・gated（計画のみ人間承認、以降自動）から選択。
+argument-hint: <task-title> [--workflow basic|develop|simple|gated]
 ---
 
 # ccsquad 自律実行スキル
@@ -18,6 +18,7 @@ plan → execute → review の各フェーズを自律的にこなし、人間�
 例:
 - `/ccsquad 認証機能を追加する`
 - `/ccsquad 認証機能を追加する --workflow basic`
+- `/ccsquad 認証機能を追加する --workflow gated`
 
 ## 手順
 
@@ -72,16 +73,28 @@ ${constraint}
 
 サブエージェントが完了したら、exit code を再取得してループを続ける。
 
-#### exit 2 — 人間レビュー待ち（basic ワークフロー）
+#### exit 2 — 一時停止（人間の判断待ち）
 
-ループを停止し、ユーザーに通知する:
+ループを停止する。状態確認のため以下を実行する:
+
+```bash
+ccsquad show $ID --format json
+```
+
+結果の `pause_reason` / `current_phase` / `suggested_commands` を確認し、ユーザーへ通知する。
+
+- `pause_reason: human_review`
+  - `current_phase: plan_gate`（`gated` ワークフロー）→ 計画と Acceptance Criteria の承認待ち。`ccsquad show $ID` で計画内容と AC を確認してもらう
+  - `current_phase: review`（その他のワークフロー）→ 実装レビュー待ち。実装内容を確認してもらう
+- `pause_reason: max_iterations` → 最大イテレーションに到達。完了・失敗・中断のいずれにするかをユーザーに判断してもらう
+
+通知例:
 
 ```
-レビュー待ち: ジョブ $ID が review フェーズで停止しています。
+ジョブ $ID が一時停止しています（フェーズ: <current_phase>, 理由: <pause_reason>）。
 内容を確認して以下を実行してください:
 
-  ccsquad done $ID approved  --message "承認理由"
-  ccsquad done $ID rejected  --message "却下理由（未達 AC と改善指示を明記）"
+  <suggested_commands の各コマンド>
 ```
 
 #### exit 3 — ジョブ終了

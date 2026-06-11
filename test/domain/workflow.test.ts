@@ -1,10 +1,12 @@
 import { describe, it, expect } from "bun:test";
+import YAML from "yaml";
 import {
   parseWorkflowObject,
   resolveTransition,
   validateConditionForPhase,
   getPhase,
   initialPhase,
+  WORKFLOW_PRESETS,
 } from "../../src/domain/workflow.js";
 import type { WorkflowConfig } from "../../src/domain/types.js";
 
@@ -168,5 +170,56 @@ describe("validateConditionForPhase", () => {
 
   it("execute フェーズで rejected はエラー", () => {
     expect(() => validateConditionForPhase("execute", "rejected")).toThrow("completed/failed を使用してください");
+  });
+
+  it("gate フェーズで approved は OK", () => {
+    expect(() => validateConditionForPhase("gate", "approved")).not.toThrow();
+  });
+
+  it("gate フェーズで rejected は OK", () => {
+    expect(() => validateConditionForPhase("gate", "rejected")).not.toThrow();
+  });
+
+  it("gate フェーズで completed はエラー", () => {
+    expect(() => validateConditionForPhase("gate", "completed")).toThrow("approved/rejected を使用してください");
+  });
+});
+
+describe("WORKFLOW_PRESETS", () => {
+  it("全プリセットがパースできる", () => {
+    for (const preset of Object.values(WORKFLOW_PRESETS)) {
+      expect(() => parseWorkflowObject(YAML.parse(preset))).not.toThrow();
+    }
+  });
+
+  describe("gated", () => {
+    const gatedWorkflow = (): WorkflowConfig => parseWorkflowObject(YAML.parse(WORKFLOW_PRESETS.gated));
+
+    it("plan -> plan_gate -> execute -> review の4フェーズを持つ", () => {
+      const wf = gatedWorkflow();
+      expect(wf.phases.map((p) => p.name)).toEqual(["plan", "plan_gate", "execute", "review"]);
+    });
+
+    it("plan_gate は gate タイプで auto なし", () => {
+      const wf = gatedWorkflow();
+      const gate = getPhase(wf, "plan_gate");
+      expect(gate?.type).toBe("gate");
+      expect(gate?.auto).toBeUndefined();
+    });
+
+    it("plan completed は plan_gate へ、plan_gate approved/rejected は execute/plan へ遷移する", () => {
+      const wf = gatedWorkflow();
+      expect(resolveTransition(wf, "plan", "completed")).toBe("plan_gate");
+      expect(resolveTransition(wf, "plan_gate", "approved")).toBe("execute");
+      expect(resolveTransition(wf, "plan_gate", "rejected")).toBe("plan");
+    });
+
+    it("review は auto: true でループする", () => {
+      const wf = gatedWorkflow();
+      const review = getPhase(wf, "review");
+      expect(review?.auto).toBe(true);
+      expect(resolveTransition(wf, "review", "rejected")).toBe("execute");
+      expect(resolveTransition(wf, "review", "approved")).toBe("COMPLETE");
+    });
   });
 });
