@@ -60,9 +60,10 @@ describe("parseWorkflowObject", () => {
     expect(wf.phases[2].agent).toBe("reviewer");
   });
 
-  it("agent 省略時はエラーをスローする", () => {
+  it("agent が省略された場合は undefined になる", () => {
     const obj = { plan: { type: "plan", on: { completed: "COMPLETE" } } };
-    expect(() => parseWorkflowObject(obj)).toThrow("agent を指定してください");
+    const wf = parseWorkflowObject(obj);
+    expect(wf.phases[0].agent).toBeUndefined();
   });
 
   it("auto キーワードをパースする", () => {

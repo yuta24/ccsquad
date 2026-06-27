@@ -13,7 +13,7 @@ export const ALL_PHASE_TYPES: PhaseType[] = ["plan", "execute", "review"];
 export interface PhaseConfig {
   name: string;
   type: PhaseType;
-  agent: string;
+  agent?: string;
   auto?: boolean;
   on: Partial<Record<TransitionCondition, string>>;
 }
@@ -27,7 +27,8 @@ export interface WorkflowConfig {
 export function workflowToObject(wf: WorkflowConfig): Record<string, Record<string, unknown>> {
   const obj: Record<string, Record<string, unknown>> = {};
   for (const phase of wf.phases) {
-    const entry: Record<string, unknown> = { type: phase.type, agent: phase.agent };
+    const entry: Record<string, unknown> = { type: phase.type };
+    if (phase.agent !== undefined) entry.agent = phase.agent;
     if (phase.auto) entry.auto = true;
     entry.on = { ...phase.on };
     obj[phase.name] = entry;

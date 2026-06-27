@@ -26,7 +26,7 @@ export function buildJobPrompt(job: Job, logContent: string | null, planContent:
     `</static>`,
   ];
 
-  const agentDisplay = phaseConfig?.agent ?? "（未定義）";
+  const agentDisplay = phaseConfig?.agent;
 
   // DYNAMIC: 現在フェーズ・前回ログ・作業指示（毎回変わる部分）
   const dynamicLines = [
@@ -34,7 +34,7 @@ export function buildJobPrompt(job: Job, logContent: string | null, planContent:
     `## 現在の状態`,
     `- ID: ${id}`,
     `- フェーズ: ${current_phase ?? "（未開始）"}`,
-    `- エージェント: ${agentDisplay}`,
+    ...(agentDisplay ? [`- エージェント: ${agentDisplay}`] : []),
     `- イテレーション: ${iteration}/${max_iterations}`,
     ``,
     `## 自律実行プロトコル`,

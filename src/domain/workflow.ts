@@ -14,19 +14,16 @@ export const WORKFLOW_PRESETS: Record<string, string> = {
   basic: `
 plan:
   type: plan
-  agent: planner
   on:
     completed: execute
     failed: ABORT
 execute:
   type: execute
-  agent: developer
   on:
     completed: review
     failed: plan
 review:
   type: review
-  agent: reviewer
   on:
     approved: COMPLETE
     rejected: execute
@@ -35,20 +32,17 @@ review:
   develop: `
 plan:
   type: plan
-  agent: planner
   on:
     completed: execute
     failed: ABORT
 execute:
   type: execute
-  agent: developer
   on:
     completed: review
     failed: plan
 review:
   type: review
   auto: true
-  agent: reviewer
   on:
     approved: COMPLETE
     rejected: execute
@@ -57,13 +51,11 @@ review:
   simple: `
 execute:
   type: execute
-  agent: developer
   on:
     completed: review
     failed: ABORT
 review:
   type: review
-  agent: reviewer
   on:
     approved: COMPLETE
     rejected: execute
@@ -72,26 +64,22 @@ review:
   gated: `
 plan:
   type: plan
-  agent: planner
   on:
     completed: plan_gate
     failed: ABORT
 plan_gate:
   type: review
-  agent: human
   on:
     approved: execute
     rejected: plan
 execute:
   type: execute
-  agent: developer
   on:
     completed: review
     failed: plan
 review:
   type: review
   auto: true
-  agent: reviewer
   on:
     approved: COMPLETE
     rejected: execute
@@ -171,10 +159,7 @@ export function parseWorkflowObject(parsed: unknown): WorkflowConfig {
       throw new CcsquadError("workflow", `不正なフェーズタイプ: ${type} (${ALL_PHASE_TYPES.join(", ")} を指定してください)`);
     }
 
-    if (entry.agent == null) {
-      throw new CcsquadError("workflow", `フェーズ '${name}': agent を指定してください`);
-    }
-    const agent = String(entry.agent);
+    const agent = entry.agent != null ? String(entry.agent) : undefined;
 
     const auto = entry.auto === true ? true : undefined;
 

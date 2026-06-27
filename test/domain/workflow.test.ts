@@ -57,9 +57,10 @@ describe("parseWorkflowObject", () => {
     expect(() => parseWorkflowObject(obj)).toThrow("不正なフェーズタイプ");
   });
 
-  it("agent がない場合はエラー", () => {
+  it("agent が省略された場合は undefined になる", () => {
     const obj = { plan: { type: "plan", on: { completed: "COMPLETE" } } };
-    expect(() => parseWorkflowObject(obj)).toThrow("agent を指定してください");
+    const wf = parseWorkflowObject(obj);
+    expect(wf.phases[0].agent).toBeUndefined();
   });
 
   it("on がない場合はエラー", () => {
