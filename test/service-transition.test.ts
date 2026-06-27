@@ -331,12 +331,12 @@ describe("JobService.transition - AC 自動更新", () => {
   });
 });
 
-// ─── JobService.transition - gate フェーズ (gated プリセット相当) ─────────
+// ─── JobService.transition - review(gate) フェーズ (gated プリセット相当) ─────────
 
 const GATED_WORKFLOW: WorkflowConfig = {
   phases: [
     { name: "plan", type: "plan", agent: "developer", on: { completed: "plan_gate", failed: "ABORT" } },
-    { name: "plan_gate", type: "gate", agent: "human", on: { approved: "code", rejected: "plan" } },
+    { name: "plan_gate", type: "review", agent: "human", on: { approved: "code", rejected: "plan" } },
     { name: "code", type: "execute", agent: "developer", on: { completed: "review", failed: "plan" } },
     { name: "review", type: "review", auto: true, agent: "reviewer", on: { approved: "COMPLETE", rejected: "code" } },
   ],
@@ -372,7 +372,7 @@ function setupGated() {
   return { store, jobService };
 }
 
-describe("JobService.transition - gate フェーズ", () => {
+describe("JobService.transition - review(gate) フェーズ", () => {
   it("plan completed → plan_gate で human_review pause する", () => {
     const { store, jobService } = setupGated();
 

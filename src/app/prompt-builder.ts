@@ -26,9 +26,7 @@ export function buildJobPrompt(job: Job, logContent: string | null, planContent:
     `</static>`,
   ];
 
-  const agentDisplay = phaseConfig?.agents
-    ? `並列実行 (${phaseConfig.agents.length}エージェント)`
-    : (phaseConfig?.agent ?? "（未定義）");
+  const agentDisplay = phaseConfig?.agent ?? "（未定義）";
 
   // DYNAMIC: 現在フェーズ・前回ログ・作業指示（毎回変わる部分）
   const dynamicLines = [
@@ -46,23 +44,6 @@ export function buildJobPrompt(job: Job, logContent: string | null, planContent:
     `- 検証不能、未達、作業継続不能の場合は failed / rejected を使い、--message に理由と次の引き継ぎを書く`,
     `- 人間レビューが必要な指示が出ている場合は ccsquad done を実行せず、ユーザーに判断を求める`,
   ];
-
-  if (phaseConfig?.agents) {
-    dynamicLines.push(
-      ``,
-      `## 並列エージェント構成`,
-      `以下のエージェントを同時起動してください（Agent ツールを複数同時呼び出し）。`,
-      `各エージェントにはこのプロンプト全体と、個別の追加制約を渡してください。`,
-      ``,
-      ...phaseConfig.agents.map((a, i) =>
-        a.constraint
-          ? `${i + 1}. agent: ${a.agent}\n   constraint: ${a.constraint}`
-          : `${i + 1}. agent: ${a.agent}`
-      ),
-      ``,
-      `集約ルール: 全エージェントが completed → completed、いずれかが failed → failed`,
-    );
-  }
 
   if (planContent) {
     dynamicLines.push(
@@ -100,24 +81,6 @@ function buildPhaseInstructions(jobId: string, phaseConfig: PhaseConfig | undefi
   const lines: string[] = [`## 作業指示 (${phaseConfig.type})`];
 
   switch (phaseConfig.type) {
-    case "interview":
-      lines.push(
-        `タスクの実装前にコードベースを調査し、不明点を人間に質問します。`,
-        `1. コードベース・CLAUDE.md・docs・テストを読み込み、タスクの全体像を把握する`,
-        `2. 実装を左右する不明点（Material Ambiguity）のみを抽出する:`,
-        `   - 実装方針の選択（どのアプローチを採用するか）`,
-        `   - 検証方法（どう正しさを確認するか）`,
-        `   - 権限・制約（何をしてよいか／してはいけないか）`,
-        `   - ユーザー体験の判断（UI・仕様の選択）`,
-        `3. コードや既存ドキュメントから推定できる事項は質問しない`,
-        `4. 質問は番号付きリストにまとめ、各質問に「なぜ必要か」を一文で添える`,
-        ``,
-        `遷移:`,
-        `  ccsquad done ${jobId} completed --message "## 質問\\n1. （質問内容）\\n   理由: ...\\n2. ..."`,
-        `  ccsquad done ${jobId} failed    --message "失敗理由"`,
-      );
-      break;
-
     case "plan":
       lines.push(
         `要件・技術的課題を調査・分析し、実装計画を立てます。`,
@@ -168,16 +131,6 @@ function buildPhaseInstructions(jobId: string, phaseConfig: PhaseConfig | undefi
       );
       break;
 
-    case "gate":
-      lines.push(
-        `このフェーズは人間の承認ゲートです。作業を停止してユーザーに報告してください。`,
-        ``,
-        `ユーザーが確認後に以下を実行します:`,
-        `  ccsquad done ${jobId} approved  --message "承認理由"`,
-        `  ccsquad done ${jobId} rejected  --message "却下理由（修正指示を明記）"`,
-      );
-      break;
-
     case "review":
       if (phaseConfig.auto) {
         lines.push(
@@ -194,7 +147,7 @@ function buildPhaseInstructions(jobId: string, phaseConfig: PhaseConfig | undefi
         );
       } else {
         lines.push(
-          `このフェーズは人間のレビューが必要です。作業を停止してユーザーに報告してください。`,
+          `このフェーズは人間のレビュー・承認が必要です。作業を停止してユーザーに報告してください。`,
           ``,
           `ユーザーが確認後に以下を実行します:`,
           `  ccsquad done ${jobId} approved  --message "承認理由"`,

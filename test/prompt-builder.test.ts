@@ -142,17 +142,17 @@ describe("buildJobPrompt", () => {
     expect(prompt).toContain("人間のレビュー");
   });
 
-  test("gate phase (manual) instructs to stop and report with approved/rejected transitions", () => {
+  test("review phase (manual gate) instructs to stop and report with approved/rejected transitions", () => {
     const job = makeJob("J000001", {
       current_phase: "plan_gate",
       workflow: {
         phases: [
-          { name: "plan_gate", type: "gate", agent: "human", on: { approved: "execute", rejected: "plan" } },
+          { name: "plan_gate", type: "review", agent: "human", on: { approved: "execute", rejected: "plan" } },
         ],
       },
     });
     const prompt = buildJobPrompt(job, null);
-    expect(prompt).toContain("承認ゲート");
+    expect(prompt).toContain("人間のレビュー・承認");
     expect(prompt).toContain("ccsquad done J000001 approved");
     expect(prompt).toContain("ccsquad done J000001 rejected");
   });

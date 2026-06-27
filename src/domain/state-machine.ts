@@ -64,9 +64,9 @@ export function computeTransition(input: TransitionInput): TransitionDecision {
     );
   }
 
-  // Human review check (review/gate phase pauses unless auto is enabled)
+  // Human review check (review phase pauses unless auto is enabled)
   // Pauses take priority over max_iterations — humans must always be able to approve/reject.
-  if ((nextPhaseConfig.type === "review" || nextPhaseConfig.type === "gate") && !nextPhaseConfig.auto) {
+  if (nextPhaseConfig.type === "review" && !nextPhaseConfig.auto) {
     return { action: "pause", nextPhase: next, nextPhaseConfig, reason: "human_review" };
   }
 

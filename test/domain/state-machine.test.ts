@@ -111,15 +111,15 @@ describe("computeTransition", () => {
     });
   });
 
-  describe("pause: gate (human_review)", () => {
+  describe("pause: review as gate (human_review)", () => {
     const GATE_WF_OBJ = {
       plan: { type: "plan", agent: "developer", on: { completed: "plan_gate", failed: "ABORT" } },
-      plan_gate: { type: "gate", agent: "human", on: { approved: "execute", rejected: "plan" } },
+      plan_gate: { type: "review", agent: "human", on: { approved: "execute", rejected: "plan" } },
       execute: { type: "execute", agent: "developer", on: { completed: "review", failed: "plan" } },
       review: { type: "review", agent: "reviewer", on: { approved: "COMPLETE", rejected: "execute" } },
     };
 
-    it("non-auto gate フェーズへの遷移は human_review で pause する", () => {
+    it("non-auto review フェーズへの遷移は human_review で pause する", () => {
       const wf = parseWorkflowObject(GATE_WF_OBJ);
       const job = makeJob({
         current_phase: "plan",
@@ -134,7 +134,7 @@ describe("computeTransition", () => {
       }
     });
 
-    it("auto: true の gate フェーズは pause しない", () => {
+    it("auto: true の review フェーズは pause しない", () => {
       const wf = parseWorkflowObject({
         ...GATE_WF_OBJ,
         plan_gate: { ...GATE_WF_OBJ.plan_gate, auto: true },

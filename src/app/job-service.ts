@@ -225,10 +225,10 @@ export class JobService {
     // review フェーズからの遷移時、AC の done 状態を更新
     const currentPhaseConfig = getPhase(job.frontmatter.workflow, phaseName);
     if (currentPhaseConfig?.type === "review" && job.frontmatter.acceptance_criteria.length > 0) {
-      if (condition === "approved") {
-        // approved: 全 AC を done:true にする（LLM の書式に依存しない）
+      if (condition === "approved" && decision.action === "complete") {
+        // approved かつ COMPLETE 遷移時のみ全 AC を done:true にする（ゲート的な中間 review は対象外）
         job.frontmatter.acceptance_criteria = job.frontmatter.acceptance_criteria.map((ac) => ({ ...ac, done: true }));
-      } else {
+      } else if (condition === "rejected") {
         // rejected: メッセージのチェックリストから部分更新を試みる
         job.frontmatter.acceptance_criteria = updateAcceptanceCriteria(
           job.frontmatter.acceptance_criteria,

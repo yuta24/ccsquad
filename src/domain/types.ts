@@ -5,26 +5,18 @@ export type Severity = "info" | "warning" | "critical";
 // ── Transition & Phase ──
 
 export type TransitionCondition = "completed" | "failed" | "rejected" | "approved";
-export type PhaseType = "interview" | "plan" | "execute" | "review" | "gate";
+export type PhaseType = "plan" | "execute" | "review";
 
 export const ALL_CONDITIONS: TransitionCondition[] = ["completed", "failed", "rejected", "approved"];
-export const ALL_PHASE_TYPES: PhaseType[] = ["interview", "plan", "execute", "review", "gate"];
+export const ALL_PHASE_TYPES: PhaseType[] = ["plan", "execute", "review"];
 
-export interface AgentEntry {
-  agent: string;
-  constraint?: string;
-}
-
-type PhaseConfigBase = {
+export interface PhaseConfig {
   name: string;
   type: PhaseType;
+  agent: string;
   auto?: boolean;
   on: Partial<Record<TransitionCondition, string>>;
-};
-
-export type PhaseConfig =
-  | (PhaseConfigBase & { agent: string; agents?: never })
-  | (PhaseConfigBase & { agents: AgentEntry[]; agent?: never });
+}
 
 export interface WorkflowConfig {
   phases: PhaseConfig[];
@@ -35,12 +27,7 @@ export interface WorkflowConfig {
 export function workflowToObject(wf: WorkflowConfig): Record<string, Record<string, unknown>> {
   const obj: Record<string, Record<string, unknown>> = {};
   for (const phase of wf.phases) {
-    const entry: Record<string, unknown> = { type: phase.type };
-    if (phase.agents) {
-      entry.agents = phase.agents.map((a) => a.constraint ? { agent: a.agent, constraint: a.constraint } : { agent: a.agent });
-    } else {
-      entry.agent = phase.agent;
-    }
+    const entry: Record<string, unknown> = { type: phase.type, agent: phase.agent };
     if (phase.auto) entry.auto = true;
     entry.on = { ...phase.on };
     obj[phase.name] = entry;

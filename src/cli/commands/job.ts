@@ -382,7 +382,7 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
       if (phase) {
         output.phase_config = {
           type: phase.type,
-          ...(phase.agents ? { agents: phase.agents } : { agent: phase.agent }),
+          agent: phase.agent,
           auto: phase.auto ?? false,
         };
         output.suggested_commands = buildSuggestedCommands(
@@ -407,10 +407,7 @@ export function cmdShow(ctx: ProjectContext, id: string, format: "text" | "json"
       const phase = getPhase(wf, fm.current_phase);
       if (phase) {
         console.log(`  タイプ: ${phase.type}`);
-        const agentDisplay = phase.agents
-          ? `並列実行 (${phase.agents.map((a) => a.agent).join(", ")})`
-          : phase.agent ?? "（未定義）";
-        console.log(`  エージェント: ${agentDisplay}`);
+        console.log(`  エージェント: ${phase.agent}`);
       }
     }
     console.log(`イテレーション: ${fm.iteration}/${fm.max_iterations}`);
@@ -474,13 +471,6 @@ function buildSuggestedCommands(
       `ccsquad done ${id} completed --message "完了と判断した理由"`,
       `ccsquad done ${id} failed    --message "失敗と判断した理由"`,
       `ccsquad abort ${id}`,
-    ];
-  }
-
-  if (phaseType === "interview") {
-    return [
-      `ccsquad done ${id} completed --message "## 質問\\n1. （質問内容）\\n   理由: ..."`,
-      `ccsquad done ${id} failed    --message "失敗理由"`,
     ];
   }
 

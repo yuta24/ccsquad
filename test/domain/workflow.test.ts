@@ -59,7 +59,7 @@ describe("parseWorkflowObject", () => {
 
   it("agent がない場合はエラー", () => {
     const obj = { plan: { type: "plan", on: { completed: "COMPLETE" } } };
-    expect(() => parseWorkflowObject(obj)).toThrow("agent または agents");
+    expect(() => parseWorkflowObject(obj)).toThrow("agent を指定してください");
   });
 
   it("on がない場合はエラー", () => {
@@ -172,17 +172,6 @@ describe("validateConditionForPhase", () => {
     expect(() => validateConditionForPhase("execute", "rejected")).toThrow("completed/failed を使用してください");
   });
 
-  it("gate フェーズで approved は OK", () => {
-    expect(() => validateConditionForPhase("gate", "approved")).not.toThrow();
-  });
-
-  it("gate フェーズで rejected は OK", () => {
-    expect(() => validateConditionForPhase("gate", "rejected")).not.toThrow();
-  });
-
-  it("gate フェーズで completed はエラー", () => {
-    expect(() => validateConditionForPhase("gate", "completed")).toThrow("approved/rejected を使用してください");
-  });
 });
 
 describe("WORKFLOW_PRESETS", () => {
@@ -200,10 +189,10 @@ describe("WORKFLOW_PRESETS", () => {
       expect(wf.phases.map((p) => p.name)).toEqual(["plan", "plan_gate", "execute", "review"]);
     });
 
-    it("plan_gate は gate タイプで auto なし", () => {
+    it("plan_gate は review タイプで auto なし", () => {
       const wf = gatedWorkflow();
       const gate = getPhase(wf, "plan_gate");
-      expect(gate?.type).toBe("gate");
+      expect(gate?.type).toBe("review");
       expect(gate?.auto).toBeUndefined();
     });
 
