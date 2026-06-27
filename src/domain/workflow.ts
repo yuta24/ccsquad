@@ -14,7 +14,7 @@ export const WORKFLOW_PRESETS: Record<string, string> = {
   basic: `
 plan:
   type: plan
-  agent: Plan
+  agent: planner
   on:
     completed: execute
     failed: ABORT
@@ -35,7 +35,7 @@ review:
   develop: `
 plan:
   type: plan
-  agent: plan
+  agent: planner
   on:
     completed: execute
     failed: ABORT
@@ -72,7 +72,7 @@ review:
   gated: `
 plan:
   type: plan
-  agent: plan
+  agent: planner
   on:
     completed: plan_gate
     failed: ABORT
