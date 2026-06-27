@@ -221,6 +221,39 @@ describe("computeTransition", () => {
         expect(decision.reason).toBe("human_review");
       }
     });
+
+    it("execute 以外のフェーズへの遷移では max_iterations に達しても pause しない", () => {
+      const wf = parseWorkflowObject(AUTO_REVIEW_WF_OBJ);
+      const job = makeJob({
+        current_phase: "execute",
+        workflow: wf,
+        iteration: 10,
+        max_iterations: 10,
+        acceptance_criteria: [{ description: "基準1", done: false }],
+      });
+      const decision = computeTransition({ job, workflow: wf, condition: "completed" });
+      expect(decision.action).toBe("continue");
+      if (decision.action === "continue") {
+        expect(decision.nextPhase).toBe("review");
+      }
+    });
+
+    it("review(auto) rejected → execute で iteration が max_iterations に達したら pause する", () => {
+      const wf = parseWorkflowObject(AUTO_REVIEW_WF_OBJ);
+      const job = makeJob({
+        current_phase: "review",
+        workflow: wf,
+        iteration: 3,
+        max_iterations: 3,
+        acceptance_criteria: [{ description: "基準1", done: false }],
+      });
+      const decision = computeTransition({ job, workflow: wf, condition: "rejected" });
+      expect(decision.action).toBe("pause");
+      if (decision.action === "pause") {
+        expect(decision.reason).toBe("max_iterations");
+        expect(decision.nextPhase).toBe("execute");
+      }
+    });
   });
 
   describe("AC ガード", () => {

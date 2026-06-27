@@ -70,8 +70,8 @@ export function computeTransition(input: TransitionInput): TransitionDecision {
     return { action: "pause", nextPhase: next, nextPhaseConfig, reason: "human_review" };
   }
 
-  // Max iterations check
-  if (job.frontmatter.iteration >= job.frontmatter.max_iterations) {
+  // Max iterations check — execute フェーズへの遷移回数を制限する
+  if (nextPhaseConfig.type === "execute" && job.frontmatter.iteration >= job.frontmatter.max_iterations) {
     return { action: "pause", nextPhase: next, nextPhaseConfig, reason: "max_iterations" };
   }
 

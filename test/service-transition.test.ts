@@ -484,6 +484,71 @@ describe("JobService.transition - バリデーション", () => {
   });
 });
 
+// ─── iteration = execute 起動回数 ─────────────────────────────────────────────
+
+const SIMPLE_WF: WorkflowConfig = {
+  phases: [
+    { name: "execute", type: "execute", on: { completed: "review", failed: "ABORT" } },
+    { name: "review", type: "review", auto: true, on: { approved: "COMPLETE", rejected: "execute" } },
+  ],
+};
+
+describe("iteration カウント — execute 起動回数", () => {
+  it("execute を初期フェーズとするワークフローでは start 時に iteration が 1 になる", () => {
+    const ctx = createTestContext("ccsquad-iter-simple-");
+    const svc = new JobService(ctx);
+    const job = svc.create("テスト", SIMPLE_WF, { acceptanceCriteria: [{ description: "AC1", done: false }] });
+    svc.start(job.frontmatter.id);
+    const started = ctx.jobStore.load(job.frontmatter.id);
+    expect(started.frontmatter.iteration).toBe(1);
+  });
+
+  it("execute → review(auto) は iteration をカウントしない", () => {
+    const ctx = createTestContext("ccsquad-iter-simple2-");
+    const svc = new JobService(ctx);
+    const job = svc.create("テスト", SIMPLE_WF, { acceptanceCriteria: [{ description: "AC1", done: false }] });
+    svc.start(job.frontmatter.id);
+    const before = ctx.jobStore.load(job.frontmatter.id).frontmatter.iteration; // 1
+
+    svc.transition(job.frontmatter.id, "completed", "");
+
+    const after = ctx.jobStore.load(job.frontmatter.id).frontmatter.iteration;
+    expect(after).toBe(before); // review への遷移はカウントしない
+  });
+
+  it("review(auto) rejected → execute は iteration をカウントする", () => {
+    const ctx = createTestContext("ccsquad-iter-simple3-");
+    const svc = new JobService(ctx);
+    const job = svc.create("テスト", SIMPLE_WF, { acceptanceCriteria: [{ description: "AC1", done: false }] });
+    svc.start(job.frontmatter.id);
+    svc.transition(job.frontmatter.id, "completed", ""); // execute → review
+
+    svc.transition(job.frontmatter.id, "rejected", ""); // review → execute
+
+    const after = ctx.jobStore.load(job.frontmatter.id).frontmatter.iteration;
+    expect(after).toBe(2); // 2回目の execute
+  });
+
+  it("max_iterations=2 のとき execute は最大 2 回起動できる", () => {
+    const ctx = createTestContext("ccsquad-iter-maxiter-");
+    const svc = new JobService(ctx);
+    const job = svc.create("テスト", SIMPLE_WF, {
+      acceptanceCriteria: [{ description: "AC1", done: false }],
+      maxIterations: 2,
+    });
+    svc.start(job.frontmatter.id); // iteration=1 (1回目)
+    svc.transition(job.frontmatter.id, "completed", ""); // execute → review
+    svc.transition(job.frontmatter.id, "rejected", "");  // review → execute (iteration=2, 2回目)
+    svc.transition(job.frontmatter.id, "completed", ""); // execute → review
+    const result = svc.transition(job.frontmatter.id, "rejected", ""); // review → execute のはずが pause
+
+    expect(result.type).toBe("pause");
+    if (result.type === "pause") {
+      expect(result.reason).toBe("max_iterations");
+    }
+  });
+});
+
 // ─── validateConditionForPhase ────────────────────────────────────────────────
 
 describe("validateConditionForPhase", () => {

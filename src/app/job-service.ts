@@ -89,7 +89,7 @@ export class JobService {
     const initial = initialPhase(wf);
     job.frontmatter.status = "running";
     job.frontmatter.current_phase = initial.name;
-    job.frontmatter.iteration = 0;
+    job.frontmatter.iteration = initial.type === "execute" ? 1 : 0;
     job.frontmatter.updated_at = new Date().toISOString();
     this.ctx.jobStore.save(job);
     return job;
@@ -271,7 +271,9 @@ export class JobService {
         job.frontmatter.status = "running";
         job.frontmatter.current_phase = decision.nextPhase;
         job.frontmatter.pause_reason = undefined;
-        job.frontmatter.iteration += 1;
+        if (decision.nextPhaseConfig.type === "execute") {
+          job.frontmatter.iteration += 1;
+        }
         job.frontmatter.updated_at = new Date().toISOString();
         this.ctx.jobStore.save(job);
         return {
