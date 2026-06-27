@@ -477,6 +477,13 @@ function buildSuggestedCommands(
     ];
   }
 
+  if (phaseType === "interview") {
+    return [
+      `ccsquad done ${id} completed --message "## 質問\\n1. （質問内容）\\n   理由: ..."`,
+      `ccsquad done ${id} failed    --message "失敗理由"`,
+    ];
+  }
+
   if (phaseType === "plan") {
     return [
       `ccsquad update ${id} --ac '[{"description":"基準1"},{"description":"基準2"}]'`,

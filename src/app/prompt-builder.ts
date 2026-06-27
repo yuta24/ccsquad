@@ -100,6 +100,24 @@ function buildPhaseInstructions(jobId: string, phaseConfig: PhaseConfig | undefi
   const lines: string[] = [`## 作業指示 (${phaseConfig.type})`];
 
   switch (phaseConfig.type) {
+    case "interview":
+      lines.push(
+        `タスクの実装前にコードベースを調査し、不明点を人間に質問します。`,
+        `1. コードベース・CLAUDE.md・docs・テストを読み込み、タスクの全体像を把握する`,
+        `2. 実装を左右する不明点（Material Ambiguity）のみを抽出する:`,
+        `   - 実装方針の選択（どのアプローチを採用するか）`,
+        `   - 検証方法（どう正しさを確認するか）`,
+        `   - 権限・制約（何をしてよいか／してはいけないか）`,
+        `   - ユーザー体験の判断（UI・仕様の選択）`,
+        `3. コードや既存ドキュメントから推定できる事項は質問しない`,
+        `4. 質問は番号付きリストにまとめ、各質問に「なぜ必要か」を一文で添える`,
+        ``,
+        `遷移:`,
+        `  ccsquad done ${jobId} completed --message "## 質問\\n1. （質問内容）\\n   理由: ...\\n2. ..."`,
+        `  ccsquad done ${jobId} failed    --message "失敗理由"`,
+      );
+      break;
+
     case "plan":
       lines.push(
         `要件・技術的課題を調査・分析し、実装計画を立てます。`,

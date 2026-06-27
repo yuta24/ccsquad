@@ -12,6 +12,46 @@ import { ALL_CONDITIONS, ALL_PHASE_TYPES } from "./types.js";
 // ── Workflow presets ──
 
 export const WORKFLOW_PRESETS: Record<string, string> = {
+  interview: `
+interview:
+  type: interview
+  agent: planner
+  on:
+    completed: qa_gate
+    failed: ABORT
+qa_gate:
+  type: gate
+  agent: human
+  on:
+    approved: plan
+    rejected: interview
+plan:
+  type: plan
+  agent: Plan
+  on:
+    completed: plan_gate
+    failed: ABORT
+plan_gate:
+  type: gate
+  agent: human
+  on:
+    approved: execute
+    rejected: plan
+execute:
+  type: execute
+  agent: developer
+  on:
+    completed: review
+    failed: plan
+review:
+  type: review
+  auto: true
+  agent: reviewer
+  on:
+    approved: COMPLETE
+    rejected: execute
+`.trim(),
+
   basic: `
 plan:
   type: plan
